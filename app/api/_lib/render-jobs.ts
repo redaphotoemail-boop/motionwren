@@ -168,7 +168,7 @@ export async function saveFinishedJob(env: { DB: D1Database; BUCKET: R2Bucket },
       env.DB.prepare(`UPDATE projects SET status = 'completed', final_history_id = ?, updated_at = ? WHERE render_job_id = ? AND owner_id = ?`).bind(historyId, now, row.id, row.ownerId),
       env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'delivery', 'Your video is ready', 'The finished video is saved in your project history and ready to download.', NULL, ?)`).bind(`${row.id}:ready`, row.ownerId, now),
     ]);
-    await sendAccountEmail(env, row.ownerId, "Your Frame Motion video is ready", "Your finished video is saved in your Frame Motion Studio dashboard and ready to download.");
+    await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", "Your finished video is saved in your MotionWren dashboard and ready to download.");
   } catch (error) {
     await env.BUCKET.delete(r2Key);
     throw error;
@@ -212,7 +212,7 @@ async function failRenderJob(env: { DB: D1Database }, row: RenderJobRow, message
       if (refund.meta.changes) await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(now, row.ownerId).run();
     }
   }
-  await sendAccountEmail(env, row.ownerId, "Your Frame Motion project needs attention", `Video processing stopped: ${message.slice(0, 500)}`);
+  await sendAccountEmail(env, row.ownerId, "Your MotionWren project needs attention", `Video processing stopped: ${message.slice(0, 500)}`);
 }
 
 export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {

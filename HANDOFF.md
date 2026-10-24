@@ -1,12 +1,12 @@
-# Frame Motion Studio — handoff
+# MotionWren — handoff
 
-This folder contains the complete current working tree for Frame Motion Studio.
+This folder contains the complete current working tree for MotionWren.
 
 ## Current repository state
 
 - Base commit: `778f909 Add owner CRM and agent-ready documentation`
 - The updates listed below are present locally but are not committed or pushed.
-- The GitHub repository is private at `redaphotoemail-boop/frame-motion-studio`.
+- The GitHub repository is private at `redaphotoemail-boop/motionwren`.
 - Do not publish or replace the live site until the owner explicitly approves deployment.
 
 ## Changes included in this handoff
@@ -55,7 +55,7 @@ The controlled FFmpeg media worker is external to this repository. The app calls
 
 1. In the other ChatGPT account, connect GitHub as `redaphotoemail-boop` and grant access to the private repository.
 2. Open this local project folder.
-3. Apply `frame-motion-studio-updates.patch` from this handoff directory, or copy the complete `frame-motion-studio-source.zip` snapshot.
+3. Apply `motionwren-updates.patch` from this handoff directory, or copy the complete `motionwren-source.zip` snapshot.
 4. Review the diff, run the verification commands above, then commit and push to the repository's intended branch.
 5. Keep production deployment and domain settings unchanged until the owner approves the release.
 

@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   const extension = contentType.includes("webm") ? "webm" : "mp4";
   return new NextResponse(object.body, { headers: {
     "Content-Type": contentType,
-    "Content-Disposition": `${download ? "attachment" : "inline"}; filename="frame-motion-${id.slice(0, 8)}.${extension}"`,
+    "Content-Disposition": `${download ? "attachment" : "inline"}; filename="motionwren-${id.slice(0, 8)}.${extension}"`,
     "Cache-Control": "private, max-age=3600",
   } });
 }

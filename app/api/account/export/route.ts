@@ -12,6 +12,6 @@ export async function GET() {
       env.DB.prepare(`SELECT project_id AS projectId, render_job_id AS renderJobId, amount, type, note, created_at AS createdAt FROM credit_ledger WHERE owner_id = ? ORDER BY created_at DESC`).bind(account.id).all(),
       env.DB.prepare(`SELECT type, title, message, read_at AS readAt, created_at AS createdAt FROM notifications WHERE owner_id = ? ORDER BY created_at DESC`).bind(account.id).all(),
     ]);
-    return Response.json({ exportedAt: new Date().toISOString(), account, projects: projects.results, history: history.results, subscriptions: subscriptions.results, payments: payments.results, credits: credits.results, notifications: notifications.results }, { headers: { "Content-Disposition": `attachment; filename="frame-motion-data.json"`, "Cache-Control": "no-store" } });
+    return Response.json({ exportedAt: new Date().toISOString(), account, projects: projects.results, history: history.results, subscriptions: subscriptions.results, payments: payments.results, credits: credits.results, notifications: notifications.results }, { headers: { "Content-Disposition": `attachment; filename="motionwren-data.json"`, "Cache-Control": "no-store" } });
   } catch (error) { return jsonError(error); }
 }
