@@ -1,134 +1,9 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ac6d74de-fa45-4871-81a4-f52f9cf391db",
+  "id": "8b3855ae-719b-4288-9d07-f059c6061a2c",
   "prevId": "f872923f-edec-4c4e-b9e2-557e491225fa",
   "tables": {
-    "client_jobs": {
-      "name": "client_jobs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "upload_token_hash": {
-          "name": "upload_token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_name": {
-          "name": "client_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_email": {
-          "name": "client_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "business_name": {
-          "name": "business_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "project_name": {
-          "name": "project_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "package_seconds": {
-          "name": "package_seconds",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "style": {
-          "name": "style",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "photo_count": {
-          "name": "photo_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "client_jobs_status_created_idx": {
-          "name": "client_jobs_status_created_idx",
-          "columns": [
-            "status",
-            "created_at"
-          ],
-          "isUnique": false
-        },
-        "client_jobs_email_created_idx": {
-          "name": "client_jobs_email_created_idx",
-          "columns": [
-            "client_email",
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "generation_history": {
       "name": "generation_history",
       "columns": {
@@ -232,8 +107,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "job_assets": {
-      "name": "job_assets",
+    "render_jobs": {
+      "name": "render_jobs",
       "columns": {
         "id": {
           "name": "id",
@@ -242,46 +117,102 @@
           "notNull": true,
           "autoincrement": false
         },
-        "job_id": {
-          "name": "job_id",
+        "owner_id": {
+          "name": "owner_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "r2_key": {
-          "name": "r2_key",
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "file_name": {
-          "name": "file_name",
+        "status": {
+          "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "content_type": {
-          "name": "content_type",
+        "prediction_ids": {
+          "name": "prediction_ids",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "bytes": {
-          "name": "bytes",
+        "segment_urls": {
+          "name": "segment_urls",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stitch_prediction_id": {
+          "name": "stitch_prediction_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resolution": {
+          "name": "resolution",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aspect": {
+          "name": "aspect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration": {
+          "name": "duration",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "position": {
-          "name": "position",
+        "cost_cents": {
+          "name": "cost_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "history_id": {
+          "name": "history_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -290,47 +221,27 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
-        "job_assets_r2_key_unique": {
-          "name": "job_assets_r2_key_unique",
+        "render_jobs_owner_status_created_idx": {
+          "name": "render_jobs_owner_status_created_idx",
           "columns": [
-            "r2_key"
-          ],
-          "isUnique": true
-        },
-        "job_assets_job_position_unique": {
-          "name": "job_assets_job_position_unique",
-          "columns": [
-            "job_id",
-            "position"
-          ],
-          "isUnique": true
-        },
-        "job_assets_job_idx": {
-          "name": "job_assets_job_idx",
-          "columns": [
-            "job_id"
+            "owner_id",
+            "status",
+            "created_at"
           ],
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "job_assets_job_id_client_jobs_id_fk": {
-          "name": "job_assets_job_id_client_jobs_id_fk",
-          "tableFrom": "job_assets",
-          "tableTo": "client_jobs",
-          "columnsFrom": [
-            "job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

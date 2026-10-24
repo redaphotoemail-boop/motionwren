@@ -1,4 +1,4 @@
-# Frame Motion Studio — project continuity
+# MotionWren — project continuity
 
 Last reconciled: October 23, 2026
 
@@ -11,8 +11,8 @@ mistaken for implemented product features.
 
 ## Source of truth
 
-- Product: Frame Motion Studio — Private
-- Production URL: https://frame-motion-private-studio.reda-photoemail.chatgpt.site
+- Product: MotionWren — Private
+- Production URL: https://motionwren-private-studio.reda-photoemail.chatgpt.site
 - Sites project ID: `appgprj_6aa25db31d9081918f703f05eaf43abd`
 - Current codebase: this repository
 - Current production architecture: a private web studio using cloud video

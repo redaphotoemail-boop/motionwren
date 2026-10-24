@@ -2,18 +2,18 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Frame Motion | Property videos, made simple",
-  description: "Send your property photos. We turn them into a polished, professionally reviewed real estate video.",
+  title: "MotionWren | Property videos from listing photos",
+  description: "Professional real-estate videos created from listing photographs, with accurate motion, polished assembly and reliable delivery.",
   openGraph: {
-    title: "Frame Motion | Property videos, made simple",
-    description: "Send your property photos. We create a polished real estate video for you.",
-    images: ["https://framemotionstudio.storydezign.com/og.png"],
+    title: "MotionWren",
+    description: "Professional property videos from listing photographs.",
+    images: ["/og.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Frame Motion | Property videos, made simple",
-    description: "Send your property photos. We create a polished real estate video for you.",
-    images: ["https://framemotionstudio.storydezign.com/og.png"],
+    title: "MotionWren",
+    description: "Professional property videos from listing photographs.",
+    images: ["/og.png"],
   },
   icons: {
     icon: "/favicon.svg",

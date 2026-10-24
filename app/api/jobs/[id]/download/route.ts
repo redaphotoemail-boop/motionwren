@@ -13,7 +13,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   if (!job) return Response.json({ error: "Project not found." }, { status: 404 });
   const assets = await env.DB.prepare(`SELECT r2_key AS r2Key, file_name AS fileName, position FROM job_assets WHERE job_id = ? ORDER BY position`).bind(id).all<{ r2Key: string; fileName: string; position: number }>();
   const brief = [
-    "FRAME MOTION — CLIENT PROJECT", "",
+    "MOTIONWREN — CLIENT PROJECT", "",
     `Project reference: ${String(job.id).slice(0, 8).toUpperCase()}`,
     `Submitted: ${new Date(Number(job.createdAt)).toISOString()}`,
     `Status: ${job.status}`, "", "CLIENT",

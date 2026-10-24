@@ -1,0 +1,1134 @@
+<!doctype html><html lang="en"><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"></head><body><title>MotionWren</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Turn listing photos into a cinematic property video in minutes. Add price, beds and baths from your listing link. Built for busy agents.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: centered single column, one idea per screen; the film player is the one bold, dark object. */
+:root{
+  --paper:#F4F5F2; --surface:#FFFFFF; --ink:#14161A; --muted:#61666E; --line:#E2E4DF;
+  --dusk:#1C2440; --amber:#E9A23B; --amber-ink:#93560A; --screen:#0B0D12; --on-screen:#F3F1EC;
+  --display:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --body:"Geist", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono:"Geist Mono", ui-monospace, Menlo, monospace;
+  --r:18px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#0E1014; --surface:#161920; --ink:#F1F1EC; --muted:#9BA1A9; --line:#252932;
+  --dusk:#C8D2F2; --amber:#F0AE4E; --amber-ink:#F0AE4E; --screen:#05070A; --on-screen:#F3F1EC; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#0E1014; --surface:#161920; --ink:#F1F1EC; --muted:#9BA1A9; --line:#252932;
+  --dusk:#C8D2F2; --amber:#F0AE4E; --amber-ink:#F0AE4E; --screen:#05070A; --on-screen:#F3F1EC; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font:400 17px/1.55 var(--body);-webkit-font-smoothing:antialiased;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--paper)}
+a{color:inherit}
+.wrap{max-width:1120px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.025em;text-wrap:balance;margin:0}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.btn{appearance:none;border:0;cursor:pointer;font:600 15px/1 var(--body);padding:15px 22px;border-radius:999px;background:var(--ink);color:var(--paper);display:inline-flex;align-items:center;gap:10px;text-decoration:none;transition:transform .2s ease, opacity .2s}
+.btn:hover{transform:translateY(-1px)}
+.btn:focus-visible,.chip:focus-visible,input:focus-visible,.drop:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.btn.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.amber{background:var(--amber);color:#1a1206}
+.btn[disabled]{opacity:.35;cursor:not-allowed;transform:none}
+
+/* nav */
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--paper) 82%,transparent);backdrop-filter:saturate(1.4) blur(14px)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
+.logo{display:flex;align-items:center;gap:10px;font:700 21px/1 var(--display);letter-spacing:-.03em;text-decoration:none}
+.navlinks{display:flex;gap:28px;align-items:center;font-size:14px;color:var(--muted)}
+.navlinks a{text-decoration:none}.navlinks a:hover{color:var(--ink)}
+.navlinks .btn{padding:11px 18px;font-size:14px;color:var(--paper)}
+@media (max-width:720px){.navlinks a:not(.btn){display:none}}
+
+/* hero */
+.hero{text-align:center;padding-block:72px 40px}
+.hero h1{font-size:clamp(46px,8.4vw,112px);line-height:.95;font-weight:600}
+.hero h1 em{font-style:normal;color:var(--amber-ink)}
+.hero p{font-size:clamp(18px,2vw,21px);color:var(--muted);max-width:30ch;margin:22px auto 30px}
+.hero .ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.hero .fine{font-size:13px;color:var(--muted);margin-top:16px}
+
+/* film player */
+.film{position:relative;max-width:1120px;margin:56px auto 0;aspect-ratio:16/9;border-radius:22px;overflow:hidden;background:var(--screen);color:var(--on-screen);box-shadow:0 40px 90px -40px rgba(20,22,40,.55)}
+.film.v{aspect-ratio:9/16;max-width:360px}.film.s{aspect-ratio:1/1;max-width:560px}
+.frame{position:absolute;inset:0;opacity:0;transition:opacity 1.1s ease}
+.frame.on{opacity:1}
+.frame img{width:100%;height:100%;object-fit:cover;display:block;transform-origin:var(--ox,50%) var(--oy,50%)}
+.frame.on img{animation:var(--move,push) 4.2s linear forwards}
+@keyframes push{from{transform:scale(1.02) translate(0,0)}to{transform:scale(1.14) translate(-1.5%,-1%)}}
+@keyframes pull{from{transform:scale(1.16) translate(1%,0)}to{transform:scale(1.03) translate(0,0)}}
+@keyframes pan{from{transform:scale(1.12) translate(3%,0)}to{transform:scale(1.12) translate(-3%,0)}}
+@keyframes rise{from{transform:scale(1.12) translate(0,3%)}to{transform:scale(1.08) translate(0,-2%)}}
+.film .hud{position:absolute;inset:0;pointer-events:none;padding:clamp(14px,2.4vw,26px);display:flex;flex-direction:column;justify-content:space-between}
+.hud .top{display:flex;justify-content:space-between;font:500 12px/1 var(--mono);letter-spacing:.08em;opacity:.85}
+.rec{display:inline-flex;gap:8px;align-items:center}.rec i{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:blink 1.4s infinite}
+@keyframes blink{50%{opacity:.25}}
+.card{align-self:flex-start;background:rgba(12,14,20,.58);backdrop-filter:blur(14px);border-radius:14px;padding:14px 18px;transform:translateY(16px);opacity:0;transition:all .8s cubic-bezier(.2,.8,.2,1);max-width:min(380px,80%)}
+.card.show{transform:none;opacity:1}
+.card .addr{font:600 clamp(15px,1.7vw,19px)/1.2 var(--display)}
+.card .price{font:600 clamp(20px,2.6vw,30px)/1.1 var(--display);color:var(--amber);margin-top:4px}
+.card .spec{font:500 clamp(10px,2.4vw,12px)/1 var(--mono);letter-spacing:.06em;opacity:.8;margin-top:10px;white-space:nowrap}
+.room{font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;opacity:.85}
+.bar{position:absolute;left:0;bottom:0;height:3px;background:var(--amber);width:0}
+.wm{position:absolute;inset:0;display:grid;place-items:center;font:700 clamp(28px,6vw,70px)/1 var(--display);letter-spacing:.2em;color:rgba(255,255,255,.14);pointer-events:none;transform:rotate(-12deg)}
+
+/* sections */
+section,header{scroll-margin-top:84px}
+section{padding-block:clamp(80px,12vw,150px)}
+.center{text-align:center}
+.lede{font-size:clamp(34px,5vw,64px);line-height:1.02}
+.sub{color:var(--muted);font-size:19px;max-width:34ch;margin:18px auto 0}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:64px;text-align:left}
+.steps .n{font:500 13px/1 var(--mono);color:var(--amber-ink)}
+.steps h3{font-size:26px;margin-top:14px}
+.steps p{color:var(--muted);margin:8px 0 0}
+@media (max-width:760px){.steps{grid-template-columns:1fr;gap:32px}}
+
+/* studio */
+#studio{padding-block:clamp(60px,9vw,110px)}
+.studio{background:var(--surface);border-radius:28px;padding:clamp(20px,4vw,48px);margin-top:48px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:clamp(24px,4vw,56px);text-align:left}
+@media (max-width:900px){.studio{grid-template-columns:1fr}.stage{order:-1}}
+.track{display:flex;gap:6px;margin-bottom:28px}
+.track span{flex:1;height:3px;border-radius:3px;background:var(--line)}
+.track span.done{background:var(--ink)}
+.pane h3{font-size:30px}
+.pane .hint{color:var(--muted);margin:8px 0 22px;font-size:16px}
+.drop{border-radius:18px;background:var(--paper);padding:26px;text-align:center;cursor:pointer;transition:background .2s}
+.drop.over{background:color-mix(in srgb,var(--amber) 18%,var(--paper))}
+.drop strong{display:block;font:600 17px/1.3 var(--display)}
+.drop small{color:var(--muted)}
+.thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
+.thumb{position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:var(--paper);cursor:grab}
+.thumb:active{cursor:grabbing}
+.thumb.dragging{opacity:.4}
+.thumb.over{box-shadow:inset 0 0 0 3px var(--amber)}
+.thumb img{width:100%;height:100%;object-fit:cover;pointer-events:none}
+.thumb button{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;font-size:14px;line-height:1}
+.thumb .i{position:absolute;left:6px;bottom:5px;font:500 10px/1 var(--mono);color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.tag{display:inline-block;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:12px}
+label.f{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+input[type=text],input[type=url]{width:100%;font:500 16px var(--body);color:var(--ink);background:var(--paper);border:0;border-radius:12px;padding:14px 16px}
+.row{display:flex;gap:10px}.row>*{flex:1;min-width:0}
+.urlrow{display:flex;gap:8px}.urlrow input{flex:1;min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{appearance:none;border:0;cursor:pointer;background:var(--paper);color:var(--ink);font:500 14px var(--body);padding:11px 16px;border-radius:999px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.toggle{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--line)}
+.toggle input{width:44px;height:26px;appearance:none;background:var(--line);border-radius:99px;position:relative;cursor:pointer;transition:background .2s}
+.toggle input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.toggle input:checked{background:var(--amber)}.toggle input:checked::after{transform:translateX(18px)}
+.actions{display:flex;gap:10px;margin-top:28px;flex-wrap:wrap}
+.ok{font:500 13px var(--mono);color:var(--amber-ink);margin-top:10px;min-height:18px}
+.stage{display:flex;flex-direction:column;gap:14px;min-width:0;justify-content:center}
+.stage .film{margin:0;width:100%}
+.stage .film.v{align-self:center;width:min(100%,300px)}
+.stage .film.s{align-self:center;width:min(100%,460px)}
+.meta{display:flex;justify-content:space-between;font:500 12px var(--mono);color:var(--muted);flex-wrap:wrap;gap:8px}
+.render{display:grid;gap:12px;margin-top:6px}
+.render div{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:15px}
+.render div b{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line);flex:none}
+.render div.on{color:var(--ink)}.render div.on b{box-shadow:inset 0 0 0 2px var(--amber);animation:spin 1s linear infinite;border-top:2px solid transparent}
+.render div.done{color:var(--ink)}.render div.done b{background:var(--amber);box-shadow:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* music audition + payment */
+.mlist{display:grid;gap:8px;margin-top:4px}
+.mopt{display:flex;align-items:center;gap:12px;background:var(--paper);border-radius:12px;padding:10px 12px;cursor:pointer;text-align:left;width:100%;border:0;font:inherit;color:inherit}
+.mopt[aria-checked="true"]{box-shadow:inset 0 0 0 2px var(--ink)}
+.mplay{width:34px;height:34px;border-radius:50%;border:0;background:var(--ink);color:var(--paper);cursor:pointer;flex:none;display:grid;place-items:center;font-size:12px}
+.mplay[aria-pressed="true"]{background:var(--amber);color:#1a1206}
+.mplay.off{visibility:hidden}
+.mnm{font-weight:600;font-size:15px}
+.mdesc{color:var(--muted);font-size:13px;margin-left:auto}
+.mcheck{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line);flex:none}
+.mopt[aria-checked="true"] .mcheck{background:var(--amber);box-shadow:none}
+.mopt:focus-visible,.mplay:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.summary{background:var(--paper);border-radius:14px;padding:16px 18px;display:grid;gap:9px;margin:4px 0 18px}
+.summary .li{display:flex;justify-content:space-between;gap:12px;font-size:15px}
+.summary .li span:first-child{color:var(--muted)}
+.summary .tot{border-top:1px solid var(--line);padding-top:11px;margin-top:3px;font:600 22px/1 var(--display);align-items:baseline}
+.secure{font:500 12px var(--mono);color:var(--muted);margin-top:12px;display:flex;gap:7px;align-items:center}
+.contact{background:var(--paper);border-radius:12px;padding:14px 16px;margin-top:14px;font-size:14px;line-height:1.6;color:var(--muted)}
+.contact b{color:var(--ink);font-weight:600;-webkit-user-select:all;user-select:all}
+.paid{display:inline-flex;align-items:center;gap:6px;font:500 12px var(--mono);color:var(--amber-ink);margin-top:10px}
+
+/* formats */
+.formats{display:flex;gap:clamp(14px,3vw,36px);justify-content:center;align-items:flex-end;margin-top:56px;flex-wrap:wrap}
+.formats figure{margin:0;text-align:center}
+.formats .film{margin:0;box-shadow:0 30px 60px -36px rgba(20,22,40,.5)}
+.formats figcaption{font:500 12px var(--mono);color:var(--muted);margin-top:14px;letter-spacing:.06em}
+.f169{width:min(520px,88vw)}.f916{width:min(190px,40vw)}.f11{width:min(280px,52vw)}
+
+/* details */
+.split>*,.steps>*,.plans>*{min-width:0}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(30px,6vw,90px);align-items:center}
+@media (max-width:860px){.split{grid-template-columns:1fr}}
+.split .lede{text-align:left}.split .sub{margin-left:0}
+.paste{margin-top:30px;background:var(--surface);border-radius:16px;padding:16px 18px;font:500 14px var(--mono);color:var(--muted);display:flex;align-items:center;gap:12px;overflow:hidden}
+.paste span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.arrow{color:var(--amber-ink)}
+
+/* studio teaser + pop-out modal */
+.teaser{margin-top:44px;display:flex;flex-direction:column;align-items:center;gap:26px}
+.teaser .film{margin:0;width:100%;max-width:860px}
+.btn.big{font-size:17px;padding:17px 32px}
+.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-start;justify-content:center;overflow:auto;-webkit-overflow-scrolling:touch;background:rgba(10,12,18,.6);backdrop-filter:blur(10px);
+  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.sheet{background:var(--surface);border-radius:26px;width:min(1040px,100%);margin:auto;overflow:hidden;box-shadow:0 50px 130px -30px rgba(0,0,0,.65);animation:pop .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes pop{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
+.sheetbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:15px 18px 15px 20px;background:var(--surface);border-bottom:1px solid var(--line)}
+.sheetlogo{display:flex;align-items:center;gap:9px;font:700 16px var(--display);letter-spacing:-.02em}
+.x{width:38px;height:38px;border-radius:50%;border:0;background:var(--paper);color:var(--ink);font-size:22px;line-height:1;cursor:pointer;display:grid;place-items:center;transition:background .15s}
+.x:hover{background:var(--line)}
+.x:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.modal .studio{margin:0;border-radius:0;padding:clamp(20px,3.6vw,44px)}
+.sheet.narrow{width:min(540px,100%)}
+.subbody{padding:clamp(20px,4vw,34px);text-align:left}
+.subdone{text-align:center;padding:14px 4px}
+.subdone h3{font:600 26px var(--display);margin:10px 0 6px}
+.subdone p{color:var(--muted);margin:0 auto;max-width:34ch}
+.subdone .actions{justify-content:center}
+/* Content Studio: questions, analysis, package */
+.plan-pill{margin:22px auto 0;display:inline-flex;align-items:center;gap:8px;background:transparent;border:0;cursor:pointer;color:var(--amber-ink);font:600 15px var(--body);padding:9px 6px}
+.plan-pill:hover{text-decoration:underline}
+.plan-pill:focus-visible{outline:3px solid var(--amber);outline-offset:3px;border-radius:8px}
+.planbody{padding:clamp(20px,3.6vw,44px);text-align:left}
+.qhead{margin-bottom:22px}
+.qhead h3{font-size:clamp(23px,3vw,32px);margin-top:8px}
+.qhead .hint{color:var(--muted);margin:8px 0 0;font-size:16px;max-width:54ch;line-height:1.5}
+.qgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:620px){.qgrid{grid-template-columns:repeat(2,1fr)}}
+.qcard{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:14px;background:var(--paper);border:0;border-radius:16px;padding:18px 16px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:transform .15s,box-shadow .15s}
+.qcard:hover{transform:translateY(-2px)}
+.qcard[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--ink)}
+.qcard svg{width:28px;height:28px;stroke:var(--ink);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.qcard[aria-pressed="true"] svg{stroke:var(--amber-ink)}
+.qlabel{font:600 15px/1.2 var(--display)}
+.qtick{position:absolute;top:13px;right:13px;width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line)}
+.qcard[aria-pressed="true"] .qtick{background:var(--amber);box-shadow:none}
+.qcard:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.qother{margin-top:12px}
+.scan{position:relative;border-radius:16px;overflow:hidden;aspect-ratio:16/9;margin-bottom:24px;background:var(--screen)}
+.scan img{width:100%;height:100%;object-fit:cover;opacity:.65}
+.scan::after{content:"";position:absolute;left:0;right:0;height:38%;top:-38%;background:linear-gradient(180deg,rgba(233,162,59,.55),rgba(233,162,59,0));animation:scan 1.9s linear infinite}
+@keyframes scan{to{top:100%}}
+.pkg{display:grid;gap:10px;margin-top:4px}
+.pkg-item{display:flex;align-items:center;gap:15px;background:var(--paper);border:0;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;border-radius:14px;padding:15px 16px;opacity:0;transform:translateY(8px);animation:pkgin .45s forwards;transition:opacity .15s}
+.pkg-item[aria-pressed="false"]{opacity:.45}
+.pkg-item:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+@keyframes pkgin{to{opacity:1;transform:none}}
+.pkg-item svg{width:24px;height:24px;stroke:var(--amber-ink);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.pkg-item .pm{min-width:0;flex:1}
+.pkg-item .pt{font:600 16px var(--display)}
+.pkg-item .pmeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.pkg-item .pmeta span{font:500 11px var(--mono);background:var(--surface);padding:3px 9px;border-radius:99px;color:var(--muted)}
+.pkg-item .pprice{font:600 16px var(--display);font-variant-numeric:tabular-nums;flex:none}
+.pkg-item .pcheck{width:20px;height:20px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line);flex:none}
+.pkg-item[aria-pressed="true"] .pcheck{background:var(--amber);box-shadow:none}
+.pkg-sum{margin-top:20px;padding-top:18px;border-top:1px solid var(--line);display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.pkg-price{font:600 32px/1 var(--display);font-variant-numeric:tabular-nums}
+.pkg-price small{font:500 14px var(--body);color:var(--muted)}
+.saveline{color:var(--amber-ink);font:600 13px var(--mono);margin-top:4px}
+@media (prefers-reduced-motion:reduce){.sheet,.pkg-item{animation:none;opacity:1;transform:none}.scan::after{animation:none;display:none}}
+/* pricing */
+.ptier{margin-top:44px;text-align:left}
+.ptier-head{text-align:center;margin-bottom:26px}
+.ptier-head h3{font-size:clamp(26px,3.4vw,34px);margin-top:10px}
+.ptier-head p{color:var(--muted);margin:8px auto 0;max-width:40ch}
+.solo{max-width:460px;margin:0 auto}
+.plans2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,2.6vw,28px);max-width:860px;margin:0 auto}
+@media (max-width:760px){.plans2{grid-template-columns:1fr}}
+.pdiv{display:flex;align-items:center;gap:18px;max-width:620px;margin:52px auto 0;color:var(--muted);font:500 12px var(--mono);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.pdiv::before,.pdiv::after{content:"";flex:1;height:1px;background:var(--line)}
+.per{font:600 14px/1 var(--mono);color:var(--amber-ink);margin-top:-2px}
+.plan .plan-sub{opacity:.7;font-size:15px;margin-top:8px}
+.plan{background:var(--surface);border-radius:24px;padding:32px}
+.plan.feat{background:var(--ink);color:var(--paper)}
+.plan.feat .per{color:var(--amber)}
+.plan .nm{font:500 13px var(--mono);letter-spacing:.1em;text-transform:uppercase;opacity:.7}
+.plan .pr{font:600 54px/1 var(--display);letter-spacing:-.03em;margin:18px 0 4px;font-variant-numeric:tabular-nums}
+.plan .pr small{font:500 16px var(--body);opacity:.6;letter-spacing:0}
+.plan ul{list-style:none;padding:0;margin:22px 0 28px;display:grid;gap:10px;font-size:15px}
+.plan li::before{content:"—";margin-right:10px;color:var(--amber)}
+.plan.feat .btn{background:var(--amber);color:#1a1206}
+
+/* faq */
+.faq{max-width:720px;margin:48px auto 0;text-align:left}
+details{border-bottom:1px solid var(--line);padding:22px 0}
+summary{cursor:pointer;font:600 19px/1.3 var(--display);list-style:none;display:flex;justify-content:space-between;gap:20px}
+summary::after{content:"+";color:var(--muted);font-weight:400}
+details[open] summary::after{content:"–"}
+details p{color:var(--muted);margin:12px 0 0;max-width:60ch}
+.closer h2{font-size:clamp(44px,7vw,92px);line-height:.98}
+footer{padding-block:40px 60px;font-size:13px;color:var(--muted)}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:28px}
+
+/* Accounts */
+input[type=email]{width:100%;font:500 16px var(--body);color:var(--ink);background:var(--paper);border:0;border-radius:12px;padding:14px 16px}
+input[type=email]:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.navsign{appearance:none;background:transparent;border:0;cursor:pointer;font:500 14px var(--body);color:var(--ink);padding:10px 6px;border-radius:999px}
+.navsign:hover{text-decoration:underline}
+.navsign:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.navsign .av{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--amber);color:#1a1206;font:700 12px var(--body);margin-right:8px;vertical-align:middle}
+.sheet.mid{width:min(760px,100%)}
+.sso{display:grid;gap:10px;margin:4px 0 6px}
+.sso button{appearance:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;font:600 16px var(--body);padding:15px 18px;border-radius:999px;border:0;background:var(--paper);color:var(--ink);transition:transform .15s}
+.sso button:hover{transform:translateY(-1px)}
+.sso button:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.sso button.apple{background:var(--ink);color:var(--paper)}
+.sso svg{width:20px;height:20px;flex:none}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font:500 12px var(--mono);margin:18px 0 4px}
+.or::before,.or::after{content:"";height:1px;background:var(--line);flex:1}
+.authhead h3{font:600 28px var(--display);letter-spacing:-.02em;margin:0 0 6px}
+.authhead p{margin:0 0 18px;color:var(--muted);font-size:16px}
+#mailok{min-height:0;margin:0}
+.fineprint{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.5}
+.atabs{display:flex;gap:4px;padding:0 clamp(20px,4vw,34px);border-bottom:1px solid var(--line)}
+.atab{appearance:none;background:none;border:0;cursor:pointer;font:600 15px var(--body);color:var(--muted);padding:16px 12px;position:relative}
+.atab[aria-selected="true"]{color:var(--ink)}
+.atab[aria-selected="true"]::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:var(--ink)}
+.atab:focus-visible{outline:3px solid var(--amber);outline-offset:-3px;border-radius:8px}
+.acctbody{padding:clamp(20px,4vw,34px)}
+.acct-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.acct-top h3{font:600 26px var(--display);letter-spacing:-.02em;margin:0}
+.vrow{display:grid;grid-template-columns:96px 1fr auto;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
+.vrow:last-child{border-bottom:0}
+.vrow img{width:96px;height:64px;object-fit:cover;border-radius:10px;display:block}
+.vrow .addr{font:600 16px var(--body)}
+.vrow .vm{font:500 12px var(--mono);color:var(--muted);margin-top:4px}
+.vrow .acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.vrow .btn{padding:10px 16px;font-size:13px}
+.state{display:inline-flex;align-items:center;gap:6px}
+.state i{width:7px;height:7px;border-radius:50%;background:#2e9d62;display:inline-block}
+.state.work i{background:var(--amber);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.3}}
+@media (max-width:560px){.vrow{grid-template-columns:72px 1fr}.vrow img{width:72px;height:54px}.vrow .acts{grid-column:1/-1;justify-content:flex-start}}
+.bar{height:8px;border-radius:99px;background:var(--paper);overflow:hidden;margin:10px 0 6px}
+.bar>i{display:block;height:100%;background:var(--amber);border-radius:99px}
+.plancard{background:var(--paper);border-radius:16px;padding:20px;margin-bottom:14px}
+.plancard h4{font:600 20px var(--display);margin:0 0 4px}
+.plancard p{margin:0;color:var(--muted);font-size:14px}
+.empty{text-align:center;padding:36px 8px;color:var(--muted)}
+footer .mgr{color:var(--muted);text-decoration:none;font-size:13px}
+footer .mgr:hover{text-decoration:underline}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
+</style>
+
+<nav><div class="wrap">
+  <a class="logo" href="#top" aria-label="MotionWren home"><svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg>MotionWren</a>
+  <div class="navlinks"><a href="#how">How it works</a><a href="#plan">Plan my content</a><a href="#pricing">Pricing</a><button class="navsign" id="openSign" type="button">Sign in</button><a href="#studio" class="btn">Make a video</a></div>
+</div></nav>
+
+<main id="top">
+<header class="hero wrap">
+  <div class="eyebrow">Listing photos → cinematic film</div>
+  <h1 style="margin-top:22px">Your listing,<br><em>in motion.</em></h1>
+  <p>Drop in your photos. Get a polished property video in minutes.</p>
+  <div class="ctas"><a class="btn amber" href="#studio">Make my video</a><a class="btn ghost" href="#how">See how it works</a></div>
+  <div class="fine">No editing. No camera crew. See your photos move before you order.</div>
+  <button class="plan-pill" id="openPlan" type="button">✦ Not sure what you need? Let us plan your content package</button>
+  <div class="film" id="heroFilm" aria-label="Sample property video playing"></div>
+</header>
+
+<section id="how" class="wrap center">
+  <div class="eyebrow">How it works</div>
+  <h2 class="lede" style="margin-top:18px">Three steps.<br>Under five minutes.</h2>
+  <div class="steps">
+    <div><div class="n">01</div><h3>Drop your photos</h3><p>The ones you already have from the shoot.</p></div>
+    <div><div class="n">02</div><h3>Paste the listing link</h3><p>Price, beds, baths and address fill in for you.</p></div>
+    <div><div class="n">03</div><h3>Order and download</h3><p>Your film renders in minutes. One free revision.</p></div>
+  </div>
+</section>
+
+<section id="studio" class="wrap center">
+  <div class="eyebrow">Try it free</div>
+  <h2 class="lede" style="margin-top:18px">Make your first video.</h2>
+  <p class="sub">Upload your photos, watch them move, and order in a few minutes.</p>
+  <div class="teaser">
+    <div class="film" id="teaseFilm" aria-label="Sample property video"></div>
+    <button class="btn amber big" id="openStudio" type="button">Start your video</button>
+  </div>
+</section>
+
+<!-- Focused studio: pops out over the page so the whole screen is the task -->
+<div class="modal" id="studioModal" hidden role="dialog" aria-modal="true" aria-label="Make your video">
+  <div class="sheet">
+    <div class="sheetbar">
+      <span class="sheetlogo"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg>Make your video</span>
+      <button class="x" id="closeStudio" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="studio">
+      <div class="pane" id="pane" aria-live="polite"></div>
+      <div class="stage">
+        <div class="film" id="studioFilm"></div>
+        <div class="meta"><span id="metaL">6 scenes · 16:9</span><span id="metaR">00:00:15:00</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Subscription checkout: monthly plans add the subscription here -->
+<div class="modal" id="subModal" hidden role="dialog" aria-modal="true" aria-label="Start your subscription">
+  <div class="sheet narrow">
+    <div class="sheetbar">
+      <span class="sheetlogo"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg><span id="subTitle">Start your subscription</span></span>
+      <button class="x" id="closeSub" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="subbody" id="subBody"></div>
+  </div>
+</div>
+
+
+<!-- Accounts: sign in (Google / Apple / email) and the client's own space -->
+<div class="modal" id="acctModal" hidden role="dialog" aria-modal="true" aria-label="Your account">
+  <div class="sheet narrow" id="acctSheet">
+    <div class="sheetbar">
+      <span class="sheetlogo"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg><span id="acctTitle">Sign in</span></span>
+      <button class="x" id="closeAcct" type="button" aria-label="Close">×</button>
+    </div>
+    <div id="acctBody"></div>
+  </div>
+</div>
+
+<!-- Content Studio: visual questions → photo analysis → recommended content package -->
+<div class="modal" id="planModal" hidden role="dialog" aria-modal="true" aria-label="Plan your content">
+  <div class="sheet">
+    <div class="sheetbar">
+      <span class="sheetlogo"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg><span>Content Studio</span></span>
+      <button class="x" id="closePlan" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="planbody" id="planBody"></div>
+  </div>
+</div>
+
+<section class="wrap center">
+  <div class="eyebrow">Every format</div>
+  <h2 class="lede" style="margin-top:18px">One upload.<br>Every channel.</h2>
+  <p class="sub">Widescreen for the MLS and YouTube. Vertical for Reels and TikTok. Square for the feed.</p>
+  <div class="formats">
+    <figure><div class="film f169" id="fA"></div><figcaption>16:9 · MLS · YouTube</figcaption></figure>
+    <figure><div class="film f916" style="aspect-ratio:9/16" id="fB"></div><figcaption>9:16 · REELS · TIKTOK</figcaption></figure>
+    <figure><div class="film f11" style="aspect-ratio:1/1" id="fC"></div><figcaption>1:1 · FEED</figcaption></figure>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="split">
+    <div>
+      <div class="eyebrow">Listing details</div>
+      <h2 class="lede" style="margin-top:18px">Paste a link.<br>The details write themselves.</h2>
+      <p class="sub">Price, rooms and square footage land on a clean title card. Your name and number close the film.</p>
+      <div class="paste"><span>zillow.com/homedetails/42-harbor-ln-hingham-ma…</span><b class="arrow">→</b><span style="color:var(--ink)">$1,295,000 · 4 BD · 3 BA</span></div>
+    </div>
+    <div class="film" id="fD" style="margin:0"></div>
+  </div>
+</section>
+
+<section id="pricing" class="wrap center">
+  <div class="eyebrow">Pricing</div>
+  <h2 class="lede" style="margin-top:18px">Two ways to pay.</h2>
+  <p class="sub">Pay once per video, or subscribe and pay less on every listing.</p>
+
+  <div class="ptier">
+    <div class="ptier-head"><div class="eyebrow">One-time</div><h3>Pay per video</h3><p>No subscription. Just the listings you need, when you need them.</p></div>
+    <div class="plan solo">
+      <div class="nm">Single</div>
+      <div class="pr">$39 <small>per video</small></div>
+      <div class="plan-sub">Billed once, each time you order.</div>
+      <ul><li>Any length up to 60 sec</li><li>All three formats</li><li>Listing card and branding</li></ul>
+      <a class="btn amber" href="#studio">Make a video</a>
+    </div>
+  </div>
+
+  <div class="pdiv"><span>or subscribe &amp; save</span></div>
+
+  <div class="ptier">
+    <div class="ptier-head"><div class="eyebrow">Monthly</div><h3>Subscribe &amp; save</h3><p>A lower price on every video, billed monthly. Cancel anytime.</p></div>
+    <div class="plans2">
+      <div class="plan feat">
+        <div class="nm">Agent</div>
+        <div class="pr">$99 <small>/ month</small></div>
+        <div class="per">≈ $20 per video</div>
+        <div class="plan-sub" style="opacity:.75">5 videos a month.</div>
+        <ul><li>Everything in Single</li><li>Saved brand kit</li><li>Priority rendering</li></ul>
+        <button class="btn" type="button" data-plan="Agent">Choose Agent</button>
+      </div>
+      <div class="plan">
+        <div class="nm">Team</div>
+        <div class="pr">$299 <small>/ month</small></div>
+        <div class="per">≈ $15 per video</div>
+        <div class="plan-sub">20 videos for a brokerage.</div>
+        <ul><li>Everything in Agent</li><li>Up to 10 agents</li><li>Office branding</li></ul>
+        <button class="btn ghost" type="button" data-contact>Talk to us</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="wrap center">
+  <div class="eyebrow">Questions</div>
+  <h2 class="lede" style="margin-top:18px">Good to know.</h2>
+  <div class="faq">
+    <details><summary>How many photos do I need?</summary><p>Seven photos make a 15-second film. Fourteen make 30 seconds, and 28 make a full minute.</p></details>
+    <details><summary>Will it look like AI?</summary><p>Rooms stay exactly as photographed. We add slow, steady camera moves, never new furniture or fake views.</p></details>
+    <details><summary>Is it MLS-friendly?</summary><p>Every video downloads in a branded and an unbranded version, so you can post on the MLS without agent details.</p></details>
+    <details><summary>How long does it take?</summary><p>Most films are ready in a few minutes. You get an email and a text when yours is done.</p></details>
+    <details><summary>When do I pay?</summary><p>You pay when you place the order, before we render. In the studio you'll see your own photos moving first, so you know exactly what you're ordering.</p></details>
+    <details><summary>What if I don't like it?</summary><p>Every order includes one free revision. Tell us what to change and we'll re-render it.</p></details>
+  </div>
+</section>
+
+<section class="wrap center closer">
+  <h2>Every listing<br>deserves a film.</h2>
+  <div style="margin-top:34px"><a class="btn amber" href="#studio">Make my video</a></div>
+</section>
+</main>
+
+<footer><div class="wrap"><span>© 2026 MotionWren · motionwren.com</span><span>Made for agents who'd rather be showing homes.</span><a class="mgr" href="https://claude.ai/artifact/9o6TjaRi5VcmTtMzdGzHn6" rel="noopener">Manager portal</a></div></footer>
+
+<script>
+/* Keyreel sample-scene renderer: paints stand-in "listing photos" on canvas so the
+   demo works with zero external images. Swap for real photography before launch. */
+(function(){
+  const W=1600,H=1000;
+  function rnd(seed){let s=seed;return()=>{s=(s*9301+49297)%233280;return s/233280;};}
+  function grad(ctx,x0,y0,x1,y1,stops){const g=ctx.createLinearGradient(x0,y0,x1,y1);stops.forEach(([o,c])=>g.addColorStop(o,c));return g;}
+  function poly(ctx,pts,fill){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();ctx.fillStyle=fill;ctx.fill();}
+  function rr(ctx,x,y,w,h,r,fill){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();}
+  function glow(ctx,x,y,r,c){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c);g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);}
+  function finish(ctx,seed){
+    // vignette + grain for a photographic finish
+    const v=ctx.createRadialGradient(W/2,H/2,H*.35,W/2,H/2,H*.95);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(10,12,18,.42)');ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+    const r=rnd(seed),img=ctx.getImageData(0,0,W,H),d=img.data;
+    for(let i=0;i<d.length;i+=4){const n=(r()-.5)*14;d[i]+=n;d[i+1]+=n;d[i+2]+=n;}
+    ctx.putImageData(img,0,0);
+  }
+  function shell(ctx,o){
+    const L=380,R=1220,T=190,B=640;
+    poly(ctx,[[0,0],[W,0],[R,T],[L,T]],grad(ctx,0,0,0,T,[[0,o.ceil[0]],[1,o.ceil[1]]]));
+    poly(ctx,[[0,0],[L,T],[L,B],[0,H]],grad(ctx,0,0,L,0,[[0,o.side[0]],[1,o.side[1]]]));
+    poly(ctx,[[W,0],[R,T],[R,B],[W,H]],grad(ctx,W,0,R,0,[[0,o.side[0]],[1,o.side[1]]]));
+    ctx.fillStyle=grad(ctx,0,T,0,B,[[0,o.wall[0]],[1,o.wall[1]]]);ctx.fillRect(L,T,R-L,B-T);
+    poly(ctx,[[0,H],[W,H],[R,B],[L,B]],grad(ctx,0,B,0,H,[[0,o.floor[0]],[1,o.floor[1]]]));
+    // floor boards
+    ctx.strokeStyle='rgba(0,0,0,.07)';ctx.lineWidth=2;
+    for(let i=-12;i<=12;i++){ctx.beginPath();ctx.moveTo(W/2+i*48,B);ctx.lineTo(W/2+i*140,H);ctx.stroke();}
+    return {L,R,T,B};
+  }
+  function windowSky(ctx,x,y,w,h,sky){
+    ctx.fillStyle=grad(ctx,0,y,0,y+h,sky);ctx.fillRect(x,y,w,h);
+    ctx.fillStyle='rgba(20,24,30,.35)';ctx.fillRect(x,y+h*.72,w,h*.28);
+    ctx.strokeStyle='rgba(245,245,240,.9)';ctx.lineWidth=10;ctx.strokeRect(x,y,w,h);
+    ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(x+w/2,y);ctx.lineTo(x+w/2,y+h);ctx.moveTo(x,y+h*.5);ctx.lineTo(x+w,y+h*.5);ctx.stroke();
+  }
+  const scenes={
+    living(ctx){
+      const s=shell(ctx,{ceil:['#e9e6df','#dcd8cf'],side:['#cfcac0','#e2ddd4'],wall:['#ece8e0','#ddd8ce'],floor:['#b48a62','#7d5a3c']});
+      windowSky(ctx,540,250,520,300,[[0,'#8fb3d9'],[.6,'#f3d9b1'],[1,'#f0c79a']]);
+      ctx.globalAlpha=.16;poly(ctx,[[540,550],[1060,550],[1180,980],[420,980]],'#fff3dc');ctx.globalAlpha=1;
+      ctx.fillStyle='rgba(0,0,0,.18)';ctx.beginPath();ctx.ellipse(800,840,520,90,0,0,7);ctx.fill();
+      ctx.fillStyle='#d9d2c4';ctx.beginPath();ctx.ellipse(800,820,500,80,0,0,7);ctx.fill();
+      rr(ctx,430,600,740,170,40,'#5d6670');rr(ctx,450,520,700,130,40,'#6c7680');
+      rr(ctx,470,640,330,80,26,'#7b858f');rr(ctx,800,640,330,80,26,'#7b858f');
+      rr(ctx,520,560,120,90,24,'#c9a46a');rr(ctx,980,560,120,90,24,'#e9e3d6');
+      rr(ctx,660,780,280,40,12,'#3a2f27');
+      // plant
+      rr(ctx,1240,690,80,110,10,'#e7e1d6');
+      ctx.fillStyle='#4f6b4a';[[1280,600,70],[1240,640,55],[1320,640,55],[1280,560,45]].forEach(([x,y,r])=>{ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();});
+      // pendant
+      ctx.strokeStyle='#2b2b2b';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(800,0);ctx.lineTo(800,300);ctx.stroke();
+      glow(ctx,800,330,240,'rgba(255,214,150,.45)');ctx.fillStyle='#2b2b2b';ctx.beginPath();ctx.arc(800,320,46,Math.PI,0);ctx.fill();
+    },
+    kitchen(ctx){
+      shell(ctx,{ceil:['#f1f0ec','#e6e4de'],side:['#d7d6d1','#e9e8e3'],wall:['#f2f1ed','#e4e2dc'],floor:['#cfc9bf','#a69f93']});
+      // upper cabinets + backsplash
+      ctx.fillStyle='#2f3b46';ctx.fillRect(380,220,840,150);
+      ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=3;for(let x=380;x<1220;x+=140){ctx.beginPath();ctx.moveTo(x,220);ctx.lineTo(x,370);ctx.stroke();}
+      ctx.fillStyle='#ece9e2';ctx.fillRect(380,370,840,140);
+      ctx.fillStyle='#e6e2da';ctx.fillRect(380,510,840,20);ctx.fillStyle='#2f3b46';ctx.fillRect(380,530,840,110);
+      windowSky(ctx,700,385,200,110,[[0,'#7fa6cf'],[1,'#f4dcb6']]);
+      // island
+      rr(ctx,420,700,760,40,6,'#f4f2ee');ctx.fillStyle='#24303a';ctx.fillRect(440,740,720,180);
+      ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(440,920,720,16);
+      // stools
+      [520,720,920,1100].forEach(x=>{rr(ctx,x-40,640,80,26,12,'#b5895a');ctx.fillStyle='#1d1d1d';ctx.fillRect(x-4,666,8,40);});
+      [600,800,1000].forEach(x=>{ctx.strokeStyle='#222';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,470);ctx.stroke();glow(ctx,x,500,170,'rgba(255,210,140,.5)');ctx.fillStyle='#d8b56d';ctx.beginPath();ctx.arc(x,486,28,Math.PI,0);ctx.fill();});
+      // bowl of lemons
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(800,700,70,18,0,0,7);ctx.fill();
+      ctx.fillStyle='#e8c53a';[[775,688],[805,684],[830,690]].forEach(([x,y])=>{ctx.beginPath();ctx.arc(x,y,16,0,7);ctx.fill();});
+    },
+    bedroom(ctx){
+      shell(ctx,{ceil:['#ece7e1','#ded8d0'],side:['#c9c3bc','#ddd6ce'],wall:['#d9cfc4','#cbc0b4'],floor:['#a88664','#6f553d']});
+      ctx.fillStyle='#8e7b6a';ctx.fillRect(520,330,560,220);
+      rr(ctx,460,560,680,260,22,'#efebe4');rr(ctx,460,520,680,120,22,'#f6f3ee');
+      rr(ctx,520,470,210,110,26,'#ffffff');rr(ctx,870,470,210,110,26,'#ffffff');
+      rr(ctx,640,500,320,90,24,'#b7a28c');
+      ctx.fillStyle='#c7b8a4';ctx.fillRect(460,700,680,120);
+      [400,1200].forEach(x=>{rr(ctx,x-55,580,110,110,8,'#5b4636');glow(ctx,x,480,190,'rgba(255,205,140,.55)');ctx.fillStyle='#efe2c8';ctx.beginPath();ctx.moveTo(x-45,520);ctx.lineTo(x+45,520);ctx.lineTo(x+30,450);ctx.lineTo(x-30,450);ctx.closePath();ctx.fill();});
+      // side window light
+      ctx.globalAlpha=.18;poly(ctx,[[0,120],[300,220],[600,1000],[0,1000]],'#fff0d6');ctx.globalAlpha=1;
+    },
+    exterior(ctx){
+      ctx.fillStyle=grad(ctx,0,0,0,H,[[0,'#1b2440'],[.45,'#4a4f7a'],[.72,'#d98b5f'],[1,'#f2c38d']]);ctx.fillRect(0,0,W,H);
+      const r=rnd(7);ctx.fillStyle='rgba(255,255,255,.7)';for(let i=0;i<70;i++){ctx.fillRect(r()*W,r()*H*.35,2,2);}
+      // trees silhouette
+      ctx.fillStyle='#141a26';for(let i=0;i<22;i++){const x=i*80,h=180+r()*120;ctx.beginPath();ctx.arc(x,690-h*.3,70+r()*30,0,7);ctx.fill();}
+      // house
+      poly(ctx,[[380,420],[820,250],[1240,420]],'#232833');
+      ctx.fillStyle='#2c323e';ctx.fillRect(420,420,780,330);
+      ctx.fillStyle='#e9e5dd';ctx.fillRect(420,420,780,14);
+      const win=(x,y,w,h)=>{glow(ctx,x+w/2,y+h/2,w*1.4,'rgba(255,190,110,.35)');ctx.fillStyle=grad(ctx,0,y,0,y+h,[[0,'#ffd99a'],[1,'#f2a24c']]);ctx.fillRect(x,y,w,h);ctx.strokeStyle='#1c2028';ctx.lineWidth=5;ctx.strokeRect(x,y,w,h);};
+      win(470,470,170,120);win(980,470,170,120);win(470,620,170,110);win(980,620,170,110);win(720,600,180,150);
+      ctx.fillStyle='#1d222c';ctx.fillRect(760,630,100,120);
+      // lawn + path
+      ctx.fillStyle=grad(ctx,0,750,0,H,[[0,'#2f3b2c'],[1,'#1a2219']]);ctx.fillRect(0,750,W,H-750);
+      poly(ctx,[[770,750],[850,750],[1010,H],[610,H]],'#5c574f');
+      [520,1100].forEach(x=>glow(ctx,x,780,90,'rgba(255,200,130,.5)'));
+    },
+    bath(ctx){
+      shell(ctx,{ceil:['#f2f2f0','#e7e7e4'],side:['#d9dbdc','#e9ebec'],wall:['#eef0f0','#dfe3e4'],floor:['#c9cdd0','#9aa1a6']});
+      ctx.strokeStyle='rgba(120,130,140,.18)';ctx.lineWidth=2;for(let x=380;x<1220;x+=70){ctx.beginPath();ctx.moveTo(x,190);ctx.lineTo(x,640);ctx.stroke();}for(let y=190;y<640;y+=70){ctx.beginPath();ctx.moveTo(380,y);ctx.lineTo(1220,y);ctx.stroke();}
+      rr(ctx,600,250,400,220,200,'#cfd8de');rr(ctx,615,265,370,190,190,grad(ctx,0,265,0,455,[[0,'#eef3f6'],[1,'#b9c5cc']]));
+      glow(ctx,800,240,220,'rgba(255,235,200,.45)');
+      rr(ctx,500,520,600,40,6,'#f7f7f5');ctx.fillStyle='#3b4a52';ctx.fillRect(520,560,560,200);
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(800,525,90,16,0,0,7);ctx.fill();
+      ctx.fillStyle='#b9a27a';ctx.fillRect(796,470,8,50);
+      rr(ctx,1240,560,90,320,10,'rgba(210,225,230,.5)');
+      ctx.fillStyle='#4f6b4a';[[460,470,40],[440,500,30],[480,505,32]].forEach(([x,y,r])=>{ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();});rr(ctx,430,505,60,50,8,'#fff');
+    },
+    dining(ctx){
+      const s=shell(ctx,{ceil:['#ebe8e2','#ddd9d1'],side:['#cbc5bb','#dfd9cf'],wall:['#e4ded3','#d4cdc1'],floor:['#9d7a58','#6a4f37']});
+      windowSky(ctx,420,230,280,360,[[0,'#6f8fbf'],[.7,'#f1c58f'],[1,'#e9a86b']]);windowSky(ctx,900,230,280,360,[[0,'#6f8fbf'],[.7,'#f1c58f'],[1,'#e9a86b']]);
+      ctx.globalAlpha=.14;poly(ctx,[[420,590],[1180,590],[1400,1000],[200,1000]],'#ffe6c2');ctx.globalAlpha=1;
+      rr(ctx,460,640,680,36,10,'#5a3e2b');ctx.fillStyle='#3e2a1d';ctx.fillRect(520,676,30,200);ctx.fillRect(1050,676,30,200);
+      [540,700,860,1020].forEach(x=>{rr(ctx,x-50,560,100,110,20,'#d9cfc0');});
+      ctx.fillStyle='#efe9df';[620,800,980].forEach(x=>{ctx.beginPath();ctx.ellipse(x,636,46,10,0,0,7);ctx.fill();});
+      ctx.strokeStyle='#222';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(800,0);ctx.lineTo(800,330);ctx.stroke();
+      glow(ctx,800,380,300,'rgba(255,214,150,.4)');ctx.fillStyle='#e7d9bd';ctx.beginPath();ctx.ellipse(800,360,140,40,0,0,7);ctx.fill();
+    }
+  };
+  const cache={};
+  window.KR_SCENE=function(name,seed){
+    const key=name+(seed||1);if(cache[key])return cache[key];
+    const c=document.createElement('canvas');c.width=W;c.height=H;const ctx=c.getContext('2d');
+    scenes[name](ctx);finish(ctx,(seed||1)*13);
+    return cache[key]=c.toDataURL('image/jpeg',.82);
+  };
+  window.KR_SCENES=Object.keys(scenes);
+})();
+
+</script>
+<script>
+(function(){
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ROOM_LABEL={exterior:'Exterior · Dusk',living:'Living room',kitchen:'Kitchen',dining:'Dining',bedroom:'Primary suite',bath:'Primary bath'};
+const ORDER=['exterior','living','kitchen','dining','bedroom','bath'];
+const MOVES=['push','pan','pull','rise'];
+const sample=ORDER.map((n,i)=>({src:KR_SCENE(n,i+1),label:ROOM_LABEL[n],sample:true}));
+const LISTING={addr:'42 Harbor Lane, Hingham MA',price:'$1,295,000',spec:'4 BD · 3 BA · 2,840 SQ FT'};
+
+/* A reusable "film" player: crossfading stills with camera moves, timecode and listing card */
+function Film(el,opts){
+  opts=Object.assign({card:true,wm:false,interval:2800,listing:LISTING,brand:''},opts||{});
+  let frames=[],i=0,timer=null,t0=0,raf=null;
+  el.innerHTML='';
+  const layer=document.createElement('div');el.appendChild(layer);
+  const hud=document.createElement('div');hud.className='hud';
+  hud.innerHTML='<div class="top"><span class="rec"><i></i><span class="room"></span></span><span class="tc">00:00:00:00</span></div><div class="card"><div class="addr"></div><div class="price"></div><div class="spec"></div></div>';
+  el.appendChild(hud);
+  const bar=document.createElement('div');bar.className='bar';el.appendChild(bar);
+  let wm=null;
+  const card=hud.querySelector('.card'),room=hud.querySelector('.room'),tc=hud.querySelector('.tc');
+  function setListing(l){card.querySelector('.addr').textContent=l.addr;card.querySelector('.price').textContent=l.price;card.querySelector('.spec').textContent=l.spec;}
+  setListing(opts.listing);
+  function load(list){
+    layer.innerHTML='';frames=list.map((p,k)=>{const f=document.createElement('div');f.className='frame';
+      f.style.setProperty('--move',MOVES[k%MOVES.length]);
+      const im=new Image();im.alt=p.label||'Listing photo';im.src=p.src;f.appendChild(im);layer.appendChild(f);return {f,label:p.label||('Scene '+(k+1))};});
+    i=0;show(0);
+  }
+  function show(k){
+    frames.forEach((x,j)=>x.f.classList.toggle('on',j===k));
+    const fr=frames[k];if(!fr)return;
+    // restart the camera move
+    const im=fr.f.querySelector('img');im.style.animation='none';void im.offsetWidth;im.style.animation='';
+    room.textContent=fr.label;
+    card.classList.toggle('show',opts.card&&(k===0||k===frames.length-1));
+  }
+  function tick(){
+    const total=frames.length*opts.interval,el2=(performance.now()-t0)%total;
+    const s=el2/1000,f=Math.floor((s%1)*24);
+    tc.textContent='00:00:'+String(Math.floor(s)).padStart(2,'0')+':'+String(f).padStart(2,'0');
+    bar.style.width=(el2/total*100)+'%';
+    raf=requestAnimationFrame(tick);
+  }
+  function play(){stop();t0=performance.now();i=0;show(0);
+    if(!reduced){timer=setInterval(()=>{i=(i+1)%frames.length;show(i);if(i===0)t0=performance.now();},opts.interval);raf=requestAnimationFrame(tick);}}
+  function stop(){clearInterval(timer);cancelAnimationFrame(raf);}
+  return {load,play,stop,setListing,
+    setCard(v){opts.card=v;show(i);},
+    setWatermark(v){if(v&&!wm){wm=document.createElement('div');wm.className='wm';wm.textContent='PREVIEW';el.appendChild(wm);}if(!v&&wm){wm.remove();wm=null;}},
+    setInterval(ms){opts.interval=ms;play();}};
+}
+
+// Hero + showcase films
+const hero=Film(document.getElementById('heroFilm'));hero.load(sample);hero.play();
+const fA=Film(document.getElementById('fA'),{card:false,interval:3100});fA.load([sample[1],sample[3],sample[0]]);fA.play();
+const fB=Film(document.getElementById('fB'),{card:false,interval:2600});fB.load([sample[2],sample[4],sample[5]]);fB.play();
+const fC=Film(document.getElementById('fC'),{card:false,interval:2900});fC.load([sample[0],sample[1],sample[2]]);fC.play();
+const fD=Film(document.getElementById('fD'),{interval:3600});fD.load([sample[0],sample[1]]);fD.play();
+document.querySelectorAll('#fD .card').forEach(c=>c.classList.add('show'));
+const teaseFilm=Film(document.getElementById('teaseFilm'),{interval:2800});teaseFilm.load(sample);teaseFilm.play();
+
+/* Drag to reorder photo thumbnails (used in both the studio and Content Studio uploaders) */
+function makeSortable(container,arr,onChange){
+  let dragEl=null;
+  container.querySelectorAll('.thumb').forEach((el,idx)=>{
+    el.setAttribute('draggable','true');el.dataset.idx=idx;
+    el.addEventListener('dragstart',e=>{dragEl=el;el.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',idx);}catch(_){}} );
+    el.addEventListener('dragend',()=>{el.classList.remove('dragging');dragEl=null;container.querySelectorAll('.thumb').forEach(t=>t.classList.remove('over'));});
+    el.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';});
+    el.addEventListener('dragenter',e=>{e.preventDefault();if(el!==dragEl)el.classList.add('over');});
+    el.addEventListener('dragleave',()=>el.classList.remove('over'));
+    el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('over');
+      if(!dragEl||dragEl===el)return;
+      const from=+dragEl.dataset.idx,to=+el.dataset.idx;const [m]=arr.splice(from,1);arr.splice(to,0,m);onChange();});
+  });
+}
+
+/* ---------- Studio: the actual product flow (5 steps) ---------- */
+const STEPS=5, PRICE=39;
+const S={step:0,photos:sample.slice(),listing:Object.assign({},LISTING),url:'',card:true,brand:true,unbranded:true,format:'16:9',length:'30',music:'Warm',motion:'Cinematic',paid:false};
+const pane=document.getElementById('pane'),stageEl=document.getElementById('studioFilm');
+const studio=Film(stageEl);studio.load(S.photos);studio.play();
+/* Animate only the film that's actually on screen — calmer page, far less CPU. */
+if('IntersectionObserver' in window){
+  const FILMS=[[document.getElementById('heroFilm'),hero],[document.getElementById('fA'),fA],[document.getElementById('fB'),fB],[document.getElementById('fC'),fC],[document.getElementById('fD'),fD],[document.getElementById('teaseFilm'),teaseFilm]];
+  const io=new IntersectionObserver(es=>es.forEach(e=>{const f=FILMS.find(x=>x[0]===e.target);if(f){e.isIntersecting?f[1].play():f[1].stop();}}),{threshold:.12});
+  FILMS.forEach(([el])=>{if(el)io.observe(el);});
+}
+const LEN={'15':7,'30':14,'60':28};
+const MUSIC=[['Warm','Soft piano, cinematic'],['Upbeat','Bright, modern pop'],['Luxe','Lush, high-end strings'],['None','Silent — add your own']];
+function track(){return '<div class="track">'+Array.from({length:STEPS},(_,k)=>'<span class="'+(k<=S.step?'done':'')+'"></span>').join('')+'</div>';}
+function meta(){document.getElementById('metaL').textContent=S.photos.length+' scenes · '+S.format+' · '+S.music+' music';document.getElementById('metaR').textContent='00:00:'+S.length.padStart(2,'0')+':00';}
+function chips(name,vals,cur){return '<div class="chips" data-name="'+name+'">'+vals.map(v=>'<button type="button" class="chip" aria-pressed="'+(v===cur)+'" data-v="'+v+'">'+v+(name==='length'?' sec':'')+'</button>').join('')+'</div>';}
+
+/* --- music audition: short synthesized motifs so you can hear each style before choosing.
+   BACKEND: swap these for real licensed / ElevenLabs sample clips (<audio src=…> per style). --- */
+let actx=null,playingOsc=null,playingBtn=null;
+const MOTIFS={Warm:{wave:'sine',notes:[0,4,7,12,7,4],step:.42,g:.16},Upbeat:{wave:'triangle',notes:[0,7,12,16,12,7,9],step:.2,g:.14},Luxe:{wave:'sine',notes:[0,3,7,10,14,10,7],step:.5,g:.17}};
+function stopMusic(){if(playingOsc){playingOsc.forEach(o=>{try{o.stop()}catch(e){}});playingOsc=null;}if(playingBtn){playingBtn.setAttribute('aria-pressed','false');playingBtn=null;}}
+function playMusic(style,btn){
+  if(playingBtn===btn){stopMusic();return;}
+  stopMusic();if(style==='None')return;
+  try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
+  const m=MOTIFS[style]||MOTIFS.Warm,base=196;let t=actx.currentTime+.04;playingOsc=[];
+  m.notes.forEach((semi,i)=>{const o=actx.createOscillator(),g=actx.createGain(),st=t+i*m.step;
+    o.type=m.wave;o.frequency.value=base*Math.pow(2,semi/12);
+    g.gain.setValueAtTime(.0001,st);g.gain.exponentialRampToValueAtTime(m.g,st+.04);g.gain.exponentialRampToValueAtTime(.0001,st+m.step*1.5);
+    o.connect(g).connect(actx.destination);o.start(st);o.stop(st+m.step*1.6);playingOsc.push(o);});
+  btn.setAttribute('aria-pressed','true');playingBtn=btn;
+  const dur=(m.notes.length*m.step+.3)*1000;setTimeout(()=>{if(playingBtn===btn)stopMusic();},dur);
+}
+
+const views=[
+()=>`${track()}<div class="eyebrow">Step 1 of ${STEPS} · Photos</div><h3 style="margin-top:10px">Drop your photos</h3><p class="hint">JPG or PNG. We'll order them like a walkthrough — exterior first, then room by room.</p>
+<div class="drop" id="drop" tabindex="0" role="button" aria-label="Add photos"><strong>Drag photos here</strong><small>or click to choose · 7 for 15 sec, 14 for 30, 28 for 60</small><input type="file" id="file" accept="image/jpeg,image/png" multiple hidden></div>
+<div class="thumbs" id="thumbs"></div><div class="tag" id="ptag"></div>
+<div class="actions"><button class="btn" id="next">Continue</button></div>`,
+()=>`${track()}<div class="eyebrow">Step 2 of ${STEPS} · Details</div><h3 style="margin-top:10px">Add listing details</h3><p class="hint">Paste the listing link and we'll fill price, beds and baths in for you.</p>
+<div class="urlrow"><input type="url" id="url" placeholder="https://www.zillow.com/homedetails/…" value="${S.url}"><button class="btn ghost" id="fetch">Import</button></div>
+<div class="ok" id="ok"></div>
+<label class="f" for="addr">Address</label><input type="text" id="addr" value="${S.listing.addr}">
+<div class="row"><div><label class="f" for="price">Price</label><input type="text" id="price" value="${S.listing.price}"></div><div><label class="f" for="spec">Rooms</label><input type="text" id="spec" value="${S.listing.spec}"></div></div>
+<div class="toggle"><span>Show the listing card on the video</span><input type="checkbox" id="card" ${S.card?'checked':''}></div>
+<div class="actions"><button class="btn ghost" id="back">Back</button><button class="btn" id="next">Continue</button></div>`,
+()=>`${track()}<div class="eyebrow">Step 3 of ${STEPS} · Style</div><h3 style="margin-top:10px">Choose the feel</h3><p class="hint">Tap ▶ to hear each music style. Defaults work for most listings.</p>
+<label class="f">Format</label>${chips('format',['16:9','9:16','1:1'],S.format)}
+<label class="f">Length</label>${chips('length',['15','30','60'],S.length)}
+<label class="f">Music · tap to listen</label>
+<div class="mlist" id="mlist" role="radiogroup" aria-label="Music style">${MUSIC.map(([n,d])=>`<div class="mopt" data-v="${n}" role="radio" tabindex="0" aria-checked="${n===S.music}"><button type="button" class="mplay ${n==='None'?'off':''}" data-play="${n}" aria-pressed="false" aria-label="Preview ${n} music"${n==='None'?' tabindex="-1" aria-hidden="true"':''}>▶</button><span class="mnm">${n}</span><span class="mdesc">${d}</span><span class="mcheck"></span></div>`).join('')}</div>
+<label class="f">Camera</label>${chips('motion',['Gentle','Cinematic'],S.motion)}
+<div class="toggle" style="margin-top:10px"><span>Add my name and number at the end</span><input type="checkbox" id="brand" ${S.brand?'checked':''}></div>
+<div class="toggle"><span>Also make an MLS version (no branding)</span><input type="checkbox" id="unb" ${S.unbranded?'checked':''}></div>
+<div class="actions"><button class="btn ghost" id="back">Back</button><button class="btn" id="next">Review &amp; pay</button></div>`,
+()=>`${track()}<div class="eyebrow">Step 4 of ${STEPS} · Payment</div><h3 style="margin-top:10px">Review and pay</h3><p class="hint">We charge once, then start rendering your film right away.</p>
+<div class="summary">
+  <div class="li"><span>Film</span><span>${S.length}-sec · ${S.format} · ${S.music} music</span></div>
+  <div class="li"><span>Versions</span><span>${S.brand?'Branded':'Clean'}${S.unbranded?' + MLS':''}</span></div>
+  <div class="li"><span>Delivery</span><span>A few minutes · email + text</span></div>
+  <div class="li tot"><span>Total</span><span>$${PRICE}</span></div>
+</div>
+<form id="pay" novalidate>
+<label class="f" for="cc">Card number</label><input type="text" id="cc" inputmode="numeric" placeholder="1234 1234 1234 1234" autocomplete="cc-number">
+<div class="row"><div><label class="f" for="exp">Expiry</label><input type="text" id="exp" placeholder="MM / YY" autocomplete="cc-exp"></div><div><label class="f" for="cvc">CVC</label><input type="text" id="cvc" inputmode="numeric" placeholder="123" autocomplete="cc-csc"></div></div>
+<label class="f" for="nm">Name on card</label><input type="text" id="nm" placeholder="Full name" autocomplete="cc-name">
+<div class="ok" id="payok"></div>
+<div class="actions"><button type="button" class="btn ghost" id="back">Back</button><button type="submit" class="btn amber" id="paybtn">Pay $${PRICE} &amp; create my film</button></div>
+</form>
+<div class="secure">🔒 Secure checkout · powered by Stripe</div>`,
+()=>`${track()}<div class="eyebrow">Step 5 of ${STEPS} · Your film</div><h3 style="margin-top:10px" id="rt">Creating your film</h3><p class="hint" id="rh">About two minutes. You can leave this page — we'll email and text you.</p>
+<div class="render" id="render">${['Reading each room','Planning camera moves','Animating '+S.photos.length+' scenes','Scoring the '+S.music.toLowerCase()+' music','Adding your details'].map(t=>'<div><b></b>'+t+'</div>').join('')}</div>
+<div id="done" hidden><div class="paid">✓ Paid — HD download, no watermark</div>
+<div class="actions"><button class="btn amber" id="dl">Download HD</button><button class="btn ghost" id="revise">Request a change</button></div>
+<div class="contact">One free revision is included — just tell us what to change.<br>Email <b>info@redaphoto.com</b> · Text <b>617-855-9535</b></div></div>`
+];
+
+function render(){
+  stopMusic();pane.innerHTML=views[S.step]();meta();
+  const $=id=>document.getElementById(id);
+  if($('back'))$('back').onclick=()=>{S.step--;render();};
+  if(S.step===0){
+    const drop=$('drop'),file=$('file');
+    const paint=()=>{
+      $('thumbs').innerHTML=S.photos.map((p,k)=>'<div class="thumb"><img src="'+p.src+'" alt="" draggable="false"><span class="i">'+String(k+1).padStart(2,'0')+'</span><button type="button" aria-label="Remove photo '+(k+1)+'" data-k="'+k+'">×</button></div>').join('');
+      $('ptag').textContent=(S.photos.some(p=>p.sample)?'Sample photos · ':'')+S.photos.length+' photos'+(S.photos.length>1?' · drag to reorder':'');
+      $('next').disabled=S.photos.length<3;
+      $('thumbs').querySelectorAll('button').forEach(b=>b.onclick=()=>{S.photos.splice(+b.dataset.k,1);paint();studio.load(S.photos);studio.play();meta();});
+      makeSortable($('thumbs'),S.photos,()=>{paint();studio.load(S.photos);studio.play();meta();});};
+    const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png)/.test(f.type)).slice(0,28);if(!list.length)return;
+      if(S.photos.every(p=>p.sample))S.photos=[];
+      let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{S.photos.push({src:r.result,label:f.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' ').slice(0,26)});
+        if(--left===0){paint();studio.load(S.photos);studio.play();meta();}};r.readAsDataURL(f);});
+      /* BACKEND: upload each file to storage (e.g. presigned URL) and keep the returned asset ids in S.photos */};
+    drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
+    file.onchange=()=>add(file.files);
+    ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+    ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+    drop.addEventListener('drop',e=>add(e.dataTransfer.files));
+    paint();$('next').onclick=()=>{S.step=1;render();};
+  }
+  if(S.step===1){
+    const sync=()=>{S.listing={addr:$('addr').value,price:$('price').value,spec:$('spec').value};studio.setListing(S.listing);};
+    ['addr','price','spec'].forEach(id=>$(id).oninput=sync);
+    $('card').onchange=e=>{S.card=e.target.checked;studio.setCard(S.card);};
+    $('fetch').onclick=()=>{S.url=$('url').value.trim();
+      if(!S.url){$('ok').textContent='Paste a Zillow, Redfin or MLS link first.';return;}
+      $('ok').textContent='Reading listing…';
+      /* BACKEND: GET /api/listing?url=… → {address, price, beds, baths, sqft} */
+      setTimeout(()=>{$('addr').value='42 Harbor Lane, Hingham MA';$('price').value='$1,295,000';$('spec').value='4 BD · 3 BA · 2,840 SQ FT';sync();$('ok').textContent='Imported price, rooms and address.';},900);};
+    $('next').onclick=()=>{sync();S.step=2;render();};
+  }
+  if(S.step===2){
+    pane.querySelectorAll('.chips').forEach(g=>g.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
+      S[g.dataset.name]=c.dataset.v;g.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed',x===c));
+      if(g.dataset.name==='format'){stageEl.classList.toggle('v',S.format==='9:16');stageEl.classList.toggle('s',S.format==='1:1');}
+      if(g.dataset.name==='motion')studio.setInterval(S.motion==='Gentle'?3600:2600);
+      meta();}));
+    // music: select a row, or audition with the ▶
+    pane.querySelectorAll('.mopt').forEach(opt=>{
+      const sel=()=>{S.music=opt.dataset.v;pane.querySelectorAll('.mopt').forEach(x=>x.setAttribute('aria-checked',x===opt));meta();};
+      opt.onclick=e=>{if(e.target.closest('.mplay'))return;sel();};
+      opt.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();sel();}};
+      const pb=opt.querySelector('.mplay');if(pb&&!pb.classList.contains('off'))pb.onclick=e=>{e.stopPropagation();playMusic(pb.dataset.play,pb);};});
+    $('brand').onchange=e=>S.brand=e.target.checked;$('unb').onchange=e=>S.unbranded=e.target.checked;
+    $('next').onclick=()=>{S.step=3;render();};
+  }
+  if(S.step===3){
+    const fmt=v=>v.replace(/\D/g,'').slice(0,16).replace(/(.{4})/g,'$1 ').trim();
+    $('cc').oninput=e=>{e.target.value=fmt(e.target.value);};
+    $('exp').oninput=e=>{let v=e.target.value.replace(/\D/g,'').slice(0,4);if(v.length>2)v=v.slice(0,2)+' / '+v.slice(2);e.target.value=v;};
+    $('pay').onsubmit=e=>{e.preventDefault();
+      const ok=$('cc').value.replace(/\s/g,'').length>=15&&$('exp').value.length>=5&&$('cvc').value.length>=3&&$('nm').value.trim();
+      if(!ok){$('payok').textContent='Enter your card details to continue.';return;}
+      /* BACKEND: create Stripe PaymentIntent, confirm, and only start the render on success. */
+      const btn=$('paybtn');btn.textContent='Charging…';btn.disabled=true;
+      setTimeout(()=>{S.paid=true;S.step=4;render();run();},1100);};
+  }
+  if(S.step===4){
+    run.done=()=>{
+      $('rt').textContent='Your film is ready.';$('rh').textContent='Here it is, watermark-free. Download, or ask for a change.';
+      $('render').hidden=true;$('done').hidden=false;studio.play();
+      $('dl').onclick=()=>{$('dl').textContent='Preparing HD…';setTimeout(()=>{$('dl').textContent='Download HD';},1200);/* BACKEND: stream the rendered MP4 */};
+      $('revise').onclick=()=>{S.step=2;render();};
+    };
+  }
+}
+function run(){
+  /* BACKEND: payment already captured → POST /api/videos {photos, listing, format, length, music, motion, brand, unbranded}; poll job; deliver MP4 + notify by email/text. */
+  const rows=[...document.querySelectorAll('#render div')];let k=0;
+  const nxt=()=>{rows.forEach((r,j)=>{r.className=j<k?'done':j===k?'on':'';});
+    if(k>=rows.length){if(run.done)run.done();return;}
+    k++;setTimeout(nxt,reduced?150:850);};
+  nxt();
+}
+render();
+
+/* ---------- Focused pop-out: the studio opens over the page ---------- */
+const modal=document.getElementById('studioModal');let lastFocus=null;
+studio.stop(); // idle until the pop-out opens
+function openStudio(){lastFocus=document.activeElement;modal.hidden=false;document.body.style.overflow='hidden';
+  studio.play();if(S.step===0)render();modal.querySelector('.x').focus();}
+function closeStudio(){stopMusic();modal.hidden=true;document.body.style.overflow='';studio.stop();if(lastFocus&&lastFocus.focus)lastFocus.focus();}
+document.getElementById('openStudio').onclick=openStudio;
+document.getElementById('closeStudio').onclick=closeStudio;
+document.querySelectorAll('a[href="#studio"]').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();openStudio();}));
+modal.addEventListener('click',e=>{if(e.target===modal)closeStudio();});
+
+/* ---------- Subscription checkout: monthly plans add the subscription ---------- */
+const PLANS={
+  Agent:{price:99,per:'about $20 per video',videos:'5 videos a month',incl:['Everything in Single','Saved brand kit','Priority rendering']},
+  Team:{price:299,per:'about $15 per video',videos:'20 videos a month',incl:['Everything in Agent','Up to 10 agents','Office branding']}
+};
+const subModal=document.getElementById('subModal'),subBody=document.getElementById('subBody'),subTitle=document.getElementById('subTitle');
+function closeSub(){subModal.hidden=true;document.body.style.overflow='';}
+function openSub(plan){
+  const p=PLANS[plan];if(!p)return;subTitle.textContent=plan+' plan';
+  subBody.innerHTML=`<div class="summary">
+    <div class="li"><span>Plan</span><span>${plan} · ${p.videos}</span></div>
+    <div class="li"><span>Per video</span><span>${p.per}</span></div>
+    <div class="li tot"><span>Billed monthly</span><span>$${p.price}<small style="font:500 14px var(--body);opacity:.6"> /mo</small></span></div>
+  </div>
+  <form id="subForm" novalidate>
+    <label class="f" for="scc">Card number</label><input type="text" id="scc" inputmode="numeric" placeholder="1234 1234 1234 1234" autocomplete="cc-number">
+    <div class="row"><div><label class="f" for="sexp">Expiry</label><input type="text" id="sexp" placeholder="MM / YY" autocomplete="cc-exp"></div><div><label class="f" for="scvc">CVC</label><input type="text" id="scvc" inputmode="numeric" placeholder="123" autocomplete="cc-csc"></div></div>
+    <label class="f" for="snm">Name on card</label><input type="text" id="snm" placeholder="Full name" autocomplete="cc-name">
+    <div class="ok" id="subok"></div>
+    <div class="actions"><button type="submit" class="btn amber" id="subbtn">Subscribe · $${p.price}/month</button></div>
+  </form>
+  <div class="secure">🔒 Secure checkout · powered by Stripe · Cancel anytime</div>`;
+  const $=id=>document.getElementById(id);
+  const fmt=v=>v.replace(/\D/g,'').slice(0,16).replace(/(.{4})/g,'$1 ').trim();
+  $('scc').oninput=e=>{e.target.value=fmt(e.target.value);};
+  $('sexp').oninput=e=>{let v=e.target.value.replace(/\D/g,'').slice(0,4);if(v.length>2)v=v.slice(0,2)+' / '+v.slice(2);e.target.value=v;};
+  $('subForm').onsubmit=e=>{e.preventDefault();
+    const ok=$('scc').value.replace(/\s/g,'').length>=15&&$('sexp').value.length>=5&&$('scvc').value.length>=3&&$('snm').value.trim();
+    if(!ok){$('subok').textContent='Enter your card details to continue.';return;}
+    /* BACKEND: create a Stripe subscription for this plan; confirm before showing success. */
+    const btn=$('subbtn');btn.textContent='Starting…';btn.disabled=true;
+    setTimeout(()=>subSuccess(plan),1000);};
+  subModal.hidden=false;document.body.style.overflow='hidden';subModal.querySelector('.x').focus();
+}
+function subSuccess(plan){
+  const p=PLANS[plan];
+  subBody.innerHTML=`<div class="subdone">
+    <div class="paid">✓ You're on the ${plan} plan</div>
+    <h3>You're all set.</h3>
+    <p>${p.videos} included. Make your first one now.</p>
+    <div class="actions"><button class="btn amber" id="subMake" type="button">Make your first video</button></div>
+    <div class="contact" style="text-align:center">Manage or cancel anytime from your account.</div>
+  </div>`;
+  document.getElementById('subMake').onclick=()=>{closeSub();openStudio();};
+}
+function openContact(){
+  subTitle.textContent="Let's talk";
+  subBody.innerHTML=`<p style="color:var(--muted);margin:0 0 18px;font-size:16px;line-height:1.6">Tell us about your brokerage and we'll set your team up — bulk pricing, office branding, and onboarding for your agents.</p>
+  <div class="contact">Email <b>info@redaphoto.com</b><br>Text <b>617-855-9535</b></div>`;
+  subModal.hidden=false;document.body.style.overflow='hidden';subModal.querySelector('.x').focus();
+}
+document.getElementById('closeSub').onclick=closeSub;
+subModal.addEventListener('click',e=>{if(e.target===subModal)closeSub();});
+document.querySelectorAll('[data-plan]').forEach(btn=>btn.onclick=()=>openSub(btn.dataset.plan));
+document.querySelectorAll('[data-contact]').forEach(btn=>btn.onclick=openContact);
+
+/* ---------- Accounts: sign in + client space ---------- */
+const acctModal=document.getElementById('acctModal'),acctBody=document.getElementById('acctBody'),acctTitle=document.getElementById('acctTitle'),acctSheet=document.getElementById('acctSheet'),openSign=document.getElementById('openSign');
+let USER=null;
+const G_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.2a5.3 5.3 0 0 1-2.3 3.5v2.9h3.7c2.2-2 3.4-5 3.4-8.5z"/><path fill="#34A853" d="M12 23.5c3.1 0 5.7-1 7.6-2.8l-3.7-2.9c-1 .7-2.3 1.1-3.9 1.1-3 0-5.5-2-6.4-4.7H1.8v3C3.7 21 7.5 23.5 12 23.5z"/><path fill="#FBBC05" d="M5.6 14.2a6.9 6.9 0 0 1 0-4.4v-3H1.8a11.5 11.5 0 0 0 0 10.4z"/><path fill="#EA4335" d="M12 5.4c1.7 0 3.2.6 4.4 1.7l3.3-3.3C17.700 2 15.100.5 12 .5 7.500.5 3.700 3 1.800 6.800l3.800 3c.9-2.700 3.400-4.400 6.400-4.400z"/></svg>';
+const A_ICON='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.300 1.900-3.400 2-3.500-1.100-1.600-2.800-1.800-3.400-1.800-1.400-.2-2.800.8-3.500.8-.7 0-1.800-.8-3-.8-1.500 0-3 .9-3.800 2.300-1.600 2.800-.4 7 1.200 9.300.8 1.100 1.700 2.400 2.900 2.300 1.200 0 1.600-.7 3-.7s1.800.7 3 .7c1.300 0 2.100-1.100 2.800-2.200.9-1.300 1.300-2.500 1.300-2.600 0 0-2.500-1-2.500-3.800zM14.100 5.800c.6-.8 1.100-1.800.9-2.800-.9 0-2 .6-2.700 1.400-.6.700-1.100 1.800-.9 2.700 1 .1 2-.5 2.700-1.300z"/></svg>';
+function closeAcct(){acctModal.hidden=true;document.body.style.overflow='';}
+function showAcct(){acctModal.hidden=false;document.body.style.overflow='hidden';const x=acctModal.querySelector('.x');x&&x.focus();}
+function setUser(u){USER=u;openSign.innerHTML=u?'<span class="av">'+u.name.charAt(0).toUpperCase()+'</span>My account':'Sign in';}
+function signInView(){
+  acctSheet.className='sheet narrow';acctTitle.textContent='Sign in';
+  acctBody.className='subbody';
+  acctBody.innerHTML=`<div class="authhead"><h3>Welcome.</h3><p>Sign in to see your videos, downloads and plan. New here? The same buttons create your account.</p></div>
+  <div class="sso">
+    <button type="button" id="ssoG">${G_ICON}Continue with Google</button>
+    <button type="button" class="apple" id="ssoA">${A_ICON}Continue with Apple</button>
+  </div>
+  <div class="or">or</div>
+  <form id="mailForm" novalidate>
+    <label class="f" for="mail">Email</label><input type="email" id="mail" placeholder="you@brokerage.com" autocomplete="email">
+    <div class="ok" id="mailok" role="alert"></div>
+    <div class="actions"><button type="submit" class="btn amber" style="width:100%;justify-content:center">Email me a sign-in link</button></div>
+  </form>
+  <div class="fineprint">No password to remember. By continuing you agree to our Terms and Privacy Policy.</div>`;
+  const $=id=>document.getElementById(id);
+  /* BACKEND: start the Google / Apple OAuth flow here (e.g. Supabase, Clerk, Auth.js or Firebase Auth). On return, load the user and their videos. */
+  $('ssoG').onclick=()=>demoIn('Google');
+  $('ssoA').onclick=()=>demoIn('Apple');
+  $('mailForm').onsubmit=e=>{e.preventDefault();const v=$('mail').value.trim();
+    if(!/^\S+@\S+\.\S+$/.test(v)){$('mailok').textContent='Enter a valid email address.';return;}
+    /* BACKEND: send a magic-link / one-time code to this email. */
+    acctBody.innerHTML=`<div class="subdone"><div class="paid">✉ Check your inbox</div><h3>We sent you a link.</h3><p>Open the email on this device to sign in. It works for 15 minutes.</p>
+      <div class="actions"><button class="btn ghost" id="mailBack" type="button">Use a different email</button></div></div>`;
+    $('mailBack').onclick=signInView;};
+}
+function demoIn(via){
+  /* Demo only: stands in for a completed sign-in. */
+  setUser({name:'Alex Morgan',email:'alex@brokerage.com',via,plan:'Agent',used:2,total:5,renews:'Nov 18'});
+  acctView('videos');
+}
+const HIST=[
+  {addr:'48 Harbor Lane, Marblehead',date:'Today',state:'work',note:'Rendering · about 3 min',room:'exterior'},
+  {addr:'12 Alder Street, Unit 4',date:'Oct 21',state:'ready',note:'Ready · 0:48 · 16:9',room:'living'},
+  {addr:'210 Ridge Road, Hingham',date:'Oct 3',state:'ready',note:'Ready · 0:36 · 9:16',room:'kitchen'}
+];
+function acctView(tab){
+  tab=tab||'videos';
+  acctSheet.className='sheet mid';acctTitle.textContent='My account';acctBody.className='';
+  const tabs=[['videos','Videos'],['plan','Plan & billing'],['profile','Profile']];
+  let body='';
+  if(tab==='videos'){
+    body=`<div class="acct-top"><h3>Your videos</h3><button class="btn amber" id="newVid" type="button">Make a video</button></div>`+
+    (HIST.length?HIST.map((h,i)=>`<div class="vrow"><img src="${KR_SCENE(h.room,i+3)}" alt=""><div><div class="addr">${h.addr}</div><div class="vm"><span class="state ${h.state==='work'?'work':''}"><i></i>${h.note}</span> · ${h.date}</div></div>
+      <div class="acts">${h.state==='ready'?'<button class="btn" data-dl="'+i+'" type="button">Download</button><button class="btn ghost" data-chg="'+i+'" type="button">Request a change</button>':'<button class="btn ghost" disabled type="button">Download</button>'}</div></div>`).join(''):'<div class="empty">No videos yet. Your first one will show up here.</div>');
+  }else if(tab==='plan'){
+    const u=USER;
+    body=`<div class="acct-top"><h3>Plan &amp; billing</h3></div>
+    <div class="plancard"><h4>${u.plan} plan · $99/mo</h4><p>${u.used} of ${u.total} videos used this month · renews ${u.renews}</p>
+      <div class="bar" role="progressbar" aria-valuenow="${u.used}" aria-valuemin="0" aria-valuemax="${u.total}"><i style="width:${u.used/u.total*100}%"></i></div></div>
+    <div class="row" style="flex-wrap:wrap"><button class="btn" id="billing" type="button">Manage billing</button><button class="btn ghost" id="upg" type="button">Change plan</button></div>
+    <div class="fineprint">Invoices, card and cancellation live in the secure billing portal.</div>`;
+  }else{
+    const u=USER;
+    body=`<div class="acct-top"><h3>Profile</h3></div>
+    <label class="f" for="pn">Name</label><input type="text" id="pn" value="${u.name}" autocomplete="name">
+    <label class="f" for="pe">Email</label><input type="email" id="pe" value="${u.email}" autocomplete="email">
+    <div class="fineprint">Signed in with ${u.via}.</div>
+    <div class="actions" style="margin-top:18px"><button class="btn" id="saveP" type="button">Save</button><button class="btn ghost" id="out" type="button">Sign out</button></div>`;
+  }
+  acctBody.innerHTML=`<div class="atabs" role="tablist">${tabs.map(t=>`<button class="atab" role="tab" aria-selected="${t[0]===tab}" data-t="${t[0]}" type="button">${t[1]}</button>`).join('')}</div><div class="acctbody">${body}</div>`;
+  acctBody.querySelectorAll('.atab').forEach(b=>b.onclick=()=>acctView(b.dataset.t));
+  const $=id=>document.getElementById(id);
+  if($('newVid'))$('newVid').onclick=()=>{closeAcct();openStudio();};
+  acctBody.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>{/* BACKEND: return a signed download URL for this video. */b.textContent='Preparing…';setTimeout(()=>b.textContent='Download',900);});
+  acctBody.querySelectorAll('[data-chg]').forEach(b=>b.onclick=()=>{/* BACKEND: create a revision request for this video. */b.textContent='Request sent ✓';b.disabled=true;});
+  if($('billing'))$('billing').onclick=()=>{/* BACKEND: redirect to the Stripe customer portal. */};
+  if($('upg'))$('upg').onclick=()=>{closeAcct();document.getElementById('pricing').scrollIntoView({behavior:reduced?'auto':'smooth'});};
+  if($('saveP'))$('saveP').onclick=()=>{USER.name=$('pn').value||USER.name;USER.email=$('pe').value||USER.email;setUser(USER);$('saveP').textContent='Saved ✓';};
+  if($('out'))$('out').onclick=()=>{/* BACKEND: end the session. */setUser(null);closeAcct();};
+}
+openSign.onclick=()=>{USER?acctView('videos'):signInView();showAcct();};
+document.getElementById('closeAcct').onclick=closeAcct;
+acctModal.addEventListener('click',e=>{if(e.target===acctModal)closeAcct();});
+
+/* ---------- Content Studio: visual questions → analysis → recommended package ---------- */
+const ICON={
+flag:'<path d="M6 21V4"/><path d="M6 5h11l-2.3 3.3L17 11.6H6"/>',
+sold:'<path d="M13 3h5a3 3 0 0 1 3 3v5l-9 9-8-8z"/><circle cx="16" cy="8" r="1.3"/><path d="m8.5 12.5 2 2 4-4"/>',
+door:'<path d="M5 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16"/><path d="M3 21h16"/><circle cx="13" cy="12" r="1"/>',
+pricedown:'<path d="M12 3v10"/><path d="m8 10 4 4 4-4"/><rect x="5" y="18" width="14" height="3" rx="1"/>',
+diamond:'<path d="M5 9h14l-7 12z"/><path d="M5 9 8 4h8l3 5"/><path d="M8 4 12 9 16 4"/>',
+key:'<circle cx="8" cy="9" r="4"/><path d="m11 12 8 8M16 17l2-2M18 19l2-2"/>',
+home:'<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10.5V20h12v-9.5"/>',
+building:'<rect x="6" y="3" width="12" height="18" rx="1"/><path d="M9.5 7h1M13.5 7h1M9.5 11h1M13.5 11h1M9.5 15h1M13.5 15h1"/>',
+estate:'<path d="M3 20h18"/><path d="M5 20V9l7-4.5L19 9v11"/><path d="M10 20v-5h4v5"/>',
+multi:'<rect x="3" y="9" width="8" height="12" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/>',
+land:'<path d="M3 20h18"/><path d="M14 20c0-4 2-6 2-9a4 4 0 1 0-8 0c0 3 2 5 2 9"/>',
+commercial:'<path d="M4 9 5.5 5h13L20 9"/><path d="M5 9v11h14V9"/><path d="M10 20v-6h4v6"/>',
+instagram:'<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17" cy="7" r="1"/>',
+tiktok:'<path d="M13 4v10.5a3.5 3.5 0 1 1-3-3.46"/><path d="M13 5c.5 2.5 2 4 4.5 4.2"/>',
+mls:'<path d="M4 11.5 12 4l8 7.5"/><path d="M6 10.5V20h12v-9.5"/><path d="M10 20v-4h4v4"/>',
+youtube:'<rect x="3" y="6" width="18" height="12" rx="3"/><path d="m10.5 9.3 4.5 2.7-4.5 2.7z"/>',
+facebook:'<path d="M14 7h2.5V3.5H14A3.5 3.5 0 0 0 10.5 7v2.5H8V13h2.5v8H14v-8h2.5L17 9.5h-3V7.3c0-.2.1-.3.3-.3z"/>',
+email:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 5.5L20 7"/>',
+sun:'<circle cx="12" cy="12" r="3.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.5 5.5 7 7M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5"/>',
+square:'<rect x="4" y="4" width="16" height="16" rx="3"/>',
+film:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 15h18M8 4v16M16 4v16"/>',
+spark:'<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>',
+video:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9.3 5 2.7-5 2.7z"/>',
+reel:'<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="m10.5 9 4.5 3-4.5 3z"/>',
+story:'<circle cx="12" cy="12" r="8.5" stroke-dasharray="2.5 3"/><path d="m10 9 5 3-5 3z"/>',
+post:'<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.4"/><path d="m5 17 4.5-4 3 2.5L16 11l3 3"/>',
+graphic:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/>',
+cover:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.4"/><path d="m4 17 5-4.5 3 2.5 3.5-3L20 16"/>',
+other:'<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 9v6M9 12h6"/>'};
+const ic=n=>`<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[n]||''}</svg>`;
+const QS=[
+ {key:'goal',multi:false,title:"What's this video for?",hint:"Pick the moment you're marketing.",opts:[['listed','Just listed','flag'],['sold','Just sold','sold'],['open','Open house','door'],['price','Price change','pricedown'],['luxury','Luxury showcase','diamond'],['rent','For rent','key'],['other','Something else','other']]},
+ {key:'prop',multi:false,title:"What kind of property?",hint:"So the pacing fits the home.",opts:[['single','Single-family','home'],['condo','Condo / apartment','building'],['estate','Luxury estate','estate'],['multi','Multi-family','multi'],['land','Land / lot','land'],['commercial','Commercial','commercial'],['other','Other','other']]},
+ {key:'channels',multi:true,title:"Where will you post it?",hint:"Choose all that apply — we'll size everything to fit.",opts:[['instagram','Instagram','instagram'],['tiktok','TikTok','tiktok'],['mls','MLS / listing','mls'],['youtube','YouTube','youtube'],['facebook','Facebook','facebook'],['email','Email','email'],['other','Somewhere else','other']]},
+ {key:'vibe',multi:false,title:"Set the mood.",hint:"We'll match the music and motion to it.",opts:[['warm','Warm & inviting','sun'],['modern','Sleek & modern','square'],['luxe','Luxe & cinematic','film'],['bright','Bright & energetic','spark']]}];
+const LB={listed:'just-listed',sold:'just-sold',open:'open-house',price:'price-change',luxury:'luxury',rent:'rental',single:'single-family home',condo:'condo',estate:'luxury estate',multi:'multi-family property',land:'lot',commercial:'commercial space'};
+const CHL={instagram:'Instagram',tiktok:'TikTok',mls:'MLS',youtube:'YouTube',facebook:'Facebook',email:'Email',other:'Other'};
+function listJoin(a){return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+' and '+a.slice(-1);}
+function tagsFor(list,ch,fb){const s=list.filter(x=>ch.includes(x)).map(x=>CHL[x]);return s.length?s:(fb?[CHL[list[0]]]:[]);}
+function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='luxury',items=[];
+ items.push({icon:'video',title:'Hero listing film',price:39,meta:[(estate?60:30)+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,true)});
+ if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:19,meta:['20 sec','9:16','hook + captions'],tags:tagsFor(['instagram','tiktok'],ch,true)});
+ if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:9,meta:['10 sec','9:16'],tags:['Instagram']});
+ if(ch.includes('instagram')||ch.includes('facebook'))items.push({icon:'post',title:'Feed post set',price:19,meta:['3 cards','1:1'],tags:tagsFor(['instagram','facebook'],ch,true)});
+ const g={listed:'"Just Listed" graphic',sold:'"Just Sold" graphic',open:'Open-house invite',price:'"New Price" graphic',luxury:'Luxury feature card',rent:'"For Rent" flyer'};
+ items.push({icon:'graphic',title:g[P.goal]||'Announcement graphic',price:12,meta:['Image','1:1 + 9:16'],tags:ch.length?['Social']:['Download']});
+ if(ch.includes('email')||ch.includes('mls'))items.push({icon:'cover',title:'Listing cover image',price:9,meta:['Thumbnail','16:9'],tags:tagsFor(['email','mls'],ch,true)});
+ return items;}
+const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:sample.slice()};
+const planModal=document.getElementById('planModal'),planBody=document.getElementById('planBody');
+function closePlan(){planModal.hidden=true;document.body.style.overflow='';}
+function ptrack(){return '<div class="track">'+Array.from({length:7},(_,k)=>'<span class="'+(k<=P.step?'done':'')+'"></span>').join('')+'</div>';}
+function planRender(){
+  const $=id=>document.getElementById(id);
+  if(P.step<4){
+    const q=QS[P.step],ok=q.key+'Other',sel=v=>q.multi?P.channels.includes(v):P[q.key]===v,can=()=>q.multi?P.channels.length>0:!!P[q.key];
+    const otherOn=()=>q.multi?P.channels.includes('other'):P[q.key]==='other';
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Question ${P.step+1} of 4</div><h3>${q.title}</h3><p class="hint">${q.hint}</p></div>
+    <div class="qgrid">${q.opts.map(([v,label,icon])=>`<button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qtick"></span></button>`).join('')}</div>
+    <input type="text" class="qother" id="qother" placeholder="Tell us a bit more…" value="${(P[ok]||'').replace(/"/g,'&quot;')}" ${otherOn()?'':'hidden'}>
+    <div class="actions">${P.step>0?'<button class="btn ghost" id="pback" type="button">Back</button>':''}<button class="btn" id="pnext" type="button">Continue</button></div>`;
+    $('pnext').disabled=!can();
+    $('qother').oninput=e=>{P[ok]=e.target.value;};
+    planBody.querySelectorAll('.qcard').forEach(c=>c.onclick=()=>{const v=c.dataset.v;
+      if(q.multi){const i=P.channels.indexOf(v);i>=0?P.channels.splice(i,1):P.channels.push(v);c.setAttribute('aria-pressed',P.channels.includes(v));}
+      else{P[q.key]=v;planBody.querySelectorAll('.qcard').forEach(x=>x.setAttribute('aria-pressed',x===c));}
+      const qo=$('qother');qo.hidden=!otherOn();if(!qo.hidden&&v==='other')qo.focus();
+      $('pnext').disabled=!can();});
+    if($('pback'))$('pback').onclick=()=>{P.step--;planRender();};
+    $('pnext').onclick=()=>{if(can()){P.step++;planRender();}};
+  } else if(P.step===4){
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Almost there</div><h3>Add your listing photos</h3><p class="hint">Drag them in and we'll analyze what we can make from them.</p></div>
+    <div class="drop" id="pdrop" tabindex="0" role="button" aria-label="Add photos"><strong>Drag photos here</strong><small>or click to choose · JPG or PNG</small><input type="file" id="pfile" accept="image/jpeg,image/png" multiple hidden></div>
+    <div class="thumbs" id="pthumbs"></div><div class="tag" id="ptag2"></div>
+    <div class="actions"><button class="btn ghost" id="pback" type="button">Back</button><button class="btn amber" id="panalyze" type="button">Analyze my photos</button></div>`;
+    const drop=$('pdrop'),file=$('pfile');
+    const paint=()=>{$('pthumbs').innerHTML=P.photos.map((p,k)=>`<div class="thumb"><img src="${p.src}" alt="" draggable="false"><span class="i">${String(k+1).padStart(2,'0')}</span></div>`).join('');
+      $('ptag2').textContent=(P.photos.some(p=>p.sample)?'Sample photos · ':'')+P.photos.length+' photos'+(P.photos.length>1?' · drag to reorder':'');
+      makeSortable($('pthumbs'),P.photos,paint);};
+    const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png)/.test(f.type)).slice(0,28);if(!list.length)return;if(P.photos.every(p=>p.sample))P.photos=[];let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{P.photos.push({src:r.result});if(--left===0)paint();};r.readAsDataURL(f);});
+      /* BACKEND: upload to storage; keep asset ids on P.photos */};
+    drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
+    file.onchange=()=>add(file.files);
+    ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+    ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+    drop.addEventListener('drop',e=>add(e.dataTransfer.files));
+    paint();$('pback').onclick=()=>{P.step=3;planRender();};$('panalyze').onclick=()=>{P.step=5;planRender();};
+  } else if(P.step===5){
+    const steps=['Reading your '+P.photos.length+' photos','Finding your best shots','Matching to your '+(LB[P.goal]||'listing')+' goal','Sizing for '+(P.channels.map(c=>CHL[c]).join(', ')||'every channel'),'Planning your content package'];
+    planBody.innerHTML=`<div class="qhead"><div class="eyebrow">Analyzing</div><h3>Building your package…</h3><p class="hint">This takes a few seconds.</p></div>
+    <div class="scan"><img src="${P.photos[0].src}" alt=""></div>
+    <div class="render" id="prender">${steps.map(t=>'<div><b></b>'+t+'</div>').join('')}</div>`;
+    const rows=[...planBody.querySelectorAll('#prender div')];let k=0;
+    const nx=()=>{rows.forEach((r,j)=>r.className=j<k?'done':j===k?'on':'');if(k>=rows.length){P.step=6;planRender();return;}k++;setTimeout(nx,reduced?150:900);};nx();
+  } else {
+    const items=recommend(P);items.forEach(it=>it.sel=true);
+    const chL=P.channels.map(c=>CHL[c]);
+    const rationale=`For a ${LB[P.goal]||'listing'} ${LB[P.prop]||''} ${chL.length?'going to '+listJoin(chL):'ready for any channel'}, here's what we'd make. Keep the whole package, or pick just what you want:`;
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Recommended for you</div><h3>Your content package</h3><p class="hint">${rationale}</p></div>
+    <div class="pkg">${items.map((it,i)=>`<button type="button" class="pkg-item" data-i="${i}" aria-pressed="true" style="animation-delay:${i*60}ms">${ic(it.icon)}<div class="pm"><div class="pt">${it.title}</div><div class="pmeta">${it.meta.concat(it.tags).map(m=>'<span>'+m+'</span>').join('')}</div></div><span class="pprice">$${it.price}</span><span class="pcheck"></span></button>`).join('')}</div>
+    <div class="pkg-sum"><div><div class="pkg-price" id="pkgPrice"></div><div class="saveline" id="saveLine"></div></div>
+    <div class="actions" style="margin:0"><button class="btn ghost" id="predo" type="button">Start over</button><button class="btn amber" id="pcreate" type="button">Create this package</button></div></div>`;
+    const upd=()=>{const s=items.filter(i=>i.sel),sum=s.reduce((a,i)=>a+i.price,0),all=items.length>0&&items.every(i=>i.sel),total=all?Math.round(sum*0.85):sum;
+      $('pkgPrice').innerHTML=`$${total}<small> · ${s.length} ${s.length===1?'piece':'pieces'}</small>`;
+      $('saveLine').textContent=all?`Full package — you save $${sum-total}`:(s.length?'Add the rest to save 15%':'Pick at least one piece');
+      const cb=$('pcreate');cb.disabled=!s.length;cb.textContent=all?'Create this package':'Create selected';};
+    planBody.querySelectorAll('.pkg-item').forEach(b=>b.onclick=()=>{const it=items[+b.dataset.i];it.sel=!it.sel;b.setAttribute('aria-pressed',it.sel);upd();});
+    upd();
+    $('predo').onclick=()=>{P.step=0;P.goal=P.prop=P.vibe=null;P.channels=[];planRender();};
+    $('pcreate').onclick=()=>{closePlan();openStudio();/* BACKEND: queue a package job from the SELECTED items in `items` + P */};
+  }
+}
+function openPlan(){planModal.hidden=false;document.body.style.overflow='hidden';planRender();planModal.querySelector('.x').focus();}
+document.getElementById('openPlan').onclick=openPlan;
+document.getElementById('closePlan').onclick=closePlan;
+document.querySelectorAll('a[href="#plan"]').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();openPlan();}));
+planModal.addEventListener('click',e=>{if(e.target===planModal)closePlan();});
+
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(!planModal.hidden)closePlan();else if(!acctModal.hidden)closeAcct();else if(!subModal.hidden)closeSub();else if(!modal.hidden)closeStudio();});
+})();
+</script>
+</body></html>

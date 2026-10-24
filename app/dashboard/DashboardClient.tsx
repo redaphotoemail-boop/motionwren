@@ -44,7 +44,7 @@ export default function DashboardClient() {
   }
 
   return <main className="dashboard-shell">
-    <header className="dashboard-header"><a className="client-brand" href="/dashboard"><span>FM</span> FRAME MOTION</a><nav><a href="/">Client page</a><a href="/studio">Production studio</a></nav></header>
+    <header className="dashboard-header"><a className="client-brand" href="/dashboard"><span>MW</span> MOTIONWREN</a><nav><a href="/">Client page</a><a href="/studio">Production studio</a></nav></header>
     <section className="dashboard-title"><div><p className="client-kicker">OWNER DASHBOARD</p><h1>Production queue</h1><p>Every client, source photo and production decision in one place.</p></div><button onClick={loadJobs}>Refresh</button></section>
     <section className="dashboard-metrics"><article><span>New</span><strong>{counts.new}</strong><small>Ready to review</small></article><article><span>Production</span><strong>{counts.production}</strong><small>Being created</small></article><article><span>Review</span><strong>{counts.review}</strong><small>Waiting on client</small></article><article><span>Delivered</span><strong>{counts.delivered}</strong><small>Completed projects</small></article></section>
     <section className="dashboard-workspace">
