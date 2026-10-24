@@ -1,16 +1,85 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Icon } from "./ui-icon";
 import { chatGPTSignInPath } from "./chatgpt-auth";
 
+const WrenMark = ({ compact = false }: { compact?: boolean }) => (
+  <span className={compact ? "mw-logo compact" : "mw-logo"} aria-label="MotionWren">
+    <Image src="/motionwren/motionwren-icon.png" alt="" aria-hidden="true" width={34} height={34} unoptimized />
+    <strong>MotionWren</strong>
+  </span>
+);
+
 export default function HomePage() {
   const accountPath = chatGPTSignInPath("/dashboard");
-  return <main className="business-site">
-    <nav className="business-nav"><Link className="brand" href="/"><span className="brand-mark">FM</span><span>FRAME MOTION STUDIO</span></Link><div><Link href="#process">How it works</Link><Link href="#pricing">Pricing</Link><a className="portal-link" href={accountPath} target="_top"><Icon name="projects" size={15}/>Customer Portal</a><a className="manager-link" href="/admin" target="_top"><Icon name="dashboard" size={15}/>Manager</a><a className="sign-in-link" href={accountPath} target="_top"><Icon name="sign-in" size={16}/>Sign in</a><a className="nav-cta" href={accountPath} target="_top">Create account</a></div></nav>
-    <section className="business-hero"><div><p className="eyebrow">PROPERTY VIDEO, SIMPLIFIED</p><h1>Your photos. One finished property video.</h1><p>Upload the listing photographs and details. We handle the motion, editing, branding and delivery.</p><div className="hero-actions"><a className="primary-action" href={accountPath} target="_top">Create account</a><Link className="secondary-action" href="#process">How it works</Link></div><div className="trust-row"><span><Icon name="shield" size={15}/>Private storage</span><span><Icon name="quality" size={15}/>1080p delivery</span><span><Icon name="history" size={15}/>Saved history</span></div></div><div className="hero-console"><span className="console-label">YOUR DELIVERY</span><div className="console-frame"><div className="console-play">▶</div><strong>12 Beacon Hill Road</strong><small>Ready to download · 1080p</small></div><div className="console-progress"><span>Photos</span><strong>Uploaded</strong></div><div className="console-progress"><span>Video</span><strong>Finished</strong></div><div className="console-progress"><span>History</span><strong>Saved</strong></div></div></section>
-    <section id="process" className="business-section simple-process"><div className="section-intro"><span>HOW IT WORKS</span><h2>Three clear steps. No editing software.</h2></div><div className="business-grid three"><article><b><Icon name="home"/></b><span>01</span><h3>Add the property</h3><p>Enter the listing and agent information.</p></article><article><b><Icon name="upload"/></b><span>02</span><h3>Upload the photos</h3><p>Choose the order and delivery format.</p></article><article><b><Icon name="finish"/></b><span>03</span><h3>Receive the video</h3><p>Preview, download and find it anytime in History.</p></article></div></section>
-    <section id="quality" className="business-section dark"><div className="section-intro"><span>02 · PRODUCTION STANDARD</span><h2>Designed around property accuracy, not random animation.</h2></div><div className="quality-list"><div><Icon name="motion"/><strong>Camera-only property motion</strong><p>Furniture, architecture, décor and property features remain locked while the virtual camera moves.</p></div><div><Icon name="finish"/><strong>True visual crossfades</strong><p>Multi-shot scenes overlap in the final edit instead of relying on browser recording or abrupt joins.</p></div><div><Icon name="storage"/><strong>Durable delivery</strong><p>Completed files are copied into private storage and remain attached to the customer’s project history.</p></div></div></section>
-    <section id="pricing" className="business-section pricing-section"><div className="section-intro"><span>03 · PRICING</span><h2>Simple credits with room to scale.</h2></div><div className="pricing-grid"><article><span>SINGLE</span><h3>$29</h3><b>1 video credit</b><p>A complete property video up to 20 seconds in 1080p.</p><a href={accountPath} target="_top">Start one project</a></article><article className="featured"><span>FIVE-PACK</span><h3>$125</h3><b>5 video credits · $25 each</b><p>For active agents and photographers with several listings.</p><a href={accountPath} target="_top">Open workspace</a></article><article><span>PRO</span><h3>$199<small>/month</small></h3><b>10 credits each month</b><p>Lower per-video cost, centralized history and production tracking.</p><a href={accountPath} target="_top">View your account</a></article></div><p className="pricing-note">Private beta pricing. Checkout activates after the billing account and refund policy are verified.</p></section>
-    <section className="business-cta"><span>FRAME MOTION STUDIO</span><h2>Your next property video starts with the images you already have.</h2><a className="primary-action" href={accountPath} target="_top">Open workspace</a></section>
-    <footer className="business-footer"><span>© {new Date().getFullYear()} Frame Motion Studio</span><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href={accountPath} target="_top">Sign in</a></div></footer>
+
+  return <main className="motionwren-site">
+    <nav className="mw-nav" aria-label="Main navigation">
+      <div className="mw-wrap">
+        <Link href="/" className="mw-home"><WrenMark /></Link>
+        <div className="mw-navlinks">
+          <Link href="#how">How it works</Link>
+          <Link href="#pricing">Pricing</Link>
+          <a className="sign-in-link" href={accountPath} target="_top">Sign in</a>
+          <a className="mw-button small" href={accountPath} target="_top">Create account</a>
+        </div>
+      </div>
+    </nav>
+
+    <header className="mw-hero mw-wrap">
+      <p className="mw-eyebrow">PROPERTY VIDEO, SIMPLIFIED</p>
+      <h1>Listing photos,<br/><em>brought to life.</em></h1>
+      <p>Professional property videos made from the photos you already have—motion, pacing, branding and delivery included.</p>
+      <div className="mw-actions">
+        <a className="mw-button" href={accountPath} target="_top">Create your video <Icon name="arrow" size={16}/></a>
+        <Link className="mw-button ghost" href="#how">See how it works</Link>
+      </div>
+      <small>No editing software. Your projects and finished files stay together in one workspace.</small>
+    </header>
+
+    <section className="mw-film mw-wrap" aria-label="MotionWren property video preview">
+      <Image src="/og.png" alt="Preview of a finished MotionWren property film" width={1200} height={675} priority unoptimized />
+      <div className="mw-film-shade" />
+      <div className="mw-film-top"><span><i/> MOTIONWREN FILM</span><span>16:9 · 1080P</span></div>
+      <div className="mw-film-card"><span>PROPERTY FILM</span><strong>Architecture stays true.<br/>The camera does the moving.</strong><small>Camera-only motion · smooth pacing · polished delivery</small></div>
+      <div className="mw-film-progress" />
+    </section>
+
+    <section id="how" className="mw-section mw-wrap mw-center">
+      <p className="mw-eyebrow">HOW IT WORKS</p>
+      <h2>Three clear steps.<br/>No editing software.</h2>
+      <div className="mw-steps">
+        <article><span>01</span><Icon name="home"/><h3>Add the property</h3><p>Paste a listing link or enter the essentials yourself.</p></article>
+        <article><span>02</span><Icon name="upload"/><h3>Upload your photos</h3><p>Put them in the order you want and choose the format.</p></article>
+        <article><span>03</span><Icon name="finish"/><h3>Receive the film</h3><p>Track production, download the result and find it later.</p></article>
+      </div>
+    </section>
+
+    <section className="mw-section mw-surface">
+      <div className="mw-wrap mw-split">
+        <div><p className="mw-eyebrow">PROPERTY ACCURACY</p><h2>Built for homes,<br/>not random animation.</h2><p>The production system is designed around camera-only movement. Architecture, furniture, lighting and important listing details stay visually stable while the shot moves.</p></div>
+        <div className="mw-quality">
+          <article><Icon name="motion"/><span><strong>Purposeful motion</strong><small>Movement selected for the room and frame.</small></span></article>
+          <article><Icon name="finish"/><span><strong>Professional assembly</strong><small>Multi-shot films use real crossfades and consistent pacing.</small></span></article>
+          <article><Icon name="storage"/><span><strong>Durable delivery</strong><small>Originals and finished videos remain attached to your project.</small></span></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing" className="mw-section mw-wrap mw-center">
+      <p className="mw-eyebrow">SIMPLE PRICING</p>
+      <h2>Start with one property.<br/>Scale when you need to.</h2>
+      <div className="mw-pricing">
+        <article><span>SINGLE</span><h3>$29</h3><strong>One complete property video</strong><p>Up to 20 seconds in 1080p, with project history and delivery.</p><a href={accountPath} target="_top">Start one project</a></article>
+        <article className="featured"><span>FIVE-PACK</span><h3>$125</h3><strong>Five video credits</strong><p>For active agents and photographers managing several listings.</p><a href={accountPath} target="_top">Open your workspace</a></article>
+        <article><span>PRO</span><h3>$199<small>/month</small></h3><strong>Ten credits each month</strong><p>Centralized production tracking and a lower per-video cost.</p><a href={accountPath} target="_top">View your account</a></article>
+      </div>
+    </section>
+
+    <section className="mw-final">
+      <div className="mw-wrap"><WrenMark compact/><h2>Your next property video starts with the images you already have.</h2><a className="mw-button amber" href={accountPath} target="_top">Create account</a></div>
+    </section>
+
+    <footer className="mw-footer"><div className="mw-wrap"><WrenMark compact/><span>© {new Date().getFullYear()} MotionWren</span><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href={accountPath} target="_top">Sign in</a></div></div></footer>
   </main>;
 }

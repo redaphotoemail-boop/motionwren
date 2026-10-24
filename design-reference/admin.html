@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>MotionWren Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F4F5F2;--surface:#FFFFFF;--ink:#14161A;--muted:#61666E;--line:#E2E4DF;--amber:#E9A23B;--amber-ink:#93560A;--good:#1F7A4D;--bad:#B3341F;
+--display:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif;--body:"Geist",-apple-system,"Segoe UI",Roboto,sans-serif;--mono:"Geist Mono",ui-monospace,Menlo,monospace;
+--gut:max(16px,env(safe-area-inset-left,0px));--gutr:max(16px,env(safe-area-inset-right,0px))}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#0E1014;--surface:#161920;--ink:#F1F1EC;--muted:#9BA1A9;--line:#252932;--amber:#F0AE4E;--amber-ink:#F0AE4E;--good:#4CC38A;--bad:#FF8A73;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#0E1014;--surface:#161920;--ink:#F1F1EC;--muted:#9BA1A9;--line:#252932;--amber:#F0AE4E;--amber-ink:#F0AE4E;--good:#4CC38A;--bad:#FF8A73;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font:400 15px/1.5 var(--body);-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+aside{position:sticky;top:0;height:100vh;padding:22px 14px;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:6px;padding-left:max(14px,env(safe-area-inset-left,0px))}
+.brand{display:flex;align-items:center;gap:10px;font:700 18px var(--display);letter-spacing:-.02em;padding:4px 10px 18px}
+.brand small{font:500 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--amber-ink);background:var(--paper);padding:4px 7px;border-radius:6px;margin-left:2px}
+.nav{appearance:none;border:0;background:none;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;color:var(--muted);font-weight:500}
+.nav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nav:hover{background:var(--paper)}
+.nav[aria-current="page"]{background:var(--paper);color:var(--ink)}
+.nav:focus-visible,.seg button:focus-visible,.tgl:focus-visible,.btn:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.spacer{flex:1}
+.back{color:var(--muted);text-decoration:none;font-size:13px;padding:10px 12px}
+.back:hover{color:var(--ink)}
+main{padding:28px clamp(16px,3vw,40px) 60px;min-width:0;padding-right:max(clamp(16px,3vw,40px),env(safe-area-inset-right,0px))}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+h1{font:600 clamp(26px,3vw,34px)/1.1 var(--display);letter-spacing:-.025em;margin:0}
+.sub{color:var(--muted);margin:6px 0 0;font-size:14px}
+.seg{display:inline-flex;background:var(--surface);border-radius:999px;padding:4px;box-shadow:inset 0 0 0 1px var(--line)}
+.seg button{appearance:none;border:0;background:none;cursor:pointer;padding:8px 14px;border-radius:999px;font-weight:500;font-size:13px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+.card{background:var(--surface);border-radius:18px;padding:20px;min-width:0}
+.card h2{font:600 15px var(--body);margin:0 0 4px}
+.card .hint{color:var(--muted);font-size:13px;margin:0 0 14px}
+.k .l{color:var(--muted);font-size:13px}
+.k .v{font:600 clamp(26px,2.6vw,34px)/1.1 var(--display);letter-spacing:-.02em;margin-top:8px}
+.k .d{font:500 12px var(--mono);margin-top:8px;color:var(--muted)}
+.up{color:var(--good)}.dn{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:12px;margin-bottom:12px}
+.chart{position:relative;height:210px}
+.chart svg{width:100%;height:100%;display:block;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--paper);font:500 12px var(--mono);padding:7px 10px;border-radius:8px;white-space:nowrap;transform:translate(-50%,-110%);opacity:0;transition:opacity .1s}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:10px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{font:500 11px var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:left;padding:0 12px 10px 0;white-space:nowrap}
+td{padding:13px 12px 13px 0;border-top:1px solid var(--line);vertical-align:middle}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.mono{font-family:var(--mono);font-size:13px}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+.tw table{min-width:620px}
+.pill{display:inline-flex;align-items:center;gap:6px;font:500 12px var(--mono);padding:4px 10px;border-radius:999px;background:var(--paper)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.pill.ok i{background:var(--good)}.pill.work i{background:var(--amber)}.pill.err i{background:var(--bad)}
+.pill.work i{animation:b 1.2s infinite}@keyframes b{50%{opacity:.3}}
+.engines{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.eng{display:flex;flex-direction:column;gap:14px}
+.eng header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.eng h3{font:600 18px var(--display);margin:0;letter-spacing:-.01em}
+.eng .role{color:var(--muted);font-size:13px;margin-top:2px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stats div{background:var(--paper);border-radius:12px;padding:11px 12px}
+.stats b{display:block;font:600 18px var(--display)}
+.stats span{font-size:12px;color:var(--muted)}
+.row2{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--line)}
+.row2:first-of-type{border-top:0}
+.row2 small{display:block;color:var(--muted);font-size:13px}
+.tgl{appearance:none;border:0;cursor:pointer;width:42px;height:24px;border-radius:99px;background:var(--line);position:relative;flex:none;transition:background .15s}
+.tgl::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--surface);transition:transform .15s}
+.tgl[aria-checked="true"]{background:var(--amber)}.tgl[aria-checked="true"]::after{transform:translateX(18px)}
+.btn{appearance:none;border:0;cursor:pointer;font:600 13px var(--body);padding:10px 16px;border-radius:999px;background:var(--ink);color:var(--paper)}
+.btn.ghost{background:transparent;box-shadow:inset 0 0 0 1px var(--line);color:var(--ink)}
+input.in{font:500 15px var(--body);color:var(--ink);background:var(--paper);border:0;border-radius:10px;padding:10px 12px;width:110px;text-align:right}
+input.in:focus-visible{outline:3px solid var(--amber)}
+.note{background:var(--paper);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--muted);margin-top:14px}
+.tabbar{display:none}
+.demo{font:500 11px var(--mono);color:var(--muted);letter-spacing:.06em}
+@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.engines{grid-template-columns:1fr}}
+@media (max-width:820px){
+  .app{grid-template-columns:1fr}
+  aside{position:static;height:auto;flex-direction:row;align-items:center;overflow-x:auto;padding:10px var(--gutr) 10px var(--gut);border-right:0;border-bottom:1px solid var(--line);gap:4px}
+  .brand{padding:0 10px 0 0}.brand small,.back,.spacer{display:none}
+  .nav{white-space:nowrap;padding:9px 12px}
+}
+
+.click{cursor:pointer}
+tr.click:hover td{background:var(--paper)}
+.row2.click:hover{background:var(--paper);border-radius:10px}
+.lnk{appearance:none;background:none;border:0;cursor:pointer;font:500 13px var(--mono);color:var(--amber-ink);padding:2px 0;text-decoration:underline;text-underline-offset:3px}
+.lnk:focus-visible,.row2.click:focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:6px}
+.dim{color:var(--muted);font-size:12px;margin-top:2px}
+.more{font:500 11px var(--mono);background:var(--paper);border-radius:99px;padding:2px 7px;margin-left:2px}
+.drawer{position:fixed;inset:0;z-index:60;background:rgba(10,12,18,.55);backdrop-filter:blur(6px);display:flex;justify-content:flex-end}
+.dpanel{width:min(540px,100%);height:100%;background:var(--surface);overflow:auto;-webkit-overflow-scrolling:touch;animation:slide .25s cubic-bezier(.2,.8,.2,1);padding-bottom:env(safe-area-inset-bottom,0px)}
+@keyframes slide{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+.dbar{position:sticky;top:0;z-index:2;background:var(--surface);display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px max(20px,env(safe-area-inset-right,0px)) 14px 22px;border-bottom:1px solid var(--line)}
+.dbar h2{font:600 18px var(--display);margin:0;letter-spacing:-.01em}
+.dx{width:38px;height:38px;border-radius:50%;border:0;background:var(--paper);color:var(--ink);font-size:22px;cursor:pointer;flex:none}
+.dx:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.dbody{padding:20px max(22px,env(safe-area-inset-right,0px)) 40px 22px}
+.dbody h3{font:600 13px var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:30px 0 10px}
+.dsum{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.alert{background:var(--paper);border-left:3px solid var(--bad);border-radius:10px;padding:12px 14px;margin-top:14px;font-size:14px}
+.dkpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.dkpis div{background:var(--paper);border-radius:14px;padding:14px}
+.dkpis span{font-size:12px;color:var(--muted);display:block}
+.dkpis b{font:600 24px var(--display);display:block;margin-top:4px;letter-spacing:-.02em}
+.dkpis small{font-size:11px;color:var(--muted)}
+table.tight{min-width:0}
+table.tight td,table.tight th{padding-right:10px}
+.crow{display:grid;grid-template-columns:minmax(110px,1.1fr) 1.2fr 64px;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.crow:first-of-type{border-top:0}
+.crow .cl span{display:block;font-weight:500}.crow .cl small{color:var(--muted);font-size:12px}
+.crow b{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.cb{height:8px;border-radius:99px;background:var(--paper);overflow:hidden}.cb i{display:block;height:100%;background:var(--amber);border-radius:99px}
+.crow.tot{border-top:2px solid var(--ink);margin-top:4px}.crow.tot b{font:600 18px var(--display)}
+.facts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 14px}
+.facts div{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.facts span{color:var(--muted)}
+.tl{display:grid;grid-template-columns:14px 1fr auto;gap:12px;align-items:center;padding:7px 0;font-size:14px}
+.tl i{width:8px;height:8px;border-radius:50%;background:var(--amber)}
+.tl small{color:var(--muted);font:500 12px var(--mono)}
+.dact{display:flex;gap:8px;flex-wrap:wrap;margin-top:28px}
+@media (max-width:560px){.dkpis{grid-template-columns:1fr}.facts{grid-template-columns:1fr}.dkpis div{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.dkpis b{margin:0}}
+.dbody{overflow-wrap:anywhere}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head>
+<body>
+<div class="app">
+<aside aria-label="Manager navigation">
+  <div class="brand"><svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg>MotionWren<small>Manager</small></div>
+  <button class="nav" data-tab="overview" aria-current="page"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
+  <button class="nav" data-tab="jobs"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>Videos</button>
+  <button class="nav" data-tab="engines"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>Engines</button>
+  <button class="nav" data-tab="customers"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.5 3.200-5.500 6.500-5.500s5.900 2 6.500 5.500"/><path d="M16 4.500a3.500 3.500 0 0 1 0 7M18 14.800c1.800.7 3 2.400 3.500 5.200"/></svg>Customers</button>
+  <button class="nav" data-tab="settings"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Settings</button>
+  <div class="spacer"></div>
+  <a class="back" href="https://claude.ai/artifact/2tgkTxEEHstqpi4Y8SSSUu">← Back to site</a>
+</aside>
+
+<main>
+  <section id="overview">
+    <div class="top"><div><h1>Good morning, Reda.</h1><p class="sub">Here's how MotionWren is doing. <span class="demo">· SAMPLE DATA</span></p></div>
+      <div class="seg" role="group" aria-label="Date range"><button aria-pressed="false" data-range="7">7 days</button><button aria-pressed="true" data-range="30">30 days</button></div></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div class="card"><h2>Revenue per day</h2><p class="hint" id="revHint"></p><div class="chart" id="revChart"></div></div>
+      <div class="card"><h2>Right now</h2><p class="hint">Videos in the pipeline</p><div id="live"></div></div>
+    </div>
+    <div class="card"><h2>Needs your attention</h2><p class="hint">Only things that need a human</p><div id="attn"></div></div>
+  </section>
+
+  <section id="jobs" hidden>
+    <div class="top"><div><h1>Videos</h1><p class="sub">Every order, what it cost to make and what it earned.</p></div>
+      <div class="seg" role="group" aria-label="Filter"><button aria-pressed="true" data-f="all">All</button><button aria-pressed="false" data-f="work">Rendering</button><button aria-pressed="false" data-f="err">Failed</button><button aria-pressed="false" data-f="rev">Revisions</button></div></div>
+    <div class="card"><div class="tw"><table><thead><tr><th>Order</th><th>Customer</th><th>Property</th><th>What they got</th><th>Status</th><th class="num">Paid</th><th class="num">Cost</th><th class="num">Margin</th></tr></thead><tbody id="jobRows"></tbody></table></div></div>
+  </section>
+
+  <section id="engines" hidden>
+    <div class="top"><div><h1>Engines</h1><p class="sub">The services that make each video. Cost and reliability, side by side.</p></div></div>
+    <div class="engines" id="engCards"></div>
+    <div class="card" style="margin-top:12px"><h2>Cost by deliverable</h2><p class="hint">What each thing a customer can order costs you and earns you</p><div class="tw"><table><thead><tr><th>Deliverable</th><th>Format</th><th class="num">Sells for</th><th class="num">Costs you</th><th class="num">You keep</th></tr></thead><tbody id="delRows"></tbody></table></div></div>
+    <div class="card" style="margin-top:12px"><h2>Cost of one video</h2><p class="hint">What it costs to produce an average 30-second film today</p><div class="tw"><table><thead><tr><th>Step</th><th>Engine</th><th class="num">Cost</th></tr></thead><tbody id="costRows"></tbody></table></div></div>
+  </section>
+
+  <section id="customers" hidden>
+    <div class="top"><div><h1>Customers</h1><p class="sub">Who's buying, and who's coming back.</p></div></div>
+    <div class="card"><div class="tw"><table><thead><tr><th>Name</th><th>Plan</th><th class="num">Videos</th><th class="num">Spent</th><th>Last order</th></tr></thead><tbody id="custRows"></tbody></table></div></div>
+  </section>
+
+  <section id="settings" hidden>
+    <div class="top"><div><h1>Settings</h1><p class="sub">Prices, switches and connections.</p></div></div>
+    <div class="engines">
+      <div class="card"><h2>Prices</h2><p class="hint">Changing a price updates the website.</p>
+        <div class="row2"><div>Single video<small>One-time</small></div><label>$ <input class="in" type="text" inputmode="numeric" value="39" aria-label="Single video price"></label></div>
+        <div class="row2"><div>Agent plan<small>Per month · 5 videos</small></div><label>$ <input class="in" type="text" inputmode="numeric" value="99" aria-label="Agent price"></label></div>
+        <div class="row2"><div>Team plan<small>Per month · 20 videos</small></div><label>$ <input class="in" type="text" inputmode="numeric" value="299" aria-label="Team price"></label></div>
+        <div class="row2"><div>Full content package<small>Discount when all pieces are chosen</small></div><label><input class="in" type="text" inputmode="numeric" value="15" aria-label="Package discount percent"> %</label></div>
+        <div style="margin-top:14px"><button class="btn" id="savePrices" type="button">Save prices</button></div></div>
+      <div class="card"><h2>Switches</h2><p class="hint">Turn things on or off without code.</p>
+        <div class="row2"><div>Accept new orders<small>Pause if an engine is down</small></div><button class="tgl" role="switch" aria-checked="true" aria-label="Accept new orders"></button></div>
+        <div class="row2"><div>Include one free revision<small>Shown on the site and in emails</small></div><button class="tgl" role="switch" aria-checked="true" aria-label="Free revision"></button></div>
+        <div class="row2"><div>Content Studio<small>The package planner on the homepage</small></div><button class="tgl" role="switch" aria-checked="true" aria-label="Content Studio"></button></div>
+        <div class="row2"><div>Email me when a video fails<small>To reda.photoemail@gmail.com</small></div><button class="tgl" role="switch" aria-checked="true" aria-label="Failure emails"></button></div></div>
+      <div class="card"><h2>Connections</h2><p class="hint">Keys live on the server, never on this page.</p><div id="conns"></div></div>
+      <div class="card"><h2>Sign-in</h2><p class="hint">How customers and you log in.</p>
+        <div class="row2"><div>Google<small>Customers</small></div><span class="pill ok"><i></i>Ready to connect</span></div>
+        <div class="row2"><div>Apple<small>Customers</small></div><span class="pill ok"><i></i>Ready to connect</span></div>
+        <div class="row2"><div>Email link<small>Customers</small></div><span class="pill ok"><i></i>Ready to connect</span></div>
+        <div class="row2"><div>Owner access<small>Only your account can open this page</small></div><span class="pill ok"><i></i>Admin role</span></div></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dtitle">
+  <div class="dpanel">
+    <div class="dbar"><h2 id="dtitle">Order</h2><button class="dx" type="button" aria-label="Close">×</button></div>
+    <div class="dbody" id="dbody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const money=n=>(n<0?'-':'')+'$'+Math.abs(Math.round(n)).toLocaleString('en-US');
+const money2=n=>'$'+n.toFixed(2);
+
+/* ===== Sample data. BACKEND: replace each with a call to your API. ===== */
+let seed=7;const rnd=()=>{seed=(seed*9301+49297)%233280;return seed/233280;};
+const DAYS=30;
+const daily=Array.from({length:DAYS},(_,i)=>{const base=380+i*9+(i%7===5||i%7===6?-120:60);return Math.max(80,Math.round(base+rnd()*220));});
+const D={
+ film:{n:'Hero listing film',f:'16:9 · 30 sec',short:'16:9 film',price:39,c:[['Motion','Wan 3.0',2.90],['Music','ElevenLabs',.18],['Listing details','Listing reader',.01],['Assembly','Stitcher',.12],['Storage & delivery','Cloud storage',.03]]},
+ film60:{n:'Hero listing film',f:'16:9 · 60 sec',short:'16:9 film · 60s',price:39,c:[['Motion','Wan 3.0',5.60],['Music','ElevenLabs',.18],['Listing details','Listing reader',.01],['Assembly','Stitcher',.20],['Storage & delivery','Cloud storage',.05]]},
+ reel:{n:'Vertical reel',f:'9:16 · 15 sec',short:'9:16 reel',price:19,c:[['Motion','Wan 3.0',1.60],['Music','ElevenLabs',.10],['Assembly','Stitcher',.10],['Storage & delivery','Cloud storage',.02]]},
+ story:{n:'Story teaser',f:'9:16 · 6 sec',short:'9:16 story',price:9,c:[['Motion','Wan 3.0',.70],['Music','ElevenLabs',.05],['Assembly','Stitcher',.05],['Storage & delivery','Cloud storage',.01]]},
+ posts:{n:'Feed post set',f:'1:1 · 4 images',short:'1:1 posts',price:19,c:[['Stills & crops','Stitcher',.20],['Captions','Listing reader',.04],['Storage & delivery','Cloud storage',.02]]},
+ graphic:{n:'Announcement graphic',f:'1:1 · 1 image',short:'graphic',price:12,c:[['Stills & crops','Stitcher',.15],['Storage & delivery','Cloud storage',.01]]},
+ cover:{n:'Listing cover image',f:'16:9 · 1 image',short:'cover image',price:9,c:[['Stills & crops','Stitcher',.10],['Storage & delivery','Cloud storage',.01]]}
+};
+const NARR=['Narration','ElevenLabs',.42],REVC=['Revision re-render','Wan 3.0',1.40];
+/* BACKEND: each order comes from GET /api/admin/videos; every item carries its own cost lines recorded when it rendered. */
+const ORDERS=[
+ {id:'1042',cust:'Alex Morgan',email:'alex@brokerage.com',addr:'48 Harbor Ln, Marblehead',state:'work',plan:'Agent',paid:40,when:'Today, 6:02 AM',photos:14,music:'Dusk',narr:false,link:true,rev:0,items:['film','reel'],tl:[['Paid','6:02 AM'],['Rendering started','6:03 AM'],['Ready','—']]},
+ {id:'1041',cust:'Priya Shah',email:'priya@northshore.com',addr:'9 Cedar Ct, Newton',state:'work',plan:'Agent',paid:20,when:'Today, 5:48 AM',photos:10,music:'Linen',narr:false,link:true,rev:0,items:['film'],tl:[['Paid','5:48 AM'],['Rendering started','5:49 AM'],['Ready','—']]},
+ {id:'1040',cust:'Dana Reyes',email:'dana@reyesre.com',addr:'210 Ridge Rd, Hingham',state:'ok',plan:'Single',paid:48,when:'Yesterday',photos:12,music:'Golden hour',narr:false,link:true,rev:0,items:['film','cover'],tl:[['Paid','4:11 PM'],['Rendering started','4:12 PM'],['Ready','4:15 PM']]},
+ {id:'1039',cust:'Marcus Bell',email:'marcus@bellrealty.com',addr:'75 Beacon St, Boston',state:'err',plan:'Single',paid:39,when:'Today, 4:30 AM',photos:9,music:'Dusk',narr:false,link:false,rev:0,items:['film'],partial:[['Motion','Wan 3.0',1.10],['Listing details','Listing reader',.01]],err:'Wan 3.0 timed out on shot 4 of 6',tl:[['Paid','4:30 AM'],['Rendering started','4:31 AM'],['Failed','4:36 AM']]},
+ {id:'1038',cust:'Alex Morgan',email:'alex@brokerage.com',addr:'12 Alder St, Unit 4',state:'ok',plan:'Agent',paid:20,when:'Oct 21',photos:11,music:'Linen',narr:false,link:true,rev:0,items:['film'],tl:[['Paid','9:20 AM'],['Rendering started','9:21 AM'],['Ready','9:24 AM']]},
+ {id:'1037',cust:'Sofia Lindqvist',email:'sofia@lindqvistgroup.com',addr:'5 Lakeview Dr, Wayland',state:'rev',plan:'Team',paid:60,when:'Oct 20',photos:22,music:'Golden hour',narr:true,link:true,rev:1,items:['film60','reel','story','posts'],tl:[['Paid','2:05 PM'],['Rendering started','2:06 PM'],['Ready','2:13 PM'],['Revision requested','Oct 21']]},
+ {id:'1036',cust:'Chris Tanaka',email:'chris@tanakahomes.com',addr:'301 Main St, Concord',state:'ok',plan:'Team',paid:15,when:'Oct 19',photos:9,music:'Dusk',narr:false,link:true,rev:0,items:['film'],tl:[['Paid','11:40 AM'],['Rendering started','11:41 AM'],['Ready','11:44 AM']]},
+ {id:'1035',cust:'Priya Shah',email:'priya@northshore.com',addr:'22 Pine Ridge, Newton',state:'ok',plan:'Agent',paid:40,when:'Oct 17',photos:13,music:'Linen',narr:false,link:true,rev:0,items:['film','story'],tl:[['Paid','3:15 PM'],['Rendering started','3:16 PM'],['Ready','3:20 PM']]},
+ {id:'1034',cust:'Jordan Pike',email:'jordan@cohassethomes.com',addr:'8 Shore Rd, Cohasset',state:'ok',plan:'Single',paid:86,when:'Oct 16',photos:18,music:'Golden hour',narr:false,link:true,rev:0,items:['film','reel','story','posts'],tl:[['Paid','10:02 AM'],['Rendering started','10:03 AM'],['Ready','10:12 AM']]},
+ {id:'1033',cust:'Dana Reyes',email:'dana@reyesre.com',addr:'64 Mill St, Hingham',state:'ok',plan:'Single',paid:39,when:'Oct 14',photos:10,music:'Dusk',narr:false,link:true,rev:0,items:['film'],tl:[['Paid','1:30 PM'],['Rendering started','1:31 PM'],['Ready','1:34 PM']]}
+];
+/* Every cost line for an order, in one flat list: [category, engine, dollars, label] */
+function lines(o){
+  if(o.partial)return o.partial.map(l=>[l[0],l[1],l[2],'Partial render']);
+  let L=[];o.items.forEach(k=>D[k].c.forEach(l=>L.push([l[0],l[1],l[2],D[k].n+' · '+D[k].f])));
+  if(o.narr)L.push([NARR[0],NARR[1],NARR[2],'Narration']);
+  if(o.rev)L.push([REVC[0],REVC[1],REVC[2]*o.rev,'Revision']);
+  return L;
+}
+const costOf=o=>lines(o).reduce((a,l)=>a+l[2],0);
+const feeOf=o=>o.plan==='Single'?o.paid*.029+.30:0;
+const marginOf=o=>o.paid-costOf(o)-feeOf(o);
+const STATE={ok:['ok','Ready'],work:['work','Rendering'],err:['err','Failed'],rev:['work','Revision']};
+const CUST=[
+ ['Alex Morgan','Agent',9,'$891','Today'],['Priya Shah','Agent',7,'$693','Today'],['Dana Reyes','Single',4,'$156','Yesterday'],
+ ['Sofia Lindqvist','Team',31,'$897','2 days ago'],['Chris Tanaka','Team',18,'$598','3 days ago'],['Marcus Bell','Single',1,'$39','Today'],['Jordan Pike','Single',3,'$117','5 days ago']
+];
+const ENG=[
+ {n:'Wan 3.0',via:'via Replicate',role:'Turns each photo into a moving shot',st:'ok',stl:'Healthy',cost:'$2.90',succ:'97.8%',lat:'2m 10s',spend:'$2,310',def:true},
+ {n:'ElevenLabs',via:'Music & voice',role:'Soundtrack and optional narration',st:'ok',stl:'Healthy',cost:'$0.18',succ:'99.9%',lat:'8s',spend:'$146',def:true},
+ {n:'Listing reader',via:'Reads the listing link',role:'Pulls price, beds, baths and address',st:'ok',stl:'Healthy',cost:'$0.01',succ:'96.2%',lat:'3s',spend:'$12',def:true},
+ {n:'Stitcher',via:'Your server',role:'Joins shots, title card and music into the final file',st:'ok',stl:'Healthy',cost:'$0.12',succ:'99.5%',lat:'25s',spend:'$95',def:true}
+];
+const CONN=[['Stripe','Payments & subscriptions','ok','Connected'],['Replicate','Wan 3.0','ok','Connected'],['ElevenLabs','Music & voice','ok','Connected'],['Storage','Photos & finished videos','ok','Connected'],['Email','Receipts & ready notices','work','Not set up']];
+
+/* ===== Tabs ===== */
+function tab(t){$$('main > section').forEach(s=>s.hidden=s.id!==t);$$('.nav').forEach(n=>n.toggleAttribute('aria-current',n.dataset.tab===t));$$('.nav').forEach(n=>{if(n.dataset.tab===t)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');});window.scrollTo(0,0);}
+$$('.nav').forEach(n=>n.onclick=()=>tab(n.dataset.tab));
+
+/* ===== Overview ===== */
+let range=30;
+function overview(){
+  const d=daily.slice(-range),prev=daily.slice(-range*2,-range).length?daily.slice(-range*2,-range):daily.slice(0,range);
+  const rev=d.reduce((a,b)=>a+b,0),pr=prev.reduce((a,b)=>a+b,0)||1;
+  const vids=Math.round(rev/32),cost=vids*3.4,margin=(rev-cost)/rev*100;
+  const delta=range===7?9:18;
+  const K=[['Revenue',money(rev),(delta>=0?'▲ ':'▼ ')+Math.abs(delta).toFixed(0)+'% vs before',delta>=0],['Videos made',vids,'avg '+money2(rev/vids)+' each',null],['Margin',margin.toFixed(0)+'%',money(rev-cost)+' kept',null],['Monthly subscribers','38','▲ 4 this month',true]];
+  $('#kpis').innerHTML=K.map(k=>`<div class="card k"><div class="l">${k[0]}</div><div class="v">${k[1]}</div><div class="d ${k[3]===true?'up':k[3]===false?'dn':''}">${k[2]}</div></div>`).join('');
+  $('#revHint').textContent='Last '+range+' days · '+money(rev)+' total';
+  chart(d);
+  const live=ORDERS.filter(o=>o.state==='work'||o.state==='rev').slice(0,3);
+  $('#live').innerHTML=live.map((o,i)=>`<div class="row2 click" data-o="${o.id}" tabindex="0" role="button"><div>${o.addr}<small>${o.cust} · ${gotText(o).replace(/<[^>]+>/g,'')}</small></div><span class="pill work"><i></i>${[58,34,81][i]}%</span></div>`).join('')||'<p class="hint">Nothing rendering.</p>';
+  $$('#live [data-o]').forEach(r=>{r.onclick=()=>openOrder(r.dataset.o,r);r.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openOrder(r.dataset.o,r);}};});
+  $('#attn').innerHTML=`<div class="row2"><div>Order #1039 failed during rendering<small>Marcus Bell · 75 Beacon St · paid $39 · retry or refund inside</small></div><div style="display:flex;gap:8px"><button class="btn" data-act="view39">Open order</button></div></div>
+  <div class="row2"><div>Order #1037 revision requested<small>Sofia Lindqvist · "Slow down the kitchen shot"</small></div><button class="btn ghost" data-act="view37">Open order</button></div>
+  <div class="row2"><div>Email sending isn't set up yet<small>Customers won't get "your video is ready" notices</small></div><button class="btn ghost" data-act="settings">Fix</button></div>`;
+  $$('[data-act]').forEach(b=>b.onclick=()=>{const a=b.dataset.act;if(a==='settings'){tab('settings');return;}openOrder(a==='view39'?'1039':'1037',b);});
+}
+$$('[data-range]').forEach(b=>b.onclick=()=>{range=+b.dataset.range;$$('[data-range]').forEach(x=>x.setAttribute('aria-pressed',x===b));overview();});
+
+function chart(d){
+  const host=$('#revChart'),W=720,H=210,pl=40,pb=24,pt=8,max=Math.ceil(Math.max(...d)/200)*200;
+  const bw=(W-pl)/d.length,g=Math.min(6,bw*.28);
+  let s=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Revenue per day, last ${range} days">`;
+  for(let i=0;i<=2;i++){const y=pt+(H-pt-pb)*(1-i/2);s+=`<line x1="${pl}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${pl-8}" y="${y+4}" text-anchor="end" font-size="11" font-family="Geist Mono" fill="var(--muted)">${money(max*i/2)}</text>`;}
+  d.forEach((v,i)=>{const h=(H-pt-pb)*v/max,x=pl+i*bw+g/2,y=H-pb-h;
+    s+=`<rect x="${x}" y="${y}" width="${bw-g}" height="${h}" rx="3" fill="var(--amber)" data-i="${i}"/>`;
+    s+=`<rect x="${pl+i*bw}" y="0" width="${bw}" height="${H-pb}" fill="transparent" data-i="${i}" class="hit"/>`;});
+  const lab=range===7?d.map((_,i)=>i):[0,Math.floor(d.length/2),d.length-1];
+  lab.forEach(i=>{const day=new Date(2026,9,24-(d.length-1-i));s+=`<text x="${pl+i*bw+bw/2}" y="${H-6}" text-anchor="middle" font-size="11" font-family="Geist Mono" fill="var(--muted)">${day.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</text>`;});
+  s+='</svg><div class="tip" id="tip"></div>';host.innerHTML=s;
+  const tip=$('#tip');
+  host.querySelectorAll('.hit').forEach(r=>{r.addEventListener('mousemove',e=>{const i=+r.dataset.i,day=new Date(2026,9,24-(d.length-1-i));
+    const rb=host.getBoundingClientRect();tip.textContent=day.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · '+money(d[i]);
+    tip.style.left=(e.clientX-rb.left)+'px';tip.style.top=(e.clientY-rb.top)+'px';tip.style.opacity=1;});
+    r.addEventListener('mouseleave',()=>tip.style.opacity=0);});
+}
+
+/* ===== Videos ===== */
+let jf='all';
+function gotText(o){const a=o.items.map(k=>D[k].short);return a.length>2?a.slice(0,2).join(' · ')+' <span class="more">+'+(a.length-2)+'</span>':a.join(' · ');}
+function jobs(){
+  const rows=ORDERS.filter(o=>jf==='all'||(jf==='work'&&o.state==='work')||(jf==='err'&&o.state==='err')||(jf==='rev'&&o.state==='rev'));
+  $('#jobRows').innerHTML=rows.map(o=>{const st=STATE[o.state],m=marginOf(o);return `<tr class="click" data-o="${o.id}"><td class="mono"><button class="lnk" data-o="${o.id}" type="button">#${o.id}</button></td><td>${o.cust}<div class="dim">${o.plan==='Single'?'One-time':o.plan+' plan'}</div></td><td>${o.addr}</td><td>${gotText(o)}</td><td><span class="pill ${st[0]}"><i></i>${st[1]}</span></td><td class="num">${money2(o.paid)}</td><td class="num">${money2(costOf(o))}</td><td class="num ${m<8?'dn':''}">${money2(m)}</td></tr>`;}).join('')||'<tr><td colspan="8" style="color:var(--muted)">Nothing here.</td></tr>';
+  $$('#jobRows tr[data-o]').forEach(r=>r.onclick=()=>openOrder(r.dataset.o,r.querySelector('.lnk')));
+}
+$$('[data-f]').forEach(b=>b.onclick=()=>{jf=b.dataset.f;$$('[data-f]').forEach(x=>x.setAttribute('aria-pressed',x===b));jobs();});
+
+/* ===== Order detail drawer ===== */
+const drawer=$('#drawer'),dbody=$('#dbody');let lastFocus=null;
+function closeOrder(){drawer.hidden=true;document.body.style.overflow='';lastFocus&&lastFocus.focus&&lastFocus.focus();}
+function openOrder(id,from){
+  const o=ORDERS.find(x=>x.id===id);if(!o)return;lastFocus=from||document.activeElement;
+  const st=STATE[o.state],cost=costOf(o),fee=feeOf(o),m=marginOf(o),L=lines(o);
+  const cats={};L.forEach(l=>{const k=l[0]+'|'+l[1];cats[k]=(cats[k]||0)+l[2];});
+  const catRows=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+  const mx=catRows.length?catRows[0][1]:1;
+  $('#dtitle').textContent='#'+o.id+' · '+o.addr;
+  const itemRows=o.items.map(k=>{const it=D[k],c=o.partial?0:it.c.reduce((a,l)=>a+l[2],0);return `<tr><td><b>${it.n}</b><div class="dim">${it.f}</div></td><td class="num">${o.plan==='Single'?money2(it.price):'—'}</td><td class="num">${o.partial?'—':money2(c)}</td></tr>`;}).join('');
+  dbody.innerHTML=`
+   <div class="dsum"><span class="pill ${st[0]}"><i></i>${st[1]}</span><span class="dim">${o.cust} · ${o.email}</span></div>
+   ${o.err?`<div class="alert"><b>Failed:</b> ${o.err}. Customer was charged ${money2(o.paid)}.</div>`:''}
+   <div class="dkpis"><div><span>Paid</span><b>${money2(o.paid)}</b><small>${o.plan==='Single'?'One-time':o.plan+' plan credits'}</small></div><div><span>Cost to make</span><b>${money2(cost)}</b><small>${o.partial?'Partial render':L.length+' cost lines'}</small></div>${o.state==='err'?`<div><span>If you refund</span><b class="dn">-${money2(cost)}</b><small>Engine cost already spent</small></div>`:`<div><span>You keep</span><b class="${m<8?'dn':'up'}">${money2(m)}</b><small>${o.plan==='Single'?'After ~'+money2(fee)+' card fee':'Fee on monthly charge'}</small></div>`}</div>
+
+   <h3>What they got</h3>
+   <div class="tw"><table class="tight"><thead><tr><th>Deliverable</th><th class="num">Price</th><th class="num">Cost</th></tr></thead><tbody>${itemRows}</tbody></table></div>
+   ${o.plan!=='Single'?'<p class="dim" style="margin:8px 0 0">Subscription order: price is the share of the monthly plan, not charged separately.</p>':''}
+
+   <h3>Where the cost went</h3>
+   ${catRows.map(r=>{const [cat,eng]=r[0].split('|');return `<div class="crow"><div class="cl"><span>${cat}</span><small>${eng}</small></div><div class="cb"><i style="width:${Math.max(4,r[1]/mx*100)}%"></i></div><b>${money2(r[1])}</b></div>`;}).join('')}
+   <div class="crow tot"><div class="cl"><span>Total cost</span></div><div></div><b>${money2(cost)}</b></div>
+
+   <h3>What they used</h3>
+   <div class="facts">
+     <div><span>Photos uploaded</span><b>${o.photos}</b></div>
+     <div><span>Music</span><b>${o.music}</b></div>
+     <div><span>Narration</span><b>${o.narr?'Yes':'No'}</b></div>
+     <div><span>Listing link</span><b>${o.link?'Imported':'None'}</b></div>
+     <div><span>Revisions used</span><b>${o.rev} of 1 free</b></div>
+     <div><span>Ordered</span><b>${o.when}</b></div>
+   </div>
+
+   <h3>Timeline</h3>
+   ${o.tl.map(t=>`<div class="tl"><i></i><span>${t[0]}</span><small>${t[1]}</small></div>`).join('')}
+
+   <div class="dact">
+     ${o.state==='err'?'<button class="btn" data-a="retry" type="button">Retry render</button><button class="btn ghost" data-a="refund" type="button">Refund '+money2(o.paid)+'</button>':''}
+     ${o.state==='ok'||o.state==='rev'?'<button class="btn" data-a="files" type="button">Open files</button>':''}
+     ${o.state==='rev'?'<button class="btn ghost" data-a="rerender" type="button">Start revision</button>':''}
+     <button class="btn ghost" data-a="msg" type="button">Email ${o.cust.split(' ')[0]}</button>
+   </div>`;
+  dbody.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{/* BACKEND: retry job / refund payment / open signed files / start revision / compose email. */const a=b.dataset.a;b.textContent=({retry:'Retrying…',refund:'Refunded ✓',files:'Opening…',rerender:'Revision started ✓',msg:'Draft opened ✓'})[a];b.disabled=true;});
+  drawer.hidden=false;document.body.style.overflow='hidden';drawer.querySelector('.dx').focus();drawer.querySelector('.dpanel').scrollTop=0;
+}
+$('.dx').onclick=closeOrder;drawer.addEventListener('click',e=>{if(e.target===drawer)closeOrder();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!drawer.hidden)closeOrder();});
+
+/* ===== Engines ===== */
+function engines(){
+  $('#delRows').innerHTML=['film','film60','reel','story','posts','graphic','cover'].map(k=>{const d=D[k],c=d.c.reduce((a,l)=>a+l[2],0);return `<tr><td>${d.n}</td><td class="mono">${d.f}</td><td class="num">${money2(d.price)}</td><td class="num">${money2(c)}</td><td class="num">${money2(d.price-c)}</td></tr>`;}).join('');
+  $('#engCards').innerHTML=ENG.map(e=>`<div class="card eng"><header><div><h3>${e.n}</h3><div class="role">${e.via} · ${e.role}</div></div><span class="pill ${e.st}"><i></i>${e.stl}</span></header>
+  <div class="stats"><div><b>${e.cost}</b><span>per video</span></div><div><b>${e.succ}</b><span>succeed</span></div><div><b>${e.lat}</b><span>typical time</span></div></div>
+  <div class="row2"><div>Spent this month<small>${e.spend}</small></div><button class="btn ghost" data-eng="${e.n}">View usage</button></div></div>`).join('');
+  $('#costRows').innerHTML=[['Motion for each photo','Wan 3.0',2.90],['Music','ElevenLabs',0.18],['Listing details','Listing reader',0.01],['Final assembly','Stitcher',0.12]].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="num">${money2(r[2])}</td></tr>`).join('')+`<tr><td><b>Total</b></td><td></td><td class="num"><b>$3.21</b></td></tr><tr><td colspan="3" style="color:var(--muted)">Sold at $39 · you keep about <b style="color:var(--ink)">$35.79</b> before payment fees</td></tr>`;
+  $$('[data-eng]').forEach(b=>b.onclick=()=>{/* BACKEND: open provider usage dashboard. */});
+}
+
+/* ===== Customers / Settings ===== */
+function customers(){$('#custRows').innerHTML=CUST.map(c=>`<tr><td>${c[0]}</td><td><span class="pill">${c[1]}</span></td><td class="num">${c[2]}</td><td class="num">${c[3]}</td><td>${c[4]}</td></tr>`).join('');}
+function settings(){
+  $('#conns').innerHTML=CONN.map(c=>`<div class="row2"><div>${c[0]}<small>${c[1]}</small></div><span class="pill ${c[2]}"><i></i>${c[3]}</span></div>`).join('');
+  $$('.tgl').forEach(t=>t.onclick=()=>{t.setAttribute('aria-checked',t.getAttribute('aria-checked')!=='true');/* BACKEND: save switch. */});
+  $('#savePrices').onclick=e=>{/* BACKEND: save prices; the site reads them from here. */e.target.textContent='Saved ✓';setTimeout(()=>e.target.textContent='Save prices',1600);};
+}
+overview();jobs();engines();customers();settings();
+})();
+</script>
+</body></html>

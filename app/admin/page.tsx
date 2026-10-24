@@ -66,7 +66,7 @@ export default function AdminDashboard() {
 
   return <main className="portal-shell admin-shell owner-dashboard">
     <header className="portal-header owner-header">
-      <Link className="brand" href="/"><span className="brand-mark">FM</span><span>Frame Motion</span></Link>
+      <Link className="brand" href="/"><span className="brand-mark">MW</span><span>MotionWren</span></Link>
       <nav><a href="#overview" className="active"><Icon name="dashboard" size={16}/>Manager</a><Link href="/admin/customers"><Icon name="user" size={16}/>Customers</Link><a href="#orders"><Icon name="orders" size={16}/>Orders</a><a href="#engines"><Icon name="motion" size={16}/>Engines</a><Link href="/dashboard"><Icon name="projects" size={16}/>Customer Portal</Link><Link href="/studio"><Icon name="studio" size={16}/>Studio</Link></nav>
       <div className="account-actions"><button className="refresh-admin" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button><a className="sign-out-link" href="/signout-with-chatgpt?return_to=%2F" target="_top">Sign out</a></div>
     </header>

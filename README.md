@@ -1,6 +1,6 @@
-# Frame Motion Studio
+# MotionWren
 
-Frame Motion Studio is a multi-tenant real-estate video SaaS. Customers sign in, import a public listing or enter its details, upload ordered property photos, and receive a finished 1080p video. Owners manage customers, projects, generation engines, production jobs, costs, storage, and deliveries from a protected operations dashboard.
+MotionWren is a multi-tenant real-estate video SaaS. Customers sign in, import a public listing or enter its details, upload ordered property photos, and receive a finished 1080p video. Owners manage customers, projects, generation engines, production jobs, costs, storage, and deliveries from a protected operations dashboard.
 
 Production site: https://framemotionstudio.storydezign.com
 

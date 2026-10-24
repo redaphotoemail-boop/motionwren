@@ -1,0 +1,343 @@
+<!doctype html><html lang="en"><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"></head><body><title>MotionWren Brand Book</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a long editorial spec sheet; each chapter is one idea with generous air. */
+:root{
+  --paper:#F4F5F2; --surface:#FFFFFF; --ink:#14161A; --muted:#61666E; --line:#E2E4DF;
+  --amber:#E9A23B; --amber-ink:#93560A; --dusk:#1C2440; --screen:#0B0D12;
+  --display:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif; --body:"Geist",-apple-system,"Segoe UI",sans-serif; --mono:"Geist Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#0E1014;--surface:#161920;--ink:#F1F1EC;--muted:#9BA1A9;--line:#252932;--amber-ink:#F0AE4E;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#0E1014;--surface:#161920;--ink:#F1F1EC;--muted:#9BA1A9;--line:#252932;--amber-ink:#F0AE4E;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font:400 16px/1.6 var(--body);-webkit-font-smoothing:antialiased;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1080px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.025em;margin:0;text-wrap:balance}
+.eb{font:500 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+section{padding-block:clamp(70px,10vw,130px);border-top:1px solid var(--line)}
+section>.wrap>h2{font-size:clamp(36px,5.4vw,64px);line-height:1;margin:16px 0 0}
+.lead{color:var(--muted);font-size:19px;max-width:52ch;margin:18px 0 0}
+.grid{display:grid;gap:clamp(16px,2.4vw,28px)}
+.grid>*{min-width:0}
+.g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g6{grid-template-columns:repeat(6,1fr)}
+@media (max-width:860px){.g3,.g6{grid-template-columns:repeat(2,1fr)}.g2{grid-template-columns:1fr}}
+@media (max-width:480px){.g3{grid-template-columns:1fr}}
+.panel{background:var(--surface);border-radius:20px;padding:clamp(20px,3vw,32px)}
+.mt{margin-top:48px}
+/* cover */
+.cover{padding-block:80px 90px;display:grid;grid-template-columns:1.1fr 1fr;gap:40px;align-items:center}
+.cover>*{min-width:0}
+@media (max-width:860px){.cover{grid-template-columns:1fr}}
+.cover h1{font-size:clamp(40px,6.4vw,84px);line-height:.95;letter-spacing:-.04em}
+.cover h1 .w{color:var(--amber-ink)}
+.cover p{font-size:20px;color:var(--muted);max-width:32ch;margin:20px 0 0}
+.strip{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;transform:rotate(-3deg)}
+.strip img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:12px;display:block}
+.strip img:nth-child(2){transform:translateY(28px)}
+/* names */
+.pick{background:var(--ink);color:var(--paper);border-radius:24px;padding:clamp(24px,4vw,44px);margin-top:12px;display:grid;grid-template-columns:auto 1fr;gap:32px;align-items:center}
+.pick>*{min-width:0}
+@media (max-width:640px){.pick{grid-template-columns:1fr}}
+.pick h3{font-size:clamp(28px,4vw,42px)}
+.pick p{opacity:.75;margin:10px 0 0;max-width:56ch}
+.pill{font:500 12px var(--mono);padding:4px 9px;border-radius:99px;background:color-mix(in srgb,var(--amber) 30%,transparent);color:#1a1206;white-space:nowrap}
+/* logo */
+.logo-tile{border-radius:20px;aspect-ratio:16/10;display:grid;place-items:center;max-width:100%}
+.lockup{display:flex;align-items:center;gap:14px;font:700 clamp(28px,4vw,44px)/1 var(--display);letter-spacing:-.035em}
+.cap{font:500 12px var(--mono);color:var(--muted);margin-top:12px;letter-spacing:.04em}
+/* colors */
+.sw{border-radius:18px;overflow:hidden;background:var(--surface)}
+.sw .c{aspect-ratio:1/1.1;max-width:100%}
+.sw .t{padding:14px 16px}
+.sw b{font:600 16px var(--display);display:block}
+.sw code{font:500 12px var(--mono);color:var(--muted)}
+.sw small{display:block;color:var(--muted);font-size:13px;margin-top:6px;line-height:1.4}
+.ratio{display:flex;height:56px;border-radius:14px;overflow:hidden;margin-top:24px}
+/* type */
+.spec{display:grid;grid-template-columns:200px 1fr;gap:24px;padding:28px 0;border-bottom:1px solid var(--line);align-items:baseline}
+.spec>*{min-width:0}
+@media (max-width:640px){.spec{grid-template-columns:1fr;gap:8px}}
+/* voice */
+.do b,.dont b{font:500 11px var(--mono);letter-spacing:.12em;display:block;margin-bottom:10px}
+.do b{color:var(--amber-ink)}.dont b{color:var(--muted)}
+.dont p{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 50%,transparent)}
+.do p,.dont p{margin:0 0 10px;font-size:17px}
+.tags li{font:600 clamp(22px,2.6vw,30px)/1.25 var(--display);letter-spacing:-.02em;padding:14px 0;border-bottom:1px solid var(--line);list-style:none}
+.tags{padding:0;margin:0}
+/* templates */
+.tpl{position:relative;border-radius:18px;overflow:hidden;background:var(--screen);color:#F3F1EC;max-width:100%}
+.tpl img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tpl .sh{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,10,16,0) 35%,rgba(8,10,16,.78))}
+.tpl .in{position:absolute;inset:0;padding:18px;display:flex;flex-direction:column;justify-content:space-between}
+.tpl .m{font:500 10px var(--mono);letter-spacing:.12em;opacity:.85}
+.tpl .h{font:600 clamp(20px,2.3vw,28px)/1.02 var(--display);letter-spacing:-.02em}
+.tpl .p{font:600 clamp(18px,2vw,24px) var(--display);color:var(--amber)}
+.tpl .s{font:500 10px var(--mono);letter-spacing:.08em;opacity:.8;margin-top:6px}
+/* strategy */
+.num{font:600 clamp(40px,5vw,60px)/1 var(--display);letter-spacing:-.03em}
+.kpis .panel p{color:var(--muted);margin:8px 0 0;font-size:14px}
+ol.plan{list-style:none;padding:0;margin:0}
+ol.plan li{display:grid;grid-template-columns:140px 1fr;gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}
+ol.plan li>*{min-width:0}
+@media (max-width:640px){ol.plan li{grid-template-columns:1fr;gap:6px}}
+ol.plan h3{font-size:22px}
+ol.plan p{color:var(--muted);margin:6px 0 0}
+.kw{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.kw span{font:500 13px var(--mono);background:var(--paper);padding:7px 11px;border-radius:99px}
+.panel h3{font-size:22px}
+.panel>p{color:var(--muted);margin:8px 0 0;font-size:15px}
+footer{padding-block:40px 70px;color:var(--muted);font-size:13px;border-top:1px solid var(--line)}
+</style>
+
+<div class="wrap">
+<header class="cover">
+  <div>
+    <div class="eb">Brand book · v1 · October 2026</div>
+    <h1 style="margin-top:22px">Motion<span class="w">Wren</span></h1>
+    <p>Still photos take flight. The identity, the voice, and the plan to launch.</p>
+  </div>
+  <div class="strip" id="strip"></div>
+</header>
+</div>
+
+<section><div class="wrap">
+  <div class="eb">01 · Name</div>
+  <h2>A small bird.<br>Quick, precise, in motion.</h2>
+  <p class="lead">A wren is tiny, fast, and everywhere homes are — darting through gardens and eaves. "Motion" says what the product does to a photo; "Wren" makes it light, nimble, and memorable. Two plain English words, one clean brand.</p>
+  <div class="pick">
+    <svg width="104" height="104" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#F4F5F2"/><g fill="#14161A"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="#F4F5F2"/><path d="M29 31 C39 27 48 20 56 12" stroke="#E9A23B" stroke-width="5" fill="none" stroke-linecap="round"/></svg>
+    <div><div class="eb" style="color:inherit;opacity:.6">Confirmed</div><h3 style="margin-top:8px">MotionWren · motionwren.com</h3><p>Available on .com (and .ai) when checked Oct 24, 2026. Short enough to say, distinctive enough to own, and the wren gives you a logo nobody else in property video has.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eb">02 · Mark</div>
+  <h2>A wren, mid-flight, tail sweeping up.</h2>
+  <p class="lead">The bird's upswept tail is the motion line — a still rising into movement. The amber sweep is the one spot of warmth, the golden-hour light that makes listings sell. It reads clean at any size and even works as the tail-sweep alone.</p>
+  <div class="grid g2 mt">
+    <div><div class="logo-tile" style="background:#F4F5F2;color:#14161A"><div class="lockup"><svg width="52" height="52" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#14161A"/><g fill="#F4F5F2"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="#14161A"/><path d="M29 31 C39 27 48 20 56 12" stroke="#E9A23B" stroke-width="5" fill="none" stroke-linecap="round"/></svg>MotionWren</div></div><div class="cap">PRIMARY · ON PAPER</div></div>
+    <div><div class="logo-tile" style="background:#0B0D12;color:#F3F1EC"><div class="lockup"><svg width="52" height="52" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#F3F1EC"/><g fill="#0B0D12"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="#F3F1EC"/><path d="M29 31 C39 27 48 20 56 12" stroke="#E9A23B" stroke-width="5" fill="none" stroke-linecap="round"/></svg>MotionWren</div></div><div class="cap">REVERSED · ON SCREEN</div></div>
+  </div>
+  <div class="grid g3 mt">
+    <div class="panel"><h3>Clear space</h3><p>Keep the height of the bird's head free on every side.</p></div>
+    <div class="panel"><h3>Smallest size</h3><p>16 px for the mark alone, 110 px wide for the full lockup.</p></div>
+    <div class="panel"><h3>Never</h3><p>Recolor the amber sweep, flip the bird, or set the mark on a busy photo without the dark scrim.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eb">03 · Color</div>
+  <h2>Twilight, the hour homes look best.</h2>
+  <p class="lead">Listing photographers shoot exteriors at dusk because lit windows sell. The palette comes from that moment: deep sky, warm window light, clean walls.</p>
+  <div class="grid g6 mt" id="swatches"></div>
+  <div class="ratio" aria-label="Color usage ratio">
+    <div style="flex:60;background:#F4F5F2"></div><div style="flex:20;background:#14161A"></div><div style="flex:10;background:#0B0D12"></div><div style="flex:5;background:#1C2440"></div><div style="flex:5;background:#E9A23B"></div>
+  </div>
+  <p class="cap">USE IN THIS RATIO · 60 PAPER · 20 INK · 10 SCREEN · 5 DUSK · 5 KEYLIGHT</p>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eb">04 · Type</div>
+  <h2>Confident headlines. Quiet everything else.</h2>
+  <div class="spec"><div><div class="eb">Display</div><div class="cap">Bricolage Grotesque · 600 · −2.5%</div></div><div style="font:600 clamp(38px,6vw,72px)/1 var(--display);letter-spacing:-.035em">Your listing, in motion.</div></div>
+  <div class="spec"><div><div class="eb">Body</div><div class="cap">Geist · 400 / 500</div></div><div style="font-size:20px;max-width:46ch">Drop in your photos. Get a polished property video in minutes. See them move before you order.</div></div>
+  <div class="spec"><div><div class="eb">Data</div><div class="cap">Geist Mono · 500 · tracked</div></div><div style="font:500 16px var(--mono);letter-spacing:.08em">$1,295,000 · 4 BD · 3 BA · 2,840 SQ FT · 00:00:15:00</div></div>
+  <p class="cap">All three are free on Google Fonts. Mono is only for numbers that matter: price, rooms, square footage, timecode.</p>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eb">05 · Voice</div>
+  <h2>Talk like a great showing agent.</h2>
+  <p class="lead">Calm, quick, sure of the work. Short sentences. Name the outcome, not the technology.</p>
+  <div class="grid g2 mt">
+    <div class="panel do"><b>SAY</b><p>Your listing, in motion.</p><p>See your photos move before you order.</p><p>Ready before your coffee is.</p></div>
+    <div class="panel dont"><b>AVOID</b><p>Revolutionary AI-powered video generation platform.</p><p>Leverage cutting-edge neural motion synthesis.</p><p>Unlock the future of real estate marketing!</p></div>
+  </div>
+  <div class="mt"><div class="eb" style="margin-bottom:10px">Taglines</div>
+  <ul class="tags"><li>Your listing, in motion.</li><li>Still photos take flight.</li><li>Photos in. Film out.</li><li>The walkthrough, without the walk.</li><li>Made for agents who'd rather be showing homes.</li></ul></div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eb">06 · In use</div>
+  <h2>The title card is the signature.</h2>
+  <p class="lead">Every film, post and ad carries the same frosted card: address, price in Keylight amber, rooms in mono, with the wren in the corner. Repeat it until agents recognize it in the feed.</p>
+  <div class="grid g3 mt" id="tpls"></div>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eb">07 · Strategy</div>
+  <h2>Win on ease, then on trust.</h2>
+  <p class="lead">Competitors sell features. MotionWren sells the feeling of being done. Three choices carry the plan.</p>
+  <div class="grid g3 mt">
+    <div class="panel"><h3>See it before you order</h3><p>Agents watch their own photos moving in the studio before they pay. The live preview is the sales pitch — and you never render a film nobody bought.</p></div>
+    <div class="panel"><h3>Price under the leaders</h3><p>PropertyVideos.ai lists $49 for one video and $220 for five. ListingVideo starts near $39 a month billed yearly. MotionWren at $39 single and $99 for five lands just under both.</p></div>
+    <div class="panel"><h3>Real photography DNA</h3><p>Built by a working photographer. Rooms stay true to the photos, which is the trust gap AI-staging tools leave open.</p></div>
+  </div>
+
+  <div class="mt"><div class="eb">Launch plan</div></div>
+  <ol class="plan">
+    <li><div class="eb">Days 1–30</div><div><h3>Prove it on 25 real listings</h3><p>Make free films for local agents in Worcester County and Greater Boston. Ask each for one line you can quote and permission to show the video.</p></div></li>
+    <li><div class="eb">Days 31–60</div><div><h3>Publish the before-and-after</h3><p>Post three a week: the still on the left, the film on the right. Short-form vertical on Instagram and TikTok, tagged to the agent.</p></div></li>
+    <li><div class="eb">Days 61–90</div><div><h3>Sell to listing photographers</h3><p>Offer a reseller plan so photographers add a film to every shoot. One photographer brings 20 agents.</p></div></li>
+  </ol>
+
+  <div class="grid g2 mt">
+    <div class="panel"><h3>SEO pages to build first</h3><p>One page per search intent. Each shows a sample film above the fold.</p>
+      <div class="kw"><span>real estate video from photos</span><span>listing video maker</span><span>photo to video real estate</span><span>AI property video</span><span>Zillow listing video</span><span>Instagram reel for listing</span><span>MLS video tour</span><span>PropertyVideos alternative</span></div></div>
+    <div class="panel"><h3>What to measure</h3><p>Weekly, in this order.</p>
+      <div class="grid g2 kpis" style="margin-top:16px">
+        <div><div class="num">40%</div><p>Free film → paid, target</p></div>
+        <div><div class="num">&lt;5 min</div><p>Upload to preview</p></div>
+        <div><div class="num">2.5</div><p>Films per agent per month</p></div>
+        <div><div class="num">30%</div><p>Signups from shared films</p></div>
+      </div></div>
+  </div>
+  <p class="cap">Targets are starting goals to beat, not industry figures.</p>
+</div></section>
+
+<footer><div class="wrap">MotionWren brand book v1 · motionwren.com · prepared for Reda Mokhtari · sample room imagery is illustrated placeholder art</div></footer>
+
+<script>
+/* Keyreel sample-scene renderer: paints stand-in "listing photos" on canvas so the
+   demo works with zero external images. Swap for real photography before launch. */
+(function(){
+  const W=1600,H=1000;
+  function rnd(seed){let s=seed;return()=>{s=(s*9301+49297)%233280;return s/233280;};}
+  function grad(ctx,x0,y0,x1,y1,stops){const g=ctx.createLinearGradient(x0,y0,x1,y1);stops.forEach(([o,c])=>g.addColorStop(o,c));return g;}
+  function poly(ctx,pts,fill){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();ctx.fillStyle=fill;ctx.fill();}
+  function rr(ctx,x,y,w,h,r,fill){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();}
+  function glow(ctx,x,y,r,c){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c);g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);}
+  function finish(ctx,seed){
+    // vignette + grain for a photographic finish
+    const v=ctx.createRadialGradient(W/2,H/2,H*.35,W/2,H/2,H*.95);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(10,12,18,.42)');ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+    const r=rnd(seed),img=ctx.getImageData(0,0,W,H),d=img.data;
+    for(let i=0;i<d.length;i+=4){const n=(r()-.5)*14;d[i]+=n;d[i+1]+=n;d[i+2]+=n;}
+    ctx.putImageData(img,0,0);
+  }
+  function shell(ctx,o){
+    const L=380,R=1220,T=190,B=640;
+    poly(ctx,[[0,0],[W,0],[R,T],[L,T]],grad(ctx,0,0,0,T,[[0,o.ceil[0]],[1,o.ceil[1]]]));
+    poly(ctx,[[0,0],[L,T],[L,B],[0,H]],grad(ctx,0,0,L,0,[[0,o.side[0]],[1,o.side[1]]]));
+    poly(ctx,[[W,0],[R,T],[R,B],[W,H]],grad(ctx,W,0,R,0,[[0,o.side[0]],[1,o.side[1]]]));
+    ctx.fillStyle=grad(ctx,0,T,0,B,[[0,o.wall[0]],[1,o.wall[1]]]);ctx.fillRect(L,T,R-L,B-T);
+    poly(ctx,[[0,H],[W,H],[R,B],[L,B]],grad(ctx,0,B,0,H,[[0,o.floor[0]],[1,o.floor[1]]]));
+    // floor boards
+    ctx.strokeStyle='rgba(0,0,0,.07)';ctx.lineWidth=2;
+    for(let i=-12;i<=12;i++){ctx.beginPath();ctx.moveTo(W/2+i*48,B);ctx.lineTo(W/2+i*140,H);ctx.stroke();}
+    return {L,R,T,B};
+  }
+  function windowSky(ctx,x,y,w,h,sky){
+    ctx.fillStyle=grad(ctx,0,y,0,y+h,sky);ctx.fillRect(x,y,w,h);
+    ctx.fillStyle='rgba(20,24,30,.35)';ctx.fillRect(x,y+h*.72,w,h*.28);
+    ctx.strokeStyle='rgba(245,245,240,.9)';ctx.lineWidth=10;ctx.strokeRect(x,y,w,h);
+    ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(x+w/2,y);ctx.lineTo(x+w/2,y+h);ctx.moveTo(x,y+h*.5);ctx.lineTo(x+w,y+h*.5);ctx.stroke();
+  }
+  const scenes={
+    living(ctx){
+      const s=shell(ctx,{ceil:['#e9e6df','#dcd8cf'],side:['#cfcac0','#e2ddd4'],wall:['#ece8e0','#ddd8ce'],floor:['#b48a62','#7d5a3c']});
+      windowSky(ctx,540,250,520,300,[[0,'#8fb3d9'],[.6,'#f3d9b1'],[1,'#f0c79a']]);
+      ctx.globalAlpha=.16;poly(ctx,[[540,550],[1060,550],[1180,980],[420,980]],'#fff3dc');ctx.globalAlpha=1;
+      ctx.fillStyle='rgba(0,0,0,.18)';ctx.beginPath();ctx.ellipse(800,840,520,90,0,0,7);ctx.fill();
+      ctx.fillStyle='#d9d2c4';ctx.beginPath();ctx.ellipse(800,820,500,80,0,0,7);ctx.fill();
+      rr(ctx,430,600,740,170,40,'#5d6670');rr(ctx,450,520,700,130,40,'#6c7680');
+      rr(ctx,470,640,330,80,26,'#7b858f');rr(ctx,800,640,330,80,26,'#7b858f');
+      rr(ctx,520,560,120,90,24,'#c9a46a');rr(ctx,980,560,120,90,24,'#e9e3d6');
+      rr(ctx,660,780,280,40,12,'#3a2f27');
+      // plant
+      rr(ctx,1240,690,80,110,10,'#e7e1d6');
+      ctx.fillStyle='#4f6b4a';[[1280,600,70],[1240,640,55],[1320,640,55],[1280,560,45]].forEach(([x,y,r])=>{ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();});
+      // pendant
+      ctx.strokeStyle='#2b2b2b';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(800,0);ctx.lineTo(800,300);ctx.stroke();
+      glow(ctx,800,330,240,'rgba(255,214,150,.45)');ctx.fillStyle='#2b2b2b';ctx.beginPath();ctx.arc(800,320,46,Math.PI,0);ctx.fill();
+    },
+    kitchen(ctx){
+      shell(ctx,{ceil:['#f1f0ec','#e6e4de'],side:['#d7d6d1','#e9e8e3'],wall:['#f2f1ed','#e4e2dc'],floor:['#cfc9bf','#a69f93']});
+      // upper cabinets + backsplash
+      ctx.fillStyle='#2f3b46';ctx.fillRect(380,220,840,150);
+      ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=3;for(let x=380;x<1220;x+=140){ctx.beginPath();ctx.moveTo(x,220);ctx.lineTo(x,370);ctx.stroke();}
+      ctx.fillStyle='#ece9e2';ctx.fillRect(380,370,840,140);
+      ctx.fillStyle='#e6e2da';ctx.fillRect(380,510,840,20);ctx.fillStyle='#2f3b46';ctx.fillRect(380,530,840,110);
+      windowSky(ctx,700,385,200,110,[[0,'#7fa6cf'],[1,'#f4dcb6']]);
+      // island
+      rr(ctx,420,700,760,40,6,'#f4f2ee');ctx.fillStyle='#24303a';ctx.fillRect(440,740,720,180);
+      ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(440,920,720,16);
+      // stools
+      [520,720,920,1100].forEach(x=>{rr(ctx,x-40,640,80,26,12,'#b5895a');ctx.fillStyle='#1d1d1d';ctx.fillRect(x-4,666,8,40);});
+      [600,800,1000].forEach(x=>{ctx.strokeStyle='#222';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,470);ctx.stroke();glow(ctx,x,500,170,'rgba(255,210,140,.5)');ctx.fillStyle='#d8b56d';ctx.beginPath();ctx.arc(x,486,28,Math.PI,0);ctx.fill();});
+      // bowl of lemons
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(800,700,70,18,0,0,7);ctx.fill();
+      ctx.fillStyle='#e8c53a';[[775,688],[805,684],[830,690]].forEach(([x,y])=>{ctx.beginPath();ctx.arc(x,y,16,0,7);ctx.fill();});
+    },
+    bedroom(ctx){
+      shell(ctx,{ceil:['#ece7e1','#ded8d0'],side:['#c9c3bc','#ddd6ce'],wall:['#d9cfc4','#cbc0b4'],floor:['#a88664','#6f553d']});
+      ctx.fillStyle='#8e7b6a';ctx.fillRect(520,330,560,220);
+      rr(ctx,460,560,680,260,22,'#efebe4');rr(ctx,460,520,680,120,22,'#f6f3ee');
+      rr(ctx,520,470,210,110,26,'#ffffff');rr(ctx,870,470,210,110,26,'#ffffff');
+      rr(ctx,640,500,320,90,24,'#b7a28c');
+      ctx.fillStyle='#c7b8a4';ctx.fillRect(460,700,680,120);
+      [400,1200].forEach(x=>{rr(ctx,x-55,580,110,110,8,'#5b4636');glow(ctx,x,480,190,'rgba(255,205,140,.55)');ctx.fillStyle='#efe2c8';ctx.beginPath();ctx.moveTo(x-45,520);ctx.lineTo(x+45,520);ctx.lineTo(x+30,450);ctx.lineTo(x-30,450);ctx.closePath();ctx.fill();});
+      // side window light
+      ctx.globalAlpha=.18;poly(ctx,[[0,120],[300,220],[600,1000],[0,1000]],'#fff0d6');ctx.globalAlpha=1;
+    },
+    exterior(ctx){
+      ctx.fillStyle=grad(ctx,0,0,0,H,[[0,'#1b2440'],[.45,'#4a4f7a'],[.72,'#d98b5f'],[1,'#f2c38d']]);ctx.fillRect(0,0,W,H);
+      const r=rnd(7);ctx.fillStyle='rgba(255,255,255,.7)';for(let i=0;i<70;i++){ctx.fillRect(r()*W,r()*H*.35,2,2);}
+      // trees silhouette
+      ctx.fillStyle='#141a26';for(let i=0;i<22;i++){const x=i*80,h=180+r()*120;ctx.beginPath();ctx.arc(x,690-h*.3,70+r()*30,0,7);ctx.fill();}
+      // house
+      poly(ctx,[[380,420],[820,250],[1240,420]],'#232833');
+      ctx.fillStyle='#2c323e';ctx.fillRect(420,420,780,330);
+      ctx.fillStyle='#e9e5dd';ctx.fillRect(420,420,780,14);
+      const win=(x,y,w,h)=>{glow(ctx,x+w/2,y+h/2,w*1.4,'rgba(255,190,110,.35)');ctx.fillStyle=grad(ctx,0,y,0,y+h,[[0,'#ffd99a'],[1,'#f2a24c']]);ctx.fillRect(x,y,w,h);ctx.strokeStyle='#1c2028';ctx.lineWidth=5;ctx.strokeRect(x,y,w,h);};
+      win(470,470,170,120);win(980,470,170,120);win(470,620,170,110);win(980,620,170,110);win(720,600,180,150);
+      ctx.fillStyle='#1d222c';ctx.fillRect(760,630,100,120);
+      // lawn + path
+      ctx.fillStyle=grad(ctx,0,750,0,H,[[0,'#2f3b2c'],[1,'#1a2219']]);ctx.fillRect(0,750,W,H-750);
+      poly(ctx,[[770,750],[850,750],[1010,H],[610,H]],'#5c574f');
+      [520,1100].forEach(x=>glow(ctx,x,780,90,'rgba(255,200,130,.5)'));
+    },
+    bath(ctx){
+      shell(ctx,{ceil:['#f2f2f0','#e7e7e4'],side:['#d9dbdc','#e9ebec'],wall:['#eef0f0','#dfe3e4'],floor:['#c9cdd0','#9aa1a6']});
+      ctx.strokeStyle='rgba(120,130,140,.18)';ctx.lineWidth=2;for(let x=380;x<1220;x+=70){ctx.beginPath();ctx.moveTo(x,190);ctx.lineTo(x,640);ctx.stroke();}for(let y=190;y<640;y+=70){ctx.beginPath();ctx.moveTo(380,y);ctx.lineTo(1220,y);ctx.stroke();}
+      rr(ctx,600,250,400,220,200,'#cfd8de');rr(ctx,615,265,370,190,190,grad(ctx,0,265,0,455,[[0,'#eef3f6'],[1,'#b9c5cc']]));
+      glow(ctx,800,240,220,'rgba(255,235,200,.45)');
+      rr(ctx,500,520,600,40,6,'#f7f7f5');ctx.fillStyle='#3b4a52';ctx.fillRect(520,560,560,200);
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(800,525,90,16,0,0,7);ctx.fill();
+      ctx.fillStyle='#b9a27a';ctx.fillRect(796,470,8,50);
+      rr(ctx,1240,560,90,320,10,'rgba(210,225,230,.5)');
+      ctx.fillStyle='#4f6b4a';[[460,470,40],[440,500,30],[480,505,32]].forEach(([x,y,r])=>{ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();});rr(ctx,430,505,60,50,8,'#fff');
+    },
+    dining(ctx){
+      const s=shell(ctx,{ceil:['#ebe8e2','#ddd9d1'],side:['#cbc5bb','#dfd9cf'],wall:['#e4ded3','#d4cdc1'],floor:['#9d7a58','#6a4f37']});
+      windowSky(ctx,420,230,280,360,[[0,'#6f8fbf'],[.7,'#f1c58f'],[1,'#e9a86b']]);windowSky(ctx,900,230,280,360,[[0,'#6f8fbf'],[.7,'#f1c58f'],[1,'#e9a86b']]);
+      ctx.globalAlpha=.14;poly(ctx,[[420,590],[1180,590],[1400,1000],[200,1000]],'#ffe6c2');ctx.globalAlpha=1;
+      rr(ctx,460,640,680,36,10,'#5a3e2b');ctx.fillStyle='#3e2a1d';ctx.fillRect(520,676,30,200);ctx.fillRect(1050,676,30,200);
+      [540,700,860,1020].forEach(x=>{rr(ctx,x-50,560,100,110,20,'#d9cfc0');});
+      ctx.fillStyle='#efe9df';[620,800,980].forEach(x=>{ctx.beginPath();ctx.ellipse(x,636,46,10,0,0,7);ctx.fill();});
+      ctx.strokeStyle='#222';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(800,0);ctx.lineTo(800,330);ctx.stroke();
+      glow(ctx,800,380,300,'rgba(255,214,150,.4)');ctx.fillStyle='#e7d9bd';ctx.beginPath();ctx.ellipse(800,360,140,40,0,0,7);ctx.fill();
+    }
+  };
+  const cache={};
+  window.KR_SCENE=function(name,seed){
+    const key=name+(seed||1);if(cache[key])return cache[key];
+    const c=document.createElement('canvas');c.width=W;c.height=H;const ctx=c.getContext('2d');
+    scenes[name](ctx);finish(ctx,(seed||1)*13);
+    return cache[key]=c.toDataURL('image/jpeg',.82);
+  };
+  window.KR_SCENES=Object.keys(scenes);
+})();
+
+</script>
+<script>
+(function(){
+const S=n=>KR_SCENE(n,KR_SCENES.indexOf(n)+1);
+document.getElementById('strip').innerHTML=['exterior','kitchen','living'].map(n=>'<img alt="" src="'+S(n)+'">').join('');
+const sw=[['Ink','#14161A','Text, primary buttons'],['Paper','#F4F5F2','Page background'],['Screen','#0B0D12','Video frames, film player'],['Dusk','#1C2440','Night sky, depth, ads'],['Keylight','#E9A23B','Price, the wren sweep, one CTA'],['Brass','#93560A','Accent text on light']];
+document.getElementById('swatches').innerHTML=sw.map(([n,h,u])=>'<div class="sw"><div class="c" style="background:'+h+'"></div><div class="t"><b>'+n+'</b><code>'+h+'</code><small>'+u+'</small></div></div>').join('');
+const t=[['exterior','9/16','REEL COVER','Just listed in Hingham','$1,295,000','4 BD · 3 BA · 2,840 SQ FT'],['living','1/1','FEED POST','Photos in.<br>Film out.','','MOTIONWREN.COM'],['kitchen','4/5','AD · META','Your listing, in motion.','First film free','MOTIONWREN.COM']];
+document.getElementById('tpls').innerHTML=t.map(([n,r,m,h,p,s])=>'<div><div class="tpl" style="aspect-ratio:'+r+'"><img alt="" src="'+S(n)+'"><div class="sh"></div><div class="in"><div class="m">● '+m+'</div><div><div class="h">'+h+'</div>'+(p?'<div class="p" style="margin-top:6px">'+p+'</div>':'')+'<div class="s">'+s+'</div></div></div></div></div>').join('');
+})();
+</script>
+</body></html>

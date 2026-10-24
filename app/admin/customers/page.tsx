@@ -54,7 +54,7 @@ export default function CustomersPage() {
 
   return <main className="portal-shell admin-shell owner-dashboard">
     <header className="portal-header owner-header">
-      <Link className="brand" href="/"><span className="brand-mark">FM</span><span>Frame Motion</span></Link>
+      <Link className="brand" href="/"><span className="brand-mark">MW</span><span>MotionWren</span></Link>
       <nav><Link href="/admin"><Icon name="dashboard" size={16}/>Overview</Link><Link href="/admin/customers" className="active"><Icon name="user" size={16}/>Customers</Link><Link href="/studio"><Icon name="studio" size={16}/>Studio</Link></nav>
       <div className="account-actions"><button className="refresh-admin" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button><a className="sign-out-link" href="/signout-with-chatgpt?return_to=%2F" target="_top">Sign out</a></div>
     </header>

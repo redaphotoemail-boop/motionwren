@@ -43,5 +43,5 @@
     "source-map-js": "1.2.2"
   },
   "type": "module",
-  "displayName": "Frame Motion Studio"
+  "displayName": "MotionWren"
 }
