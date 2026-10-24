@@ -1,123 +1,38 @@
-# vinext-starter
+# Frame Motion Studio
 
-## Frame Motion project context
+Frame Motion turns property photos into professionally directed real estate videos. The public page lets a client choose a length, upload ordered photos, choose a style, and leave contact details. The owner dashboard tracks submissions and downloads each project's source photos with its brief. The private production studio generates clips with supported video engines and assembles a film.
 
-Before changing product direction or architecture, read
-[PROJECT_CONTINUITY.md](./PROJECT_CONTINUITY.md). It distinguishes the currently
-deployed studio from the hybrid local/cloud production system that is still a
-roadmap proposal.
+The live site is [Frame Motion Studio](https://frame-motion-private-studio.reda-photoemail.chatgpt.site). Read [PROJECT_CONTINUITY.md](./PROJECT_CONTINUITY.md) before changing the product direction; it records what is implemented and what remains a proposal.
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+## What's in this repository
 
-## Prerequisites
+- `app/page.tsx` — client intake and upload flow
+- `app/dashboard/` — owner queue, project details, source photos, and ZIP export
+- `app/studio/` — private generation workspace
+- `app/api/` — intake, storage, model calls, stitching, and history endpoints
+- `db/schema.ts` and `drizzle/` — database schema and migrations
+- `public/` — site assets
+- `.openai/hosting.json` — production Sites project ID and Cloudflare binding names
+- `.replit` — Replit development workspace configuration
 
-- Node.js `>=22.13.0`
-- Linux with `flock`, `curl`, and GNU `timeout`
+## How the live workflow works
 
-## Sites Lifecycle
+1. A client selects 20, 35, or 50 seconds and supplies 5, 10, or 15 photos respectively. The form blocks extra files and supports removal and reordering.
+2. The server saves the project record in Cloudflare D1 and original photos in R2. The owner dashboard is at `/dashboard`.
+3. The owner opens the project in `/studio`, generates controlled scenes, assembles the video, and manages its status.
 
-The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
+Owner pages and owner data endpoints require the signed-in account specified in `app/owner-auth.ts`. Public upload endpoints use a per-project upload token. The live site depends on OpenAI Sites for ChatGPT sign-in and Cloudflare bindings.
 
-This starter does not use `wrangler.jsonc`.
+## Run for development
 
-`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
+Use Node.js 22 or later. Install dependencies with `npm ci`, then start with `npm run dev`. Replit can import this private GitHub repository and uses the included `.replit` run command.
 
-Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
+Local and Replit development use the Cloudflare Vite plugin to simulate the `DB` and `BUCKET` bindings. Apply the SQL migrations in `drizzle/` to a local development database before testing submissions. The public page can be edited and previewed without production credentials. Owner sign-in and production data access depend on the live Sites host, so they require adaptation if the app is moved to another hosting platform.
 
-## Included Shape
+`npm run build` is the Sites/Vinext deployment build. The scripts in `scripts/` assume Linux tools, including GNU `timeout`; macOS users can run the Vite or Vinext CLIs directly for local checks.
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+## Credentials and data
 
-## Workspace Auth Headers
+No API keys, client submissions, or uploaded photos are stored in GitHub. Add `REPLICATE_API_TOKEN` through the hosting provider's secret settings if you need model generation. Never commit it to this repository. A Replit import copies code and assets; it does not transfer the production D1 records, R2 photos, Sites account access, domain, or runtime secrets.
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Diagnostic Commands
-
-- `npm run install:ci`: perform the one bounded lockfile install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: start the built Vinext application
-- `npm test`: build and verify the rendered development-preview metadata
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Replit handoff
-
-This repository includes a `.replit` configuration so it can be imported into
-Replit and started with `npm run dev`. Add `REPLICATE_API_TOKEN` through
-Replit Secrets when you want to use the private production studio. The
-published client workflow uses the connected Sites D1/R2 bindings for storage;
-Replit is intended as a portable editing and development workspace, while the
-production deployment remains on the Sites/Cloudflare runtime.
-
-Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
-
-The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+The authoritative production deployment remains the Sites project declared in `.openai/hosting.json`. Importing into Replit creates a separate development copy; editing there does not automatically update the live site. Commit and push Replit changes to GitHub, then deploy the desired revision through Sites.
