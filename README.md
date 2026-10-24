@@ -25,7 +25,9 @@ Owner pages and owner data endpoints require the signed-in account specified in 
 
 ## Run for development
 
-Use Node.js 22 or later. Install dependencies with `npm ci`, then start with `npm run dev`. Replit can import this private GitHub repository and uses the included `.replit` run command.
+Use Node.js 22 or later. Install dependencies with `npm ci`, then start with `npm run dev`. The [Replit development copy](https://replit.com/@redaphotoemail/frame-motion-studio) was imported from a ZIP snapshot and uses the included `.replit` run command. It is not connected to GitHub for automatic synchronization.
+
+As of October 24, 2026, Replit blocks the lockfile's `next@16.2.6` download under its package security policy, so `npm ci` and the Replit preview do not complete. Do not bypass that protection. Before using Replit as a running preview, upgrade Next.js to a security-approved version, verify Vinext compatibility, regenerate the lockfile, and test the app. The GitHub repository remains the canonical source for those changes.
 
 Local and Replit development use the Cloudflare Vite plugin to simulate the `DB` and `BUCKET` bindings. Apply the SQL migrations in `drizzle/` to a local development database before testing submissions. The public page can be edited and previewed without production credentials. Owner sign-in and production data access depend on the live Sites host, so they require adaptation if the app is moved to another hosting platform.
 
