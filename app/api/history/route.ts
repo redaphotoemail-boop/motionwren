@@ -1,5 +1,6 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
+import { requireAdmin } from "../_lib/account";
 
 const COOKIE = "fm_history_id";
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
@@ -12,49 +13,59 @@ function safeVideoUrl(value: unknown) {
   } catch { return null; }
 }
 
-async function owner() {
-  const cookieStore = await cookies();
-  return cookieStore.get(COOKIE)?.value || crypto.randomUUID();
+async function owners() {
+  const authenticatedId = (await headers()).get("oai-authenticated-user-id");
+  const legacyId = (await cookies()).get(COOKIE)?.value;
+  return [...new Set([authenticatedId, legacyId].filter((value): value is string => Boolean(value)))];
 }
 
 export async function GET() {
   const { env } = await import("cloudflare:workers");
-  const cookieStore = await cookies();
-  const ownerId = cookieStore.get(COOKIE)?.value;
-  if (!ownerId) return NextResponse.json({ items: [] });
-  const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt FROM generation_history WHERE owner_id = ? ORDER BY created_at DESC LIMIT 50`).bind(ownerId).all();
+  const ownerIds = await owners();
+  if (!ownerIds.length) return NextResponse.json({ items: [] });
+  const placeholders = ownerIds.map(() => "?").join(",");
+  const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt FROM generation_history WHERE owner_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
   return NextResponse.json({ items: result.results.map((item) => ({ ...item, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` })) });
 }
 
 export async function POST(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
-    const body = await request.json() as Record<string, unknown>;
-    const source = safeVideoUrl(body.sourceUrl);
-    if (!source) return NextResponse.json({ error: "The generated video source is not valid." }, { status: 400 });
-    const upstream = await fetch(source.toString());
-    if (!upstream.ok) return NextResponse.json({ error: "The generated video could not be saved." }, { status: 502 });
-    const bytes = await upstream.arrayBuffer();
+    const account = await requireAdmin(env);
+    const isUpload = request.headers.get("content-type")?.includes("multipart/form-data");
+    let body: Record<string, unknown>; let bytes: ArrayBuffer; let contentType = "video/mp4";
+    if (isUpload) {
+      const form = await request.formData(); const video = form.get("video");
+      if (!(video instanceof File) || !video.type.startsWith("video/")) return NextResponse.json({ error: "The finished video file is not valid." }, { status: 400 });
+      bytes = await video.arrayBuffer(); contentType = video.type || "video/webm";
+      body = Object.fromEntries(["prompt","engine","category","resolution","aspect","duration","costCents"].map((key) => [key, String(form.get(key) || "")]));
+    } else {
+      body = await request.json() as Record<string, unknown>; const source = safeVideoUrl(body.sourceUrl);
+      if (!source) return NextResponse.json({ error: "The generated video source is not valid." }, { status: 400 });
+      const upstream = await fetch(source.toString());
+      if (!upstream.ok) return NextResponse.json({ error: "The generated video could not be saved." }, { status: 502 });
+      bytes = await upstream.arrayBuffer(); contentType = upstream.headers.get("content-type") || "video/mp4";
+    }
     if (!bytes.byteLength || bytes.byteLength > MAX_VIDEO_BYTES) return NextResponse.json({ error: "This video is too large to save in history." }, { status: 413 });
 
-    const ownerId = await owner();
+    const ownerId = account.id;
     const id = crypto.randomUUID();
     const createdAt = Date.now();
-    const r2Key = `generation-history/${ownerId}/${id}.mp4`;
-    const contentType = upstream.headers.get("content-type") || "video/mp4";
+    const extension = contentType.includes("webm") ? "webm" : "mp4";
+    const r2Key = `generation-history/${ownerId}/${id}.${extension}`;
     await env.BUCKET.put(r2Key, bytes, { httpMetadata: { contentType } });
 
     const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 6000) : "";
-    const allowedEngines = new Set(["wan22", "wan25", "wan26flash", "wan26", "wan3", "seedance25", "seedance15", "runway45", "runway4turbo", "minimaxh3", "geminiomni", "kling3"]);
-    const engine = typeof body.engine === "string" && allowedEngines.has(body.engine) ? body.engine : "wan22";
+    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "seedance1fast", "studio", "fast"]);
+    const requestedEngine = typeof body.engine === "string" ? body.engine : "wan22";
+    const engine = validEngines.has(requestedEngine) ? requestedEngine : "wan22";
     const category = typeof body.category === "string" ? body.category.slice(0, 40) : "single";
     const resolution = typeof body.resolution === "string" ? body.resolution.slice(0, 20) : "480p";
     const aspect = typeof body.aspect === "string" ? body.aspect.slice(0, 20) : "horizontal";
-    const requestedDuration = Math.round(Number(body.duration) || 5);
-    const duration = Math.max(3, Math.min(120, requestedDuration));
+    const duration = Math.max(1, Math.min(600, Math.round(Number(body.duration) || 5)));
     const costCents = Math.max(0, Math.min(10000, Math.round(Number(body.costCents) || 0)));
     try {
-      await env.DB.prepare(`INSERT INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, ownerId, r2Key, prompt, engine, category, resolution, aspect, duration, costCents, createdAt).run();
+      await env.DB.prepare(`INSERT INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, ownerId, r2Key, prompt, engine, category, resolution, aspect, duration, costCents, bytes.byteLength, createdAt).run();
     } catch (error) {
       await env.BUCKET.delete(r2Key);
       throw error;

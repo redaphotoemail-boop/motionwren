@@ -12,8 +12,43 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1792811551003,
-      "tag": "0001_wealthy_tempest",
+      "when": 1792663205028,
+      "tag": "0001_empty_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792665667090,
+      "tag": "0002_lovely_korvac",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792689311439,
+      "tag": "0003_late_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792691763428,
+      "tag": "0004_early_shinko_yamashiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792750223888,
+      "tag": "0005_odd_fantastic_four",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792750450260,
+      "tag": "0006_small_carmella_unuscione",
       "breakpoints": true
     }
   ]

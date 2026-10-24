@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { jsonError, requireAdmin } from "../_lib/account";
 
 export async function GET(request: Request) {
+  try {
+    const { env } = await import("cloudflare:workers");
+    await requireAdmin(env);
+  } catch (error) { return jsonError(error); }
   const source = new URL(request.url).searchParams.get("url");
   const requestedName = new URL(request.url).searchParams.get("name") || "frame-motion-video.mp4";
   if (!source) return NextResponse.json({ error: "Missing video URL." }, { status: 400 });

@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `target_duration` integer DEFAULT 20 NOT NULL;

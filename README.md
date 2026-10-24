@@ -1,40 +1,106 @@
 # Frame Motion Studio
 
-Frame Motion turns property photos into professionally directed real estate videos. The public page lets a client choose a length, upload ordered photos, choose a style, and leave contact details. The owner dashboard tracks submissions and downloads each project's source photos with its brief. The private production studio generates clips with supported video engines and assembles a film.
+Frame Motion Studio is a multi-tenant real-estate video SaaS. Customers sign in, import a public listing or enter its details, upload ordered property photos, and receive a finished 1080p video. Owners manage customers, projects, generation engines, production jobs, costs, storage, and deliveries from a protected operations dashboard.
 
-The live site is [Frame Motion Studio](https://frame-motion-private-studio.reda-photoemail.chatgpt.site). Read [PROJECT_CONTINUITY.md](./PROJECT_CONTINUITY.md) before changing the product direction; it records what is implemented and what remains a proposal.
+Production site: https://framemotionstudio.storydezign.com
 
-## What's in this repository
+## Product surfaces
 
-- `app/page.tsx` — client intake and upload flow
-- `app/dashboard/` — owner queue, project details, source photos, and ZIP export
-- `app/studio/` — private generation workspace
-- `app/api/` — intake, storage, model calls, stitching, and history endpoints
-- `db/schema.ts` and `drizzle/` — database schema and migrations
-- `public/` — site assets
-- `.openai/hosting.json` — production Sites project ID and Cloudflare binding names
-- `.replit` — Replit development workspace configuration
+- `/` — public marketing and pricing
+- `/dashboard` — authenticated customer workspace
+- `/admin` — owner-only business and production dashboard
+- `/admin/customers` — owner-only CRM directory
+- `/admin/projects/:id` — owner project operations
+- `/studio` — owner-only advanced generation lab
 
-## How the live workflow works
+## Architecture
 
-1. A client selects 20, 35, or 50 seconds and supplies 5, 10, or 15 photos respectively. The form blocks extra files and supports removal and reordering.
-2. The server saves the project record in Cloudflare D1 and original photos in R2. The owner dashboard is at `/dashboard`.
-3. The owner opens the project in `/studio`, generates controlled scenes, assembles the video, and manages its status.
+- Vinext/React application running on Cloudflare Workers
+- Cloudflare D1 for accounts, projects, jobs, credits, payments, subscriptions, notifications, and audit events
+- Cloudflare R2 for private source images and final MP4 deliveries
+- Replicate API for video generation and managed compositor fallback
+- Controlled FFmpeg compositor for pinned, deterministic finishing when configured; multi-shot audio uses one master track from the first scene and never mixes independent scene music
+- Stripe-ready checkout, credit reservation, webhooks, and automatic failure refunds
+- Optional Resend delivery and failure email
+- Sign in with ChatGPT for identity; owner role is enforced server-side by email allowlist
 
-Owner pages and owner data endpoints require the signed-in account specified in `app/owner-auth.ts`. Public upload endpoints use a per-project upload token. The live site depends on OpenAI Sites for ChatGPT sign-in and Cloudflare bindings.
+Provider tokens and pricing are server-only. Customer pages never receive `REPLICATE_API_TOKEN`, compositor credentials, Stripe secrets, provider endpoints, or raw provider costs.
 
-## Run for development
+## Required production environment
 
-Use Node.js 22 or later. Install dependencies with `npm ci`, then start with `npm run dev`. The [Replit development copy](https://replit.com/@redaphotoemail/frame-motion-studio) was imported from a ZIP snapshot and uses the included `.replit` run command. It is not connected to GitHub for automatic synchronization.
+Copy `.env.example` locally. In production, configure secrets in the hosting provider rather than committing an environment file.
 
-As of October 24, 2026, Replit blocks the lockfile's `next@16.2.6` download under its package security policy, so `npm ci` and the Replit preview do not complete. Do not bypass that protection. Before using Replit as a running preview, upgrade Next.js to a security-approved version, verify Vinext compatibility, regenerate the lockfile, and test the app. The GitHub repository remains the canonical source for those changes.
+Required for unattended customer production:
 
-Local and Replit development use the Cloudflare Vite plugin to simulate the `DB` and `BUCKET` bindings. Apply the SQL migrations in `drizzle/` to a local development database before testing submissions. The public page can be edited and previewed without production credentials. Owner sign-in and production data access depend on the live Sites host, so they require adaptation if the app is moved to another hosting platform.
+- `FRAME_MOTION_ADMIN_EMAILS`
+- `REPLICATE_API_TOKEN`
 
-`npm run build` is the Sites/Vinext deployment build. The scripts in `scripts/` assume Linux tools, including GNU `timeout`; macOS users can run the Vite or Vinext CLIs directly for local checks.
+Required for the controlled media pipeline:
 
-## Credentials and data
+- `COMPOSITOR_API_URL`
+- `COMPOSITOR_API_SECRET`
+- `COMPOSITOR_API_VERSION`
 
-No API keys, client submissions, or uploaded photos are stored in GitHub. Add `REPLICATE_API_TOKEN` through the hosting provider's secret settings if you need model generation. Never commit it to this repository. A Replit import copies code and assets; it does not transfer the production D1 records, R2 photos, Sites account access, domain, or runtime secrets.
+The controlled compositor must implement `audio_mode: "single_master"` by extracting the first scene's audio track, looping or extending it to the final timeline, and applying one final AAC mix. If it is not configured, the managed fallback keeps audio-requested series silent rather than combining incompatible music from separate scenes.
 
-The authoritative production deployment remains the Sites project declared in `.openai/hosting.json`. Importing into Replit creates a separate development copy; editing there does not automatically update the live site. Commit and push Replit changes to GitHub, then deploy the desired revision through Sites.
+Required before accepting payment:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRICE_SINGLE`
+- `STRIPE_PRICE_FIVE_PACK`
+- `STRIPE_PRICE_PRO`
+
+Recommended for customer delivery notifications:
+
+- `RESEND_API_KEY`
+- `FRAME_MOTION_FROM_EMAIL`
+
+## Local development
+
+Requires Node.js 22.13 or newer.
+
+```bash
+npm ci
+npm run dev
+```
+
+Validation:
+
+```bash
+npm test
+npm run lint
+npm audit --omit=dev
+```
+
+## Database
+
+Drizzle migrations are stored in `drizzle/`. Current tables cover users, projects, project assets, render jobs, generation history, notifications, credits, payments, subscriptions, rate limits, inquiries, and audit events.
+
+Generate a migration after changing `db/schema.ts`:
+
+```bash
+npm run db:generate
+```
+
+## Deployment
+
+The production application is designed for Cloudflare Workers because it uses native D1 and R2 bindings through `cloudflare:workers`. The repository can be connected to GitHub for source control and agent collaboration.
+
+Do not point the current code directly at Vercel and call it production. A reliable Vercel deployment requires replacing:
+
+- D1 with Postgres or an HTTP-accessible database
+- R2 Worker bindings with the S3-compatible R2 API or Vercel Blob
+- ChatGPT dispatch headers with a portable authentication provider
+- the Vinext/Cloudflare Worker build with standard Next.js runtime configuration
+
+Until that migration is completed, the Cloudflare deployment is the canonical production environment.
+
+## Security rules
+
+- Never place provider, compositor, billing, or email secrets in client components.
+- Customer data access must be scoped by authenticated owner ID.
+- Owner APIs and pages must call `requireAdmin`.
+- Generated files are copied to private R2 storage before a delivery is marked complete.
+- Keep callbacks idempotent; a retry must not create a duplicate charge or history record.
+- Preserve automatic credit refunds on terminal generation failure.
