@@ -1,7 +1,7 @@
 import { engineCost, preferredDurationForEngine } from "../../../../engine-catalog";
+import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../../../engine-providers";
 import { enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
 
-const ENDPOINT = "https://api.replicate.com/v1/models/kwaivgi/kling-v3-video/predictions";
 const MOVEMENTS = [
   "a slow stabilized push-in",
   "a slow stabilized lateral slide from left to right",
@@ -11,7 +11,6 @@ const MOVEMENTS = [
   "a subtle stabilized downward reveal",
 ];
 const STATIC_LOCK = "Create an extremely realistic professional real-estate shot. Only the camera moves. Every wall, floor, ceiling, window, door, piece of furniture, decoration, plant, reflection, exterior element and light source remains completely motionless and geometrically identical. Preserve the exact architecture, materials, proportions, perspective and lighting from the source image. Buttery-smooth motorized movement, constant speed, locked horizon, no handheld shake, no walking bounce, no jitter, no flicker, no morphing, no warping, no invented objects, no people entering, no object interaction.";
-const NEGATIVE = "object movement, people moving, hands, touching, furniture movement, curtain movement, plant movement, water movement, reflection movement, lighting changes, warped walls, bending lines, altered architecture, morphing, melting, duplication, invented objects, disappearing objects, flicker, shake, jitter, handheld movement, walking bounce, horizon drift";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const started: string[] = [];
@@ -33,17 +32,25 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 12`).bind(projectId, account.id).all<{ id: string; sortOrder: number }>();
     if (assets.results.length < 2) return Response.json({ error: "At least two photographs are required." }, { status: 409 });
 
+    // The manager's selected engine (platform_settings defaultEngine); Kling
+    // 3.0 when unset. Applies to new videos only — jobs already running keep
+    // the engine they started with.
+    const settingsRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'defaultEngine'`).first<{ value?: string }>();
+    const rawEngine = settingsRow?.value;
+    const engine = isEngineKey(rawEngine) ? rawEngine : "kling3";
+    const resolution = engineResolution(engine);
+
     jobId = crypto.randomUUID();
     const webhookToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
     const origin = new URL(request.url).origin;
     const webhook = `${origin}/api/webhooks/replicate/${jobId}?token=${webhookToken}`;
     const now = Date.now();
     const requestedSceneSeconds = Math.max(3, Math.min(10, Math.round((project.targetDuration + assets.results.length - 1) / assets.results.length)));
-    const sceneSeconds = preferredDurationForEngine("kling3", requestedSceneSeconds, "1080p");
-    const costCents = Math.round(engineCost("kling3", "1080p", sceneSeconds * assets.results.length) * 100);
+    const sceneSeconds = preferredDurationForEngine(engine, requestedSceneSeconds, resolution);
+    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * assets.results.length) * 100);
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'customer-series', 'starting', '[]', '[]', NULL, ?, 'real estate', '1080p', ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, account.id, STATIC_LOCK, project.aspect, project.targetDuration, costCents, webhookToken, now, now),
-      env.DB.prepare(`UPDATE projects SET status = 'queued', generation_engine = 'kling3', resolution = '1080p', render_job_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(jobId, now, projectId, account.id),
+      env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'customer-series', 'starting', '[]', '[]', NULL, ?, 'real estate', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, account.id, STATIC_LOCK, resolution, project.aspect, project.targetDuration, costCents, webhookToken, now, now),
+      env.DB.prepare(`UPDATE projects SET status = 'queued', generation_engine = ?, resolution = ?, render_job_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(engine, resolution, jobId, now, projectId, account.id),
     ]);
 
     for (let index = 0; index < assets.results.length; index += 1) {
@@ -51,10 +58,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, account.id).run();
       const imageUrl = `${origin}/api/provider-assets/${asset.id}?token=${assetToken}`;
-      const response = await fetch(ENDPOINT, {
+      const response = await fetch(ENGINE_ENDPOINTS[engine], {
         method: "POST",
         headers: { Authorization: `Bearer ${providerToken}`, "Content-Type": "application/json", Prefer: "respond-async" },
-        body: JSON.stringify({ input: { start_image: imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, mode: "pro", aspect_ratio: project.aspect === "vertical" ? "9:16" : "16:9", generate_audio: false, negative_prompt: NEGATIVE }, webhook, webhook_events_filter: ["completed"] }),
+        body: JSON.stringify({ input: buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }), webhook, webhook_events_filter: ["completed"] }),
       });
       const data = await response.json() as Record<string, unknown>;
       if (!response.ok || typeof data.id !== "string") throw new Error((data.detail as string) || (data.error as string) || `Scene ${index + 1} could not start.`);
