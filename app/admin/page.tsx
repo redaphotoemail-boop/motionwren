@@ -16,6 +16,9 @@ export default function AdminDashboard() {
   const [secondsPerImage, setSecondsPerImage] = useState<3 | 5 | "auto">("auto");
   const [savingTiming, setSavingTiming] = useState(false);
   const [timingMessage, setTimingMessage] = useState("");
+  const [defaultEngine, setDefaultEngine] = useState("kling3");
+  const [savingEngine, setSavingEngine] = useState(false);
+  const [engineMessage, setEngineMessage] = useState("");
 
   async function load() {
     setLoading(true); setError("");
@@ -28,7 +31,7 @@ export default function AdminDashboard() {
     finally { setLoading(false); }
   }
   useEffect(() => { void Promise.resolve().then(load); }, []);
-  useEffect(() => { fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => { if (result.multiShotSecondsPerImage === 3 || result.multiShotSecondsPerImage === 5 || result.multiShotSecondsPerImage === "auto") setSecondsPerImage(result.multiShotSecondsPerImage); }).catch(() => undefined); }, []);
+  useEffect(() => { fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => { if (result.multiShotSecondsPerImage === 3 || result.multiShotSecondsPerImage === 5 || result.multiShotSecondsPerImage === "auto") setSecondsPerImage(result.multiShotSecondsPerImage); if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine); }).catch(() => undefined); }, []);
 
   async function saveTiming(value: 3 | 5 | "auto") {
     setSecondsPerImage(value); setSavingTiming(true); setTimingMessage("");
@@ -39,6 +42,17 @@ export default function AdminDashboard() {
       setTimingMessage(`New multi-shot scenes will use ${value} seconds per image.`);
     } catch (error) { setTimingMessage(error instanceof Error ? error.message : "The timing setting could not be saved."); }
     finally { setSavingTiming(false); }
+  }
+
+  async function saveEngine(value: string) {
+    setDefaultEngine(value); setSavingEngine(true); setEngineMessage("");
+    try {
+      const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ defaultEngine: value }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "The engine setting could not be saved.");
+      setEngineMessage(`New videos will use ${studioEngines.find((engine) => engine.key === value)?.name || value}.`);
+    } catch (error) { setEngineMessage(error instanceof Error ? error.message : "The engine setting could not be saved."); }
+    finally { setSavingEngine(false); }
   }
 
   async function runRetention() {
@@ -80,17 +94,19 @@ export default function AdminDashboard() {
       <section className="owner-metrics" aria-label="Business metrics">
         <article><span>Customers</span><strong>{Number(data?.metrics.users.total || 0)}</strong><small>{Number(data?.metrics.users.active || 0)} active</small></article>
         <article><span>Total projects</span><strong>{Number(data?.metrics.projects.total || 0)}</strong><small>{activeProjects} in production</small></article>
-        <article><span>Revenue</span><strong>${revenue.toFixed(2)}</strong><small>${providerCost.toFixed(2)} provider cost</small></article>
+        <article><span>Revenue</span><strong>${revenue.toFixed(2)}</strong><small>${providerCost.toFixed(2)} provider cost · ${(revenue - providerCost).toFixed(2)} profit</small></article>
         <article><span>Storage</span><strong>{bytes(Number(data?.metrics.storageBytes || 0))}</strong><small>{Number(data?.metrics.assets.total || 0)} stored assets</small></article>
       </section>
 
       <section className="owner-operations" id="orders">
-        <article className="owner-panel recent-orders"><div className="owner-panel-head"><div><span>ORDERS</span><h2>Recent client projects</h2></div><Link href="/dashboard">Client view <Icon name="arrow" size={14}/></Link></div><div className="clean-table"><div className="clean-table-head"><span>Property</span><span>Customer</span><span>Status</span><span>Photos</span></div>{data?.recentProjects.length ? data.recentProjects.map((project) => <Link className="clean-table-row" href={`/admin/projects/${String(project.id)}`} key={String(project.id)}><span><strong>{String(project.title)}</strong><small>{new Date(Number(project.updatedAt)).toLocaleDateString()}</small></span><span>{String(project.ownerEmail || project.ownerId || "Unknown")}</span><span><b className={`status-pill ${String(project.status)}`}>{String(project.status)}</b></span><span>{Number(project.assetCount || 0)}</span></Link>) : <div className="owner-empty"><Icon name="orders"/><strong>No projects yet</strong><span>New client orders will appear here.</span></div>}</div></article>
+        <article className="owner-panel recent-orders"><div className="owner-panel-head"><div><span>ORDERS</span><h2>Recent client projects</h2></div><Link href="/dashboard">Client view <Icon name="arrow" size={14}/></Link></div><div className="clean-table"><div className="clean-table-head"><span>Property</span><span>Customer</span><span>Items</span><span>Price</span><span>Cost</span><span>Profit</span><span>Status</span><span>Photos</span></div>{data?.recentProjects.length ? data.recentProjects.map((project) => { const hasPrice = project.price !== null && project.price !== undefined && String(project.price) !== ""; const price = hasPrice ? Number(project.price) : 0; const hasCost = project.productionCostCents !== null && project.productionCostCents !== undefined; const cost = hasCost ? Number(project.productionCostCents) / 100 : 0; return <Link className="clean-table-row" href={`/admin/projects/${String(project.id)}`} key={String(project.id)}><span><strong>{String(project.title)}</strong><small>{new Date(Number(project.updatedAt)).toLocaleDateString()}</small></span><span>{String(project.ownerEmail || project.ownerId || "Unknown")}</span><span>{String(project.shortMessage || "")}</span><span>{hasPrice ? `$${price.toFixed(2)}` : "—"}</span><span>{hasCost ? `$${cost.toFixed(2)}` : "—"}</span><span>{hasPrice && hasCost ? `$${(price - cost).toFixed(2)}` : "—"}</span><span><b className={`status-pill ${String(project.status)}`}>{String(project.status)}</b></span><span>{Number(project.assetCount || 0)}</span></Link>; }) : <div className="owner-empty"><Icon name="orders"/><strong>No projects yet</strong><span>New client orders will appear here.</span></div>}</div></article>
 
         <aside className="owner-panel production-queue" id="production"><div className="owner-panel-head"><div><span>PRODUCTION</span><h2>Job activity</h2></div></div><div className="job-list">{data?.recentJobs.length ? data.recentJobs.slice(0, 8).map((job) => <div className="job-item" key={String(job.id)}><i className={String(job.status)}><Icon name={String(job.status) === "failed" ? "alert" : "motion"} size={15}/></i><span><strong>{String(job.kind).replaceAll("-", " ")}</strong><small>{String(job.category)} · ${(Number(job.costCents || 0) / 100).toFixed(2)}</small></span><b className={`status-pill ${String(job.status)}`}>{String(job.status)}</b></div>) : <div className="owner-empty compact"><Icon name="motion"/><strong>No jobs yet</strong><span>Production activity will appear here.</span></div>}</div></aside>
       </section>
 
-      <section className="owner-panel engine-control" id="engines"><div className="owner-panel-head"><div><span>PRODUCTION ENGINES</span><h2>Choose the right model</h2><p>Kling 3.0 is the default for property work. Every model below uses its connected production endpoint.</p></div><Link href="/studio">Compare in Studio <Icon name="arrow" size={14}/></Link></div><div className="engine-strip">{studioEngines.map((engine) => <Link href={`/studio?engine=${engine.key}`} key={engine.key}><span>{engine.badge || (engine.key === "kling3" ? "DEFAULT" : "AVAILABLE")}</span><strong>{engine.name}</strong><small>{engine.resolutions.join(" · ")} · {engine.audio ? "Audio" : "Silent"}</small><p>{engine.description}</p></Link>)}</div></section>
+      <section className="owner-panel costs-panel" id="costs"><div className="owner-panel-head"><div><span>PRODUCTION COSTS</span><h2>What each video costs to make</h2><p>Engine prices per second of video, plus what production has actually cost so far. Until payments are connected, order prices are package totals, not collected payments.</p></div></div><div className="clean-table"><div className="clean-table-head"><span>Engine</span><span>Resolutions</span><span>Price per second</span></div>{studioEngines.map((engine) => <div className="clean-table-row" key={engine.key}><span><strong>{engine.name}</strong><small>{engine.bestFor}</small></span><span>{engine.resolutions.join(" · ")}</span><span>{Object.entries(engine.pricePerSecond).map(([resolution, price]) => `${resolution} $${Number(price).toFixed(3)}`).join(" · ")}</span></div>)}</div><div className="cost-totals"><span>Provider spend <strong>${providerCost.toFixed(2)}</strong></span><span>Revenue <strong>${revenue.toFixed(2)}</strong></span><span>Profit <strong>${(revenue - providerCost).toFixed(2)}</strong></span></div></section>
+
+      <section className="owner-panel engine-control" id="engines"><div className="owner-panel-head"><div><span>PRODUCTION ENGINES</span><h2>Choose the right model</h2><p>Pick the engine every new video renders with. Every model below uses its connected production endpoint.</p></div><Link href="/studio">Compare in Studio <Icon name="arrow" size={14}/></Link></div><div className="engine-strip">{studioEngines.map((engine) => <button type="button" key={engine.key} className={engine.key === defaultEngine ? "engine-model active" : "engine-model"} onClick={() => saveEngine(engine.key)} disabled={savingEngine} aria-pressed={engine.key === defaultEngine}><span>{engine.key === defaultEngine ? "SELECTED" : engine.badge || "AVAILABLE"}</span><strong>{engine.name}</strong><small>{engine.resolutions.join(" · ")} · {engine.audio ? "Audio" : "Silent"}</small><p>{engine.description}</p></button>)}</div>{engineMessage && <small className="timing-message" role="status">{engineMessage}</small>}<p className="timing-note">Applies to new videos only. Videos already in production keep the engine they started with.</p></section>
 
       <section className="owner-panel timing-control" id="timing"><div className="owner-panel-head"><div><span>MULTI-SHOT DEFAULT</span><h2>Scene timing</h2><p>Controls the duration of each scene in new multi-shot productions.</p></div><Icon name="motion" size={22}/></div><div className="timing-options"><button className={secondsPerImage === "auto" ? "active" : ""} onClick={() => saveTiming("auto")} disabled={savingTiming} aria-pressed={secondsPerImage === "auto"}><strong>Automatic</strong><small>5s for 1–4 images · 3s for 5+ images</small></button><button className={secondsPerImage === 3 ? "active" : ""} onClick={() => saveTiming(3)} disabled={savingTiming} aria-pressed={secondsPerImage === 3}><strong>3 seconds</strong><small>Faster, tighter edits</small></button><button className={secondsPerImage === 5 ? "active" : ""} onClick={() => saveTiming(5)} disabled={savingTiming} aria-pressed={secondsPerImage === 5}><strong>5 seconds</strong><small>More room for smooth movement</small></button></div>{timingMessage && <small className="timing-message" role="status">{timingMessage}</small>}<p className="timing-note">This is owner-only. Automatic keeps small sequences readable and makes larger sequences more efficient. The final video length is calculated from the number of scenes and crossfades.</p></section>
 
