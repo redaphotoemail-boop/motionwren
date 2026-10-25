@@ -1,6 +1,6 @@
 /* MotionWren Studio loader. Add once to your site:
      <script src="/studio/mw-loader.js" data-src="/studio/mw-studio.html" defer></script>
-   Then any element with data-mw="video" or data-mw="plan" opens that flow.
+   Then any element with data-mw="plan" opens the create flow (data-mw="video" opens it too).
    Or from code: MotionWrenStudio.open('video') / MotionWrenStudio.open('plan')
    Events on window: 'mw:package' (detail = {items, answers}) when a content package is created. */
 (function () {
@@ -26,6 +26,7 @@
   }
   function send(flow) { frame.contentWindow.postMessage({ type: 'mw:open', flow: flow }, '*'); }
   function open(flow) {
+    if (flow === 'video') flow = 'plan';
     build();
     wrap.style.display = 'block';
     document.documentElement.style.overflow = 'hidden';
