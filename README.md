@@ -104,3 +104,16 @@ Until that migration is completed, the Cloudflare deployment is the canonical pr
 - Generated files are copied to private R2 storage before a delivery is marked complete.
 - Keep callbacks idempotent; a retry must not create a duplicate charge or history record.
 - Preserve automatic credit refunds on terminal generation failure.
+
+
+## Manager Google sign-in
+
+The owner portal supports Google OAuth at `/api/auth/google`. OAuth state is protected by an HttpOnly cookie, successful allowlisted logins receive a seven-day D1-backed hashed session, and the existing ChatGPT-header identity remains available as a fallback during verification.
+
+Required Worker bindings:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `FRAME_MOTION_ADMIN_EMAILS`
+
+The owner-only Replicate operations page is available at `/admin/replicates`. It reports recorded D1 spend and links to official Replicate billing without inventing a provider balance.

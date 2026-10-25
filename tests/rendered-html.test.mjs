@@ -144,3 +144,34 @@ test("keeps provider credentials server-side and exposes owner CRM", async () =>
   assert.match(tokenApi, /httpOnly: true/);
   assert.match(tokenApi, /sameSite: "strict"/);
 });
+
+
+test("keeps manager Google authentication server-side and exposes admin navigation", async () => {
+  const [account, googleStart, googleCallback, logout, adminLayout, replicatesRoute, replicatesPage, migration] = await Promise.all([
+    readFile(new URL("../app/api/_lib/account.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/google/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/google/callback/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/logout/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/replicates/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/replicates/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0008_google_auth_sessions.sql", import.meta.url), "utf8"),
+  ]);
+  assert.match(googleStart, /accounts\\.google\\.com\\/o\\/oauth2\\/v2\\/auth/);
+  assert.match(googleStart, /openid email profile/);
+  assert.match(googleStart, /motionwren_google_state/);
+  assert.match(googleCallback, /oauth2\\.googleapis\\.com\\/token/);
+  assert.match(googleCallback, /openidconnect\\.googleapis\\.com\\/v1\\/userinfo/);
+  assert.match(googleCallback, /configuredAdmins/);
+  assert.match(account, /auth_sessions/);
+  assert.match(account, /motionwren_session/);
+  assert.match(account, /DELETE FROM auth_sessions/);
+  assert.match(logout, /deleteGoogleSession/);
+  for (const path of ["/admin", "/admin/customers", "/admin#orders", "/studio", "/admin/replicates"]) assert.match(adminLayout, new RegExp(path.replace(/[/?#]/g, "\\$&")));
+  assert.match(replicatesRoute, /SUM\\(cost_cents\\)/);
+  assert.match(replicatesRoute, /available: false/);
+  assert.match(replicatesRoute, /replicate_low_balance_cents/);
+  assert.match(replicatesPage, /No invented balance numbers/);
+  assert.match(migration, /token_hash/);
+  assert.doesNotMatch(googleStart, /GOOGLE_CLIENT_SECRET/);
+});

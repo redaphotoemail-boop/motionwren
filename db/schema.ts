@@ -151,3 +151,11 @@ export const rateLimits = sqliteTable("rate_limits", {
   windowStartedAt: integer("window_started_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("rate_limits_updated_idx").on(table.updatedAt)]);
+
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("auth_sessions_user_idx").on(table.userId), index("auth_sessions_expires_idx").on(table.expiresAt)]);
