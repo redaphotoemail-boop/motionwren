@@ -163,7 +163,7 @@ export default function CustomerDashboard() {
     <header className="portal-header client-header">
       <Link className="brand" href="/"><span className="brand-mark">MW</span><span>MotionWren</span></Link>
       <nav aria-label="Workspace"><a className="active" href="#projects"><Icon name="projects" size={16}/>Videos</a><button onClick={openNewProject}><Icon name="upload" size={16}/>Create</button>{account?.role === "admin" && <Link className="owner-nav" href="/admin"><Icon name="dashboard" size={16}/>Manager</Link>}</nav>
-      <div className="account-actions"><div className="account-chip"><strong>{account?.displayName || "Account"}</strong><small>{account?.role === "admin" ? "Owner" : account?.plan || "Member"}</small></div><a className="sign-out-link" href="/signout-with-chatgpt?return_to=%2F" target="_top">Sign out</a></div>
+      <div className="account-actions"><div className="account-chip"><strong>{account?.displayName || "Account"}</strong><small>{account?.role === "admin" ? "Owner" : account?.plan || "Member"}</small></div><a className="sign-out-link" href="/api/auth/logout" target="_top">Sign out</a></div>
     </header>
 
     <section className="portal-content client-content">
