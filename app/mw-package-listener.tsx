@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 type PackageItem = { title?: unknown; price?: unknown };
 type PackageDetail = { items?: unknown; answers?: unknown; total?: unknown };
@@ -48,9 +48,19 @@ function createOrder(pkg: SavedPackage): Promise<Response> {
   });
 }
 
+/* After a package is created, make it visible: on the dashboard reload the
+   list, anywhere else go to the dashboard. Creating without showing anything
+   looked like nothing happened. */
+function showCreated() {
+  if (window.location.pathname === "/dashboard") window.location.reload();
+  else window.location.assign("/dashboard");
+}
+
 /* Listens for the content-package flow's mw:package event (dispatched on
    window by the studio loader) and creates the order as a project. */
 export default function MwPackageListener() {
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     async function flushPending() {
       let raw: string | null = null;
@@ -79,7 +89,7 @@ export default function MwPackageListener() {
         } catch {
           /* Storage unavailable — the order is already created. */
         }
-        if (window.location.pathname === "/dashboard") window.location.reload();
+        showCreated();
       } catch {
         /* Offline — keep it for the next visit. */
       }
@@ -90,7 +100,11 @@ export default function MwPackageListener() {
       const pkg = normalize(detail);
       try {
         const res = await createOrder(pkg);
-        if (res.ok) return;
+        if (res.ok) {
+          setError(null);
+          showCreated();
+          return;
+        }
         if (res.status === 401) {
           // Not signed in yet: save the package, then send them to sign-in.
           // After login they land on the dashboard and the saved package is created.
@@ -100,10 +114,23 @@ export default function MwPackageListener() {
             /* Storage unavailable — the package cannot be carried across sign-in. */
           }
           window.location.assign("/signin");
+          return;
         }
-        // Any other failure: the package stays a demo (existing behavior).
+        // Any other failure used to fail silently, which looked like nothing
+        // happened. Surface it instead, with a way to try again.
+        let message = "Couldn't create your package. Please try again.";
+        if (res.status === 429) message = "Too many requests — please wait a bit and try again.";
+        else {
+          try {
+            const data = (await res.json()) as { error?: unknown };
+            if (typeof data.error === "string" && data.error) message = data.error;
+          } catch {
+            /* Keep the generic message. */
+          }
+        }
+        setError(message);
       } catch {
-        /* Offline — the package stays a demo. */
+        setError("Couldn't reach MotionWren. Check your connection and try again.");
       }
     }
 
@@ -111,5 +138,51 @@ export default function MwPackageListener() {
     window.addEventListener("mw:package", onPackage);
     return () => window.removeEventListener("mw:package", onPackage);
   }, []);
-  return null;
+
+  if (!error) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        position: "fixed",
+        top: 16,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        maxWidth: "calc(100vw - 32px)",
+        background: "#fff",
+        border: "1px solid #e5e5e5",
+        borderRadius: 12,
+        padding: "12px 16px",
+        boxShadow: "0 8px 30px rgba(0,0,0,.12)",
+        fontSize: 14,
+        lineHeight: 1.4,
+        color: "#111",
+      }}
+    >
+      <span>{error}</span>
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          const studio = (window as unknown as { MotionWrenStudio?: { open?: (flow: string) => void } }).MotionWrenStudio;
+          if (studio?.open) studio.open("plan");
+        }}
+        style={{ border: 0, background: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}
+      >
+        Try again
+      </button>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => setError(null)}
+        style={{ border: 0, background: "none", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+      >
+        ×
+      </button>
+    </div>
+  );
 }
