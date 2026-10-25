@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import MwPackageListener from "./mw-package-listener";
 
 export const metadata: Metadata = {
   title: "MotionWren | Property videos from listing photos",
@@ -28,7 +29,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <script src="/studio/mw-loader.js" data-src="/studio/mw-studio.html" defer></script>
+        <MwPackageListener />
+        {children}
+      </body>
     </html>
   );
 }
