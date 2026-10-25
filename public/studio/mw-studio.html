@@ -473,20 +473,49 @@ const sample=ORDER.map((n,i)=>({src:KR_SCENE(n,i+1),label:ROOM_LABEL[n],sample:t
 /* Drag to reorder photo thumbnails — pointer-based, so it works with a mouse
    AND with touch. (HTML5 drag-and-drop never fires on phones, which is why
    reordering did nothing on touch.) Mouse: drag once you move a few pixels.
-   Touch: press and hold briefly, then drag. The order is committed on release. */
+   Touch: press and hold briefly, then drag. The order is committed on release.
+   Release is watched at window level (plus a mouseup fallback) so a drop can
+   never leave a thumbnail stuck half-dragged: if the drop is missed, the next
+   touch cleans the old drag up first. A commit that does not map exactly back
+   onto the photo list is dropped, so photos can never duplicate or vanish. */
+let sortActive=null;
+function sortReset(st){st.el.classList.remove('dragging');st.el.style.pointerEvents='';st.el.style.touchAction='';st.el.style.userSelect='';}
+function sortCommit(st){
+  try{
+    const order=[...st.container.querySelectorAll('.thumb')].map(el=>+el.dataset.idx);
+    const ok=order.length===st.arr.length&&new Set(order).size===order.length&&order.every(i=>i>=0&&i<st.arr.length);
+    if(!ok)return;
+    const next=order.map(i=>st.arr[i]);
+    st.arr.length=0;next.forEach(p=>st.arr.push(p));
+    st.onChange();
+  }catch(_){/* Keep the old order; styles are still reset below. */}
+}
+function sortFinish(){
+  const st=sortActive;if(!st)return;sortActive=null;
+  if(st.timer)clearTimeout(st.timer);
+  if(st.mode==='drag'){try{sortCommit(st);}finally{sortReset(st);}}
+}
+function sortCancel(){
+  const st=sortActive;if(!st)return;sortActive=null;
+  if(st.timer)clearTimeout(st.timer);
+  if(st.mode==='drag')sortReset(st);
+}
+window.addEventListener('pointerup',sortFinish);
+window.addEventListener('pointercancel',sortCancel);
+window.addEventListener('mouseup',sortFinish);
 function makeSortable(container,arr,onChange){
   container.querySelectorAll('.thumb').forEach((el,idx)=>{
     el.dataset.idx=idx;
-    let mode=null,sx=0,sy=0,timer=null;
-    const reset=()=>{el.classList.remove('dragging');el.style.pointerEvents='';el.style.touchAction='';el.style.userSelect='';};
-    const cancel=()=>{if(timer){clearTimeout(timer);timer=null;} if(mode==='drag')reset(); mode=null;};
     el.addEventListener('pointerdown',e=>{
       if(e.pointerType==='mouse'&&e.button!==0)return;
-      sx=e.clientX;sy=e.clientY;mode='maybe';
+      if(sortActive&&sortActive.mode==='drag')sortReset(sortActive);
+      sortActive=null;
+      const st={el,container,arr,onChange,mode:'maybe',sx:e.clientX,sy:e.clientY,timer:null};
+      sortActive=st;
       if(e.pointerType==='touch'){
-        timer=setTimeout(()=>{
-          timer=null;if(mode!=='maybe')return;
-          mode='drag';
+        st.timer=setTimeout(()=>{
+          st.timer=null;if(sortActive!==st||st.mode!=='maybe')return;
+          st.mode='drag';
           try{el.setPointerCapture(e.pointerId);}catch(_){}
           el.style.touchAction='none';el.style.pointerEvents='none';el.style.userSelect='none';
           el.classList.add('dragging');
@@ -494,13 +523,14 @@ function makeSortable(container,arr,onChange){
       }
     });
     el.addEventListener('pointermove',e=>{
-      if(mode==='maybe'&&e.pointerType==='mouse'&&Math.hypot(e.clientX-sx,e.clientY-sy)>6){
-        mode='drag';
+      const st=sortActive;if(!st||st.el!==el)return;
+      if(st.mode==='maybe'&&e.pointerType==='mouse'&&Math.hypot(e.clientX-st.sx,e.clientY-st.sy)>6){
+        st.mode='drag';
         try{el.setPointerCapture(e.pointerId);}catch(_){}
         el.style.pointerEvents='none';el.style.userSelect='none';
         el.classList.add('dragging');
       }
-      if(mode!=='drag')return;
+      if(st.mode!=='drag')return;
       let under=null;
       try{under=document.elementFromPoint(e.clientX,e.clientY);}catch(_){}
       const target=under?under.closest('.thumb'):null;
@@ -508,19 +538,7 @@ function makeSortable(container,arr,onChange){
       const r=target.getBoundingClientRect();
       if((e.clientX-r.left)>(r.width/2))target.after(el);else target.before(el);
     });
-    const finish=()=>{
-      if(timer){clearTimeout(timer);timer=null;}
-      if(mode==='drag'){
-        reset();
-        const order=[...container.querySelectorAll('.thumb')].map(t=>+t.dataset.idx);
-        const next=order.map(i=>arr[i]);
-        arr.length=0;next.forEach(p=>arr.push(p));
-        mode=null;
-        onChange();
-      } else mode=null;
-    };
-    el.addEventListener('pointerup',finish);
-    el.addEventListener('pointercancel',cancel);
+    el.addEventListener('lostpointercapture',()=>{if(sortActive&&sortActive.el===el&&sortActive.mode==='drag')sortFinish();});
   });
 }
 
