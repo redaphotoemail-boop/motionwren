@@ -43,13 +43,14 @@ export async function GET(request: Request) {
   if (!profileResponse.ok) return redirectWithCookie(request, "/?owner=restricted", clearStateCookie());
   const profile = await profileResponse.json() as { sub?: string; email?: string; email_verified?: boolean; name?: string };
   const email = String(profile.email || "").trim().toLowerCase();
-  if (!email || profile.email_verified === false || !configuredAdmins(env).has(email)) return redirectWithCookie(request, "/?owner=restricted", clearStateCookie());
+  if (!email || profile.email_verified === false) return redirectWithCookie(request, "/?owner=restricted", clearStateCookie());
+  const isAdmin = configuredAdmins(env).has(email);
 
   const userId = `google:${profile.sub || email}`;
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES (?, ?, ?, 'admin', 'active', 'internal', 0, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, role = 'admin', status = 'active', updated_at = excluded.updated_at`).bind(userId, email, profile.name || email, now, now).run();
+  await env.DB.prepare(`INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, 0, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, role = CASE WHEN users.role = 'admin' THEN 'admin' ELSE excluded.role END, status = 'active', updated_at = excluded.updated_at`).bind(userId, email, profile.name || email, isAdmin ? "admin" : "customer", isAdmin ? "internal" : "free", now, now).run();
   const session = await createGoogleSession(env, userId);
-  const headers = new Headers({ Location: new URL("/admin", request.url).toString() });
+  const headers = new Headers({ Location: new URL(isAdmin ? "/admin" : "/dashboard", request.url).toString() });
   headers.append("Set-Cookie", clearStateCookie());
   headers.append("Set-Cookie", sessionCookie(session.token, Math.floor((session.expiresAt - now) / 1000)));
   return new Response(null, { status: 302, headers });
