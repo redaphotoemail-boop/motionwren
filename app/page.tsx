@@ -10,8 +10,7 @@ const WrenMark = ({ compact = false }: { compact?: boolean }) => (
 );
 
 export default function HomePage() {
-  const accountPath = "/api/auth/google";
-
+const accountPath = "/signin";
   return <main className="motionwren-site">
     <nav className="mw-nav" aria-label="Main navigation">
       <div className="mw-wrap">
