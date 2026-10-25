@@ -14,7 +14,11 @@ export async function GET(request: Request) {
   const state = Array.from(stateBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   const redirectUri = new URL("/api/auth/google/callback", request.url).toString();
   const params = new URLSearchParams({ client_id: clientId, response_type: "code", scope: "openid email profile", redirect_uri: redirectUri, state, access_type: "online", prompt: "select_account" });
-  const response = Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`, 302);
-  response.headers.append("Set-Cookie", cookie(state, STATE_MAX_AGE));
-  return response;
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      "Set-Cookie": cookie(state, STATE_MAX_AGE),
+    },
+  });
 }
