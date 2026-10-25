@@ -1,8 +1,15 @@
-import { requireChatGPTUser } from "../chatgpt-auth";
+import { redirect } from "next/navigation";
+import { HttpError, requireAccount } from "../api/_lib/account";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  await requireChatGPTUser("/dashboard");
+  try {
+    const { env } = await import("cloudflare:workers");
+    await requireAccount(env);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 401) redirect("/api/auth/google");
+    throw error;
+  }
   return children;
 }
