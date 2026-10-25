@@ -637,11 +637,7 @@ function planRender(){
           if(i<0||j<0||j>=P.photos.length)return;
           const m=P.photos.splice(i,1)[0];P.photos.splice(j,0,m);paint();});});};
     const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png)/.test(f.type)).slice(0,28);if(!list.length)return;if(P.photos.every(p=>p.sample))P.photos=[];let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{P.photos.push({src:r.result});if(--left===0)paint();};r.readAsDataURL(f);});
-      /* BACKEND: wired — store photos on a draft 'Content package' project so the order keeps them; failures stay local-only. */
-      (async()=>{try{
-        if(!P.projectId){const r=await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Content package'})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'project');P.projectId=d.project.id;}
-        for(const f of list){try{const fd=new FormData();fd.append('file',f);const u=await fetch('/api/projects/'+P.projectId+'/assets',{method:'POST',body:fd});const ud=await u.json().catch(()=>({}));if(u.ok&&ud.asset){const p=P.photos.find(x=>!x.assetId);if(p)p.assetId=ud.asset.id;}}catch(e){}}
-      }catch(e){}})();};
+      /* BACKEND: photos travel with the Create event now (see pcreate) — the host uploads them to each video project and starts production. No draft is created here. */};
     drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
     file.onchange=()=>add(file.files);
     ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
@@ -670,9 +666,9 @@ function planRender(){
     planBody.querySelectorAll('.pkg-item').forEach(b=>b.onclick=()=>{const it=items[+b.dataset.i];it.sel=!it.sel;b.setAttribute('aria-pressed',it.sel);upd();});
     upd();
     $('predo').onclick=()=>{P.step=0;P.goal=P.prop=P.vibe=null;P.channels=[];planRender();};
-    $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is 15% off when the whole package is selected. */
+    $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is 15% off when the whole package is selected. Photos are the uploaded data URLs in display order (samples excluded); the host uploads them to each video project and starts production automatically. */
     const sel=items.filter(i=>i.sel),sum=sel.reduce((a,i)=>a+i.price,0),total=items.length&&items.every(i=>i.sel)?Math.round(sum*0.85):sum;
-    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total});closePlan();};
+    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,photos:P.photos.filter(p=>!p.sample).map(p=>p.src)});closePlan();};
   }
 }
 function openPlan(){planModal.hidden=false;document.body.style.overflow='hidden';planRender();planModal.querySelector('.x').focus();}
