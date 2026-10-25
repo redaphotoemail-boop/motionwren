@@ -145,9 +145,8 @@ test("keeps provider credentials server-side and exposes owner CRM", async () =>
   assert.match(tokenApi, /sameSite: "strict"/);
 });
 
-
 test("keeps manager Google authentication server-side and exposes admin navigation", async () => {
-  const [account, googleStart, googleCallback, logout, adminLayout, replicatesRoute, replicatesPage, migration] = await Promise.all([
+  const [account, googleStart, googleCallback, logout, adminLayout, replicatesRoute, replicatesPage, migration, landing] = await Promise.all([
     readFile(new URL("../app/api/_lib/account.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/google/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/google/callback/route.ts", import.meta.url), "utf8"),
@@ -156,22 +155,30 @@ test("keeps manager Google authentication server-side and exposes admin navigati
     readFile(new URL("../app/api/admin/replicates/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/replicates/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0008_google_auth_sessions.sql", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
   ]);
-  assert.ok(googleStart.includes("https://accounts.google.com/o/oauth2/v2/auth"));
-  assert.ok(googleStart.includes("openid email profile"));
-  assert.ok(googleStart.includes("motionwren_google_state"));
-  assert.ok(googleCallback.includes("https://oauth2.googleapis.com/token"));
-  assert.ok(googleCallback.includes("https://openidconnect.googleapis.com/v1/userinfo"));
-  assert.ok(googleCallback.includes("configuredAdmins"));
-  assert.ok(account.includes("auth_sessions"));
-  assert.ok(account.includes("motionwren_session"));
-  assert.ok(account.includes("DELETE FROM auth_sessions"));
-  assert.ok(logout.includes("deleteGoogleSession"));
-  for (const path of ["/admin", "/admin/customers", "/admin#orders", "/studio", "/admin/replicates"]) assert.ok(adminLayout.includes(path));
-  assert.ok(replicatesRoute.includes("SUM(cost_cents)"));
-  assert.ok(replicatesRoute.includes("available: false"));
-  assert.ok(replicatesRoute.includes("replicate_low_balance_cents"));
-  assert.ok(replicatesPage.includes("No invented balance numbers"));
-  assert.ok(migration.includes("token_hash"));
-  assert.ok(!googleStart.includes("GOOGLE_CLIENT_SECRET"));
+  assert.match(googleStart, /accounts\.google\.com\/o\/oauth2\/v2\/auth/);
+  assert.match(googleStart, /openid email profile/);
+  assert.match(googleStart, /motionwren_google_state/);
+  assert.match(googleStart, /new Response\(null/);
+  assert.doesNotMatch(googleStart, /Response\.redirect/);
+  assert.match(googleCallback, /oauth2\.googleapis\.com\/token/);
+  assert.match(googleCallback, /openidconnect\.googleapis\.com\/v1\/userinfo/);
+  assert.match(googleCallback, /configuredAdmins/);
+  assert.match(googleCallback, /new Headers/);
+  assert.doesNotMatch(googleCallback, /Response\.redirect/);
+  assert.match(account, /auth_sessions/);
+  assert.match(account, /motionwren_session/);
+  assert.match(account, /DELETE FROM auth_sessions/);
+  assert.match(logout, /deleteGoogleSession/);
+  assert.doesNotMatch(logout, /Response\.redirect/);
+  for (const path of ["/admin", "/admin/customers", "/admin#orders", "/studio", "/admin/replicates"]) assert.match(adminLayout, new RegExp(path.replace(/[/?#]/g, "\\$&")));
+  assert.match(replicatesRoute, /SUM\(cost_cents\)/);
+  assert.match(replicatesRoute, /available: false/);
+  assert.match(replicatesRoute, /replicate_low_balance_cents/);
+  assert.match(replicatesPage, /No invented balance numbers/);
+  assert.match(migration, /token_hash/);
+  assert.match(landing, /FRAME MOTION STUDIO/);
+  assert.doesNotMatch(googleStart, /GOOGLE_CLIENT_SECRET/);
+  assert.doesNotMatch(landing, /GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|REPLICATE_API_TOKEN/);
 });
