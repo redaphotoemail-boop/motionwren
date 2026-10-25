@@ -320,22 +320,6 @@ body{margin:0;background:transparent;font:400 16px/1.5 var(--body)}
 </style>
 
 </head><body>
-<div class="modal" id="studioModal" hidden role="dialog" aria-modal="true" aria-label="Make your video">
-  <div class="sheet">
-    <div class="sheetbar">
-      <span class="sheetlogo"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="currentColor"/><g fill="var(--paper)"><circle cx="24" cy="27" r="7.5"/><path d="M14 25 L6 27 L14 30 Z"/><path d="M17 31 C17 45 30 49 43 44 C36 40 33 34 29 30 Z"/></g><circle cx="22" cy="26" r="1.6" fill="currentColor"/><path d="M29 31 C39 27 48 20 56 12" stroke="var(--amber)" stroke-width="5" fill="none" stroke-linecap="round"/></svg>Make your video</span>
-      <button class="x" id="closeStudio" type="button" aria-label="Close">×</button>
-    </div>
-    <div class="studio">
-      <div class="pane" id="pane" aria-live="polite"></div>
-      <div class="stage">
-        <div class="film" id="studioFilm"></div>
-        <div class="meta"><span id="metaL">6 scenes · 16:9</span><span id="metaR">00:00:15:00</span></div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div class="modal" id="planModal" hidden role="dialog" aria-modal="true" aria-label="Plan your content">
   <div class="sheet">
     <div class="sheetbar">
@@ -483,54 +467,9 @@ body{margin:0;background:transparent;font:400 16px/1.5 var(--body)}
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const ROOM_LABEL={exterior:'Exterior · Dusk',living:'Living room',kitchen:'Kitchen',dining:'Dining',bedroom:'Primary suite',bath:'Primary bath'};
 const ORDER=['exterior','living','kitchen','dining','bedroom','bath'];
-const MOVES=['push','pan','pull','rise'];
 const sample=ORDER.map((n,i)=>({src:KR_SCENE(n,i+1),label:ROOM_LABEL[n],sample:true}));
-const LISTING={addr:'42 Harbor Lane, Hingham MA',price:'$1,295,000',spec:'4 BD · 3 BA · 2,840 SQ FT'};
 
 /* A reusable "film" player: crossfading stills with camera moves, timecode and listing card */
-function Film(el,opts){
-  opts=Object.assign({card:true,wm:false,interval:2800,listing:LISTING,brand:''},opts||{});
-  let frames=[],i=0,timer=null,t0=0,raf=null;
-  el.innerHTML='';
-  const layer=document.createElement('div');el.appendChild(layer);
-  const hud=document.createElement('div');hud.className='hud';
-  hud.innerHTML='<div class="top"><span class="rec"><i></i><span class="room"></span></span><span class="tc">00:00:00:00</span></div><div class="card"><div class="addr"></div><div class="price"></div><div class="spec"></div></div>';
-  el.appendChild(hud);
-  const bar=document.createElement('div');bar.className='bar';el.appendChild(bar);
-  let wm=null;
-  const card=hud.querySelector('.card'),room=hud.querySelector('.room'),tc=hud.querySelector('.tc');
-  function setListing(l){card.querySelector('.addr').textContent=l.addr;card.querySelector('.price').textContent=l.price;card.querySelector('.spec').textContent=l.spec;}
-  setListing(opts.listing);
-  function load(list){
-    layer.innerHTML='';frames=list.map((p,k)=>{const f=document.createElement('div');f.className='frame';
-      f.style.setProperty('--move',MOVES[k%MOVES.length]);
-      const im=new Image();im.alt=p.label||'Listing photo';im.src=p.src;f.appendChild(im);layer.appendChild(f);return {f,label:p.label||('Scene '+(k+1))};});
-    i=0;show(0);
-  }
-  function show(k){
-    frames.forEach((x,j)=>x.f.classList.toggle('on',j===k));
-    const fr=frames[k];if(!fr)return;
-    // restart the camera move
-    const im=fr.f.querySelector('img');im.style.animation='none';void im.offsetWidth;im.style.animation='';
-    room.textContent=fr.label;
-    card.classList.toggle('show',opts.card&&(k===0||k===frames.length-1));
-  }
-  function tick(){
-    const total=frames.length*opts.interval,el2=(performance.now()-t0)%total;
-    const s=el2/1000,f=Math.floor((s%1)*24);
-    tc.textContent='00:00:'+String(Math.floor(s)).padStart(2,'0')+':'+String(f).padStart(2,'0');
-    bar.style.width=(el2/total*100)+'%';
-    raf=requestAnimationFrame(tick);
-  }
-  function play(){stop();t0=performance.now();i=0;show(0);
-    if(!reduced){timer=setInterval(()=>{i=(i+1)%frames.length;show(i);if(i===0)t0=performance.now();},opts.interval);raf=requestAnimationFrame(tick);}}
-  function stop(){clearInterval(timer);cancelAnimationFrame(raf);}
-  return {load,play,stop,setListing,
-    setCard(v){opts.card=v;show(i);},
-    setWatermark(v){if(v&&!wm){wm=document.createElement('div');wm.className='wm';wm.textContent='PREVIEW';el.appendChild(wm);}if(!v&&wm){wm.remove();wm=null;}},
-    setInterval(ms){opts.interval=ms;play();}};
-}
-
 /* Drag to reorder photo thumbnails (used in both the studio and Content Studio uploaders) */
 function makeSortable(container,arr,onChange){
   let dragEl=null;
@@ -548,209 +487,6 @@ function makeSortable(container,arr,onChange){
 }
 
 /* ---------- Studio: the actual product flow (5 steps) ---------- */
-const STEPS=5, PRICE=39;
-const S={step:0,photos:sample.slice(),listing:Object.assign({},LISTING),url:'',card:true,brand:true,unbranded:true,format:'16:9',length:'30',music:'Warm',motion:'Cinematic',paid:false};
-const pane=document.getElementById('pane'),stageEl=document.getElementById('studioFilm');
-const studio=Film(stageEl);studio.load(S.photos);studio.play();
-const LEN={'15':7,'30':14,'60':28};
-const MUSIC=[['Warm','Soft piano, cinematic'],['Upbeat','Bright, modern pop'],['Luxe','Lush, high-end strings'],['None','Silent — add your own']];
-function track(){return '<div class="track">'+Array.from({length:STEPS},(_,k)=>'<span class="'+(k<=S.step?'done':'')+'"></span>').join('')+'</div>';}
-function meta(){document.getElementById('metaL').textContent=S.photos.length+' scenes · '+S.format+' · '+S.music+' music';document.getElementById('metaR').textContent='00:00:'+S.length.padStart(2,'0')+':00';}
-function chips(name,vals,cur){return '<div class="chips" data-name="'+name+'">'+vals.map(v=>'<button type="button" class="chip" aria-pressed="'+(v===cur)+'" data-v="'+v+'">'+v+(name==='length'?' sec':'')+'</button>').join('')+'</div>';}
-
-/* --- music audition: short synthesized motifs so you can hear each style before choosing.
-   BACKEND: swap these for real licensed / ElevenLabs sample clips (<audio src=…> per style). --- */
-let actx=null,playingOsc=null,playingBtn=null;
-const MOTIFS={Warm:{wave:'sine',notes:[0,4,7,12,7,4],step:.42,g:.16},Upbeat:{wave:'triangle',notes:[0,7,12,16,12,7,9],step:.2,g:.14},Luxe:{wave:'sine',notes:[0,3,7,10,14,10,7],step:.5,g:.17}};
-function stopMusic(){if(playingOsc){playingOsc.forEach(o=>{try{o.stop()}catch(e){}});playingOsc=null;}if(playingBtn){playingBtn.setAttribute('aria-pressed','false');playingBtn=null;}}
-function playMusic(style,btn){
-  if(playingBtn===btn){stopMusic();return;}
-  stopMusic();if(style==='None')return;
-  try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
-  const m=MOTIFS[style]||MOTIFS.Warm,base=196;let t=actx.currentTime+.04;playingOsc=[];
-  m.notes.forEach((semi,i)=>{const o=actx.createOscillator(),g=actx.createGain(),st=t+i*m.step;
-    o.type=m.wave;o.frequency.value=base*Math.pow(2,semi/12);
-    g.gain.setValueAtTime(.0001,st);g.gain.exponentialRampToValueAtTime(m.g,st+.04);g.gain.exponentialRampToValueAtTime(.0001,st+m.step*1.5);
-    o.connect(g).connect(actx.destination);o.start(st);o.stop(st+m.step*1.6);playingOsc.push(o);});
-  btn.setAttribute('aria-pressed','true');playingBtn=btn;
-  const dur=(m.notes.length*m.step+.3)*1000;setTimeout(()=>{if(playingBtn===btn)stopMusic();},dur);
-}
-
-const views=[
-()=>`${track()}<div class="eyebrow">Step 1 of ${STEPS} · Photos</div><h3 style="margin-top:10px">Drop your photos</h3><p class="hint">JPG or PNG. We'll order them like a walkthrough — exterior first, then room by room.</p>
-<div class="drop" id="drop" tabindex="0" role="button" aria-label="Add photos"><strong>Drag photos here</strong><small>or click to choose · 7 for 15 sec, 14 for 30, 28 for 60</small><input type="file" id="file" accept="image/jpeg,image/png" multiple hidden></div>
-<div class="thumbs" id="thumbs"></div><div class="tag" id="ptag"></div>
-<div class="actions"><button class="btn" id="next">Continue</button></div>`,
-()=>`${track()}<div class="eyebrow">Step 2 of ${STEPS} · Details</div><h3 style="margin-top:10px">Add listing details</h3><p class="hint">Paste the listing link and we'll fill price, beds and baths in for you.</p>
-<div class="urlrow"><input type="url" id="url" placeholder="https://www.zillow.com/homedetails/…" value="${S.url}"><button class="btn ghost" id="fetch">Import</button></div>
-<div class="ok" id="ok"></div>
-<label class="f" for="addr">Address</label><input type="text" id="addr" value="${S.listing.addr}">
-<div class="row"><div><label class="f" for="price">Price</label><input type="text" id="price" value="${S.listing.price}"></div><div><label class="f" for="spec">Rooms</label><input type="text" id="spec" value="${S.listing.spec}"></div></div>
-<div class="toggle"><span>Show the listing card on the video</span><input type="checkbox" id="card" ${S.card?'checked':''}></div>
-<div class="actions"><button class="btn ghost" id="back">Back</button><button class="btn" id="next">Continue</button></div>`,
-()=>`${track()}<div class="eyebrow">Step 3 of ${STEPS} · Style</div><h3 style="margin-top:10px">Choose the feel</h3><p class="hint">Tap ▶ to hear each music style. Defaults work for most listings.</p>
-<label class="f">Format</label>${chips('format',['16:9','9:16','1:1'],S.format)}
-<label class="f">Length</label>${chips('length',['15','30','60'],S.length)}
-<label class="f">Music · tap to listen</label>
-<div class="mlist" id="mlist" role="radiogroup" aria-label="Music style">${MUSIC.map(([n,d])=>`<div class="mopt" data-v="${n}" role="radio" tabindex="0" aria-checked="${n===S.music}"><button type="button" class="mplay ${n==='None'?'off':''}" data-play="${n}" aria-pressed="false" aria-label="Preview ${n} music"${n==='None'?' tabindex="-1" aria-hidden="true"':''}>▶</button><span class="mnm">${n}</span><span class="mdesc">${d}</span><span class="mcheck"></span></div>`).join('')}</div>
-<label class="f">Camera</label>${chips('motion',['Gentle','Cinematic'],S.motion)}
-<div class="toggle" style="margin-top:10px"><span>Add my name and number at the end</span><input type="checkbox" id="brand" ${S.brand?'checked':''}></div>
-<div class="toggle"><span>Also make an MLS version (no branding)</span><input type="checkbox" id="unb" ${S.unbranded?'checked':''}></div>
-<div class="actions"><button class="btn ghost" id="back">Back</button><button class="btn" id="next">Review &amp; pay</button></div>`,
-()=>`${track()}<div class="eyebrow">Step 4 of ${STEPS} · Payment</div><h3 style="margin-top:10px">Review and pay</h3><p class="hint">We charge once, then start rendering your film right away.</p>
-<div class="summary">
-  <div class="li"><span>Film</span><span>${S.length}-sec · ${S.format} · ${S.music} music</span></div>
-  <div class="li"><span>Versions</span><span>${S.brand?'Branded':'Clean'}${S.unbranded?' + MLS':''}</span></div>
-  <div class="li"><span>Delivery</span><span>A few minutes · email + text</span></div>
-  <div class="li tot"><span>Total</span><span>$${PRICE}</span></div>
-</div>
-<form id="pay" novalidate>
-<label class="f" for="cc">Card number</label><input type="text" id="cc" inputmode="numeric" placeholder="1234 1234 1234 1234" autocomplete="cc-number">
-<div class="row"><div><label class="f" for="exp">Expiry</label><input type="text" id="exp" placeholder="MM / YY" autocomplete="cc-exp"></div><div><label class="f" for="cvc">CVC</label><input type="text" id="cvc" inputmode="numeric" placeholder="123" autocomplete="cc-csc"></div></div>
-<label class="f" for="nm">Name on card</label><input type="text" id="nm" placeholder="Full name" autocomplete="cc-name">
-<div class="ok" id="payok"></div>
-<div class="actions"><button type="button" class="btn ghost" id="back">Back</button><button type="submit" class="btn amber" id="paybtn">Pay $${PRICE} &amp; create my film</button></div>
-</form>
-<div class="secure">🔒 Secure checkout · powered by Stripe</div>`,
-()=>`${track()}<div class="eyebrow">Step 5 of ${STEPS} · Your film</div><h3 style="margin-top:10px" id="rt">Creating your film</h3><p class="hint" id="rh">About two minutes. You can leave this page — we'll email and text you.</p>
-<div class="render" id="render">${['Reading each room','Planning camera moves','Animating '+S.photos.length+' scenes','Scoring the '+S.music.toLowerCase()+' music','Adding your details'].map(t=>'<div><b></b>'+t+'</div>').join('')}</div>
-<div id="done" hidden><div class="paid">✓ Paid — HD download, no watermark</div>
-<div class="actions"><button class="btn amber" id="dl">Download HD</button><button class="btn ghost" id="revise">Request a change</button></div>
-<div class="contact">One free revision is included — just tell us what to change.<br>Email <b>info@redaphoto.com</b> · Text <b>617-855-9535</b></div></div>`
-];
-
-function render(){
-  stopMusic();pane.innerHTML=views[S.step]();meta();
-  const $=id=>document.getElementById(id);
-  if($('back'))$('back').onclick=()=>{S.step--;render();};
-  if(S.step===0){
-    const drop=$('drop'),file=$('file');
-    const paint=()=>{
-      $('thumbs').innerHTML=S.photos.map((p,k)=>'<div class="thumb"><img src="'+p.src+'" alt="" draggable="false"><span class="i">'+String(k+1).padStart(2,'0')+'</span><button type="button" aria-label="Remove photo '+(k+1)+'" data-k="'+k+'">×</button></div>').join('');
-      $('ptag').textContent=(S.photos.some(p=>p.sample)?'Sample photos · ':'')+S.photos.length+' photos'+(S.photos.length>1?' · drag to reorder':'');
-      $('next').disabled=S.photos.length<3;
-      $('thumbs').querySelectorAll('button').forEach(b=>b.onclick=()=>{S.photos.splice(+b.dataset.k,1);paint();studio.load(S.photos);studio.play();meta();});
-      makeSortable($('thumbs'),S.photos,()=>{paint();studio.load(S.photos);studio.play();meta();});};
-    const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png)/.test(f.type)).slice(0,28);if(!list.length)return;
-      if(S.photos.every(p=>p.sample))S.photos=[];
-      let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{S.photos.push({src:r.result,label:f.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' ').slice(0,26)});
-        if(--left===0){paint();studio.load(S.photos);studio.play();meta();}};r.readAsDataURL(f);});
-      /* BACKEND: photos upload at render time (see run()) — in final order, so drag-reorders and removals are respected. Previews stay local until payment. */};
-    drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
-    file.onchange=()=>add(file.files);
-    ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
-    ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
-    drop.addEventListener('drop',e=>add(e.dataTransfer.files));
-    paint();$('next').onclick=()=>{S.step=1;render();};
-  }
-  if(S.step===1){
-    const sync=()=>{S.listing={addr:$('addr').value,price:$('price').value,spec:$('spec').value};studio.setListing(S.listing);};
-    ['addr','price','spec'].forEach(id=>$(id).oninput=sync);
-    $('card').onchange=e=>{S.card=e.target.checked;studio.setCard(S.card);};
-    $('fetch').onclick=()=>{S.url=$('url').value.trim();
-      if(!S.url){$('ok').textContent='Paste a Zillow, Redfin or MLS link first.';return;}
-      $('ok').textContent='Reading listing…';
-      /* BACKEND: wired — real listing import; demo fill on failure. */
-      (async()=>{try{
-        const r=await fetch('/api/listing-import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:S.url})});
-        const d=await r.json().catch(()=>({}));if(!r.ok||!d.fields)throw new Error(d.error||'import');
-        const f=d.fields,fmt=v=>v?Number(String(v).replace(/\D/g,'')).toLocaleString('en-US'):'';
-        const spec=[f.beds?f.beds+' BD':'',f.baths?f.baths+' BA':'',f.squareFeet?fmt(f.squareFeet)+' SQ FT':''].filter(Boolean).join(' · ');
-        $('addr').value=f.listingAddress||f.title||'';$('price').value=f.price?'$'+fmt(f.price):'';$('spec').value=spec;sync();$('ok').textContent='Imported price, rooms and address.';
-      }catch(e){
-        setTimeout(()=>{$('addr').value='42 Harbor Lane, Hingham MA';$('price').value='$1,295,000';$('spec').value='4 BD · 3 BA · 2,840 SQ FT';sync();$('ok').textContent='Imported price, rooms and address.';},900);
-      }})();};
-    $('next').onclick=()=>{sync();S.step=2;render();};
-  }
-  if(S.step===2){
-    pane.querySelectorAll('.chips').forEach(g=>g.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
-      S[g.dataset.name]=c.dataset.v;g.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed',x===c));
-      if(g.dataset.name==='format'){stageEl.classList.toggle('v',S.format==='9:16');stageEl.classList.toggle('s',S.format==='1:1');}
-      if(g.dataset.name==='motion')studio.setInterval(S.motion==='Gentle'?3600:2600);
-      meta();}));
-    // music: select a row, or audition with the ▶
-    pane.querySelectorAll('.mopt').forEach(opt=>{
-      const sel=()=>{S.music=opt.dataset.v;pane.querySelectorAll('.mopt').forEach(x=>x.setAttribute('aria-checked',x===opt));meta();};
-      opt.onclick=e=>{if(e.target.closest('.mplay'))return;sel();};
-      opt.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();sel();}};
-      const pb=opt.querySelector('.mplay');if(pb&&!pb.classList.contains('off'))pb.onclick=e=>{e.stopPropagation();playMusic(pb.dataset.play,pb);};});
-    $('brand').onchange=e=>S.brand=e.target.checked;$('unb').onchange=e=>S.unbranded=e.target.checked;
-    $('next').onclick=()=>{S.step=3;render();};
-  }
-  if(S.step===3){
-    const fmt=v=>v.replace(/\D/g,'').slice(0,16).replace(/(.{4})/g,'$1 ').trim();
-    $('cc').oninput=e=>{e.target.value=fmt(e.target.value);};
-    $('exp').oninput=e=>{let v=e.target.value.replace(/\D/g,'').slice(0,4);if(v.length>2)v=v.slice(0,2)+' / '+v.slice(2);e.target.value=v;};
-    $('pay').onsubmit=e=>{e.preventDefault();
-      const ok=$('cc').value.replace(/\s/g,'').length>=15&&$('exp').value.length>=5&&$('cvc').value.length>=3&&$('nm').value.trim();
-      if(!ok){$('payok').textContent='Enter your card details to continue.';return;}
-      /* BACKEND: no PaymentIntent endpoint exists yet (Stripe is not connected) — the card form confirms locally, and the render step enforces the real gate (submit returns 402 when billing is live and credits are missing). When Stripe lands, replace the timeout below with PaymentIntent confirm. */
-      const btn=$('paybtn');btn.textContent='Charging…';btn.disabled=true;
-      setTimeout(()=>{S.paid=true;S.step=4;render();run();},1100);};
-  }
-  if(S.step===4){
-    run.done=()=>{
-      $('rt').textContent='Your film is ready.';$('rh').textContent='Here it is, watermark-free. Download, or ask for a change.';
-      $('render').hidden=true;$('done').hidden=false;studio.play();
-      $('dl').onclick=()=>{if(S.downloadUrl){window.location.href=S.downloadUrl;return;}$('dl').textContent='Preparing HD…';setTimeout(()=>{$('dl').textContent='Download HD';},1200);/* BACKEND: real MP4 via S.downloadUrl when a render finished, else demo */};
-      $('revise').onclick=()=>{S.step=2;render();};
-    };
-  }
-}
-function run(){
-  /* BACKEND: wired — real photos upload at render time (final order), then submit → generate → poll → deliver. Demo animation when signed out, offline, or on sample photos. */
-  const $=id=>document.getElementById(id);
-  const demo=()=>{const rows=[...document.querySelectorAll('#render div')];let k=0;
-    const nxt=()=>{rows.forEach((r,j)=>{r.className=j<k?'done':j===k?'on':'';});
-      if(k>=rows.length){if(run.done)run.done();return;}
-      k++;setTimeout(nxt,reduced?150:850);};
-    nxt();};
-  const realPhotos=S.photos.filter(p=>!p.sample);
-  if(realPhotos.length<2){demo();return;}
-  (async()=>{
-    const unavailable=res=>{if(res.status===401||res.status>=500){demo();return true;}return false;};
-    try{
-      const changed=S.listing.addr!==LISTING.addr;
-      const digits=v=>(v||'').replace(/\D/g,'');
-      $('rt').textContent='Uploading your photos…';
-      const r=await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:changed?S.listing.addr:'MotionWren video',listingAddress:changed?S.listing.addr:'',price:S.listing.price!==LISTING.price?digits(S.listing.price):'',aspect:S.format==='9:16'?'vertical':S.format==='1:1'?'cinematic':'horizontal',targetDuration:S.length==='15'?20:S.length==='60'?50:30})});
-      const d=await r.json().catch(()=>({}));if(!r.ok){if(unavailable(r))return;throw new Error(d.error||'The project could not be created.');}
-      const pid=d.project.id;S.projectId=pid;
-      const shots=realPhotos.slice(0,20);
-      for(let i=0;i<shots.length;i++){const p=shots[i];const blob=await(await fetch(p.src)).blob();const ext=blob.type==='image/png'?'png':'jpg';const fd=new FormData();fd.append('file',new File([blob],(p.label||'photo')+'.'+ext,{type:blob.type||'image/jpeg'}));const u=await fetch('/api/projects/'+pid+'/assets',{method:'POST',body:fd});const ud=await u.json().catch(()=>({}));if(!u.ok){if(unavailable(u))return;throw new Error(ud.error||('Photo '+(i+1)+' could not be stored.'));}}
-      $('rt').textContent='Submitting…';
-      const s=await fetch('/api/projects/'+pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'submit'})});
-      const sd=await s.json().catch(()=>({}));
-      if(!s.ok){if(s.status===402){$('rt').textContent='A video credit is required.';$('rh').textContent=sd.error||'Add a video credit, then start production from your dashboard.';return;}if(unavailable(s))return;throw new Error(sd.error||'The project could not be submitted.');}
-      $('rt').textContent='Starting production…';
-      const g=await fetch('/api/projects/'+pid+'/generate',{method:'POST'});const gd=await g.json().catch(()=>({}));if(!g.ok){if(unavailable(g))return;throw new Error(gd.error||'Production could not start.');}
-      $('rt').textContent='Creating scenes…';
-      const started=Date.now();
-      while(Date.now()-started<20*60*1000){
-        await new Promise(res=>setTimeout(res,10000));
-        const pr=await fetch('/api/projects/'+pid,{cache:'no-store'});const pd=await pr.json().catch(()=>({}));if(!pr.ok){if(unavailable(pr))return;throw new Error(pd.error||'Production status could not be read.');}
-        const st=pd.project&&pd.project.status;
-        if(st==='completed'){S.downloadUrl=pd.project.finalHistoryId?('/api/history/'+pd.project.finalHistoryId+'/video?download=1'):null;if(run.done)run.done();return;}
-        if(st==='failed')throw new Error('Production failed. Your project is saved in your dashboard.');
-      }
-      $('rt').textContent='Still rendering…';$('rh').textContent='This one is taking a while. Find it in your dashboard when it is ready.';
-    }catch(e){
-      if(e instanceof TypeError){demo();return;}
-      $('rt').textContent='Could not start production.';$('rh').textContent=(e&&e.message)||'Your photos are safe — try again from your dashboard.';
-    }
-  })();
-}
-render();
-
-/* ---------- Focused pop-out: the studio opens over the page ---------- */
-const modal=document.getElementById('studioModal');let lastFocus=null;
-studio.stop(); // idle until the pop-out opens
-function openStudio(){lastFocus=document.activeElement;modal.hidden=false;document.body.style.overflow='hidden';
-  studio.play();if(S.step===0)render();modal.querySelector('.x').focus();}
-function closeStudio(){stopMusic();modal.hidden=true;document.body.style.overflow='';studio.stop();toParent('mw:close');}
-document.getElementById('closeStudio').onclick=closeStudio;
-modal.addEventListener('click',e=>{if(e.target===modal)closeStudio();});
-
 /* ---------- Content Studio: visual questions → analysis → recommended package ---------- */
 const ICON={
 flag:'<path d="M6 21V4"/><path d="M6 5h11l-2.3 3.3L17 11.6H6"/>',
@@ -868,7 +604,7 @@ function planRender(){
     $('predo').onclick=()=>{P.step=0;P.goal=P.prop=P.vibe=null;P.channels=[];planRender();};
     $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is 15% off when the whole package is selected. */
     const sel=items.filter(i=>i.sel),sum=sel.reduce((a,i)=>a+i.price,0),total=items.length&&items.every(i=>i.sel)?Math.round(sum*0.85):sum;
-    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total});openStudio();};
+    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total});closePlan();};
   }
 }
 function openPlan(){planModal.hidden=false;document.body.style.overflow='hidden';planRender();planModal.querySelector('.x').focus();}
@@ -878,10 +614,10 @@ planModal.addEventListener('click',e=>{if(e.target===planModal)closePlan();});
 
 /* ---------- Host glue: the host page opens a flow and hears when it closes ---------- */
 function toParent(type,data){try{if(window.parent!==window)window.parent.postMessage(Object.assign({type:type},data||{}),'*');}catch(e){}}
-function openFlow(f){if(f==='plan')openPlan();else openStudio();}
+function openFlow(f){openPlan();}
 window.addEventListener('message',e=>{const d=e.data||{};if(d.type==='mw:open')openFlow(d.flow);});
 (function(){const f=new URLSearchParams(location.search).get('flow');if(f)openFlow(f);})();
-document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(!planModal.hidden)closePlan();else if(!modal.hidden)closeStudio();});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(!planModal.hidden)closePlan();});
 })();
 </script>
 </body></html>
