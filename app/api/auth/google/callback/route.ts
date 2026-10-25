@@ -12,9 +12,13 @@ function sessionCookie(value: string, maxAge: number) {
 }
 
 function redirectWithCookie(request: Request, location: string, setCookie: string) {
-  const response = Response.redirect(new URL(location, request.url), 302);
-  response.headers.append("Set-Cookie", setCookie);
-  return response;
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: new URL(location, request.url).toString(),
+      "Set-Cookie": setCookie,
+    },
+  });
 }
 
 export async function GET(request: Request) {
@@ -45,8 +49,8 @@ export async function GET(request: Request) {
   const now = Date.now();
   await env.DB.prepare(`INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES (?, ?, ?, 'admin', 'active', 'internal', 0, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, role = 'admin', status = 'active', updated_at = excluded.updated_at`).bind(userId, email, profile.name || email, now, now).run();
   const session = await createGoogleSession(env, userId);
-  const response = Response.redirect(new URL("/admin", request.url), 302);
-  response.headers.append("Set-Cookie", clearStateCookie());
-  response.headers.append("Set-Cookie", sessionCookie(session.token, Math.floor((session.expiresAt - now) / 1000)));
-  return response;
+  const headers = new Headers({ Location: new URL("/admin", request.url).toString() });
+  headers.append("Set-Cookie", clearStateCookie());
+  headers.append("Set-Cookie", sessionCookie(session.token, Math.floor((session.expiresAt - now) / 1000)));
+  return new Response(null, { status: 302, headers });
 }
