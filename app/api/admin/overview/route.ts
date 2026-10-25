@@ -12,7 +12,7 @@ export async function GET() {
       env.DB.prepare(`SELECT COUNT(*) AS total, SUM(size_bytes) AS bytes FROM project_assets`).first(),
       env.DB.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(amount_cents),0) AS revenueCents FROM payments WHERE status = 'paid'`).first(),
       env.DB.prepare(`SELECT COUNT(*) AS total FROM subscriptions WHERE status IN ('active','trialing')`).first(),
-      env.DB.prepare(`SELECT p.id, p.title, p.status, p.updated_at AS updatedAt, p.owner_id AS ownerId, u.email AS ownerEmail, COUNT(a.id) AS assetCount FROM projects p LEFT JOIN users u ON u.id = p.owner_id LEFT JOIN project_assets a ON a.project_id = p.id GROUP BY p.id ORDER BY p.updated_at DESC LIMIT 12`).all(),
+      env.DB.prepare(`SELECT p.id, p.title, p.status, p.updated_at AS updatedAt, p.owner_id AS ownerId, u.email AS ownerEmail, p.price AS price, p.short_message AS shortMessage, p.render_job_id AS renderJobId, j.cost_cents AS productionCostCents, COUNT(a.id) AS assetCount FROM projects p LEFT JOIN users u ON u.id = p.owner_id LEFT JOIN render_jobs j ON j.id = p.render_job_id LEFT JOIN project_assets a ON a.project_id = p.id GROUP BY p.id ORDER BY p.updated_at DESC LIMIT 12`).all(),
       env.DB.prepare(`SELECT id, kind, status, category, resolution, duration, cost_cents AS costCents, error, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs ORDER BY updated_at DESC LIMIT 12`).all(),
       env.DB.prepare(`SELECT a.id, a.action, a.entity_type AS entityType, a.entity_id AS entityId, a.created_at AS createdAt, u.display_name AS actorName, u.email AS actorEmail FROM audit_events a LEFT JOIN users u ON u.id = a.actor_id ORDER BY a.created_at DESC LIMIT 20`).all(),
     ]);
