@@ -470,19 +470,57 @@ const ORDER=['exterior','living','kitchen','dining','bedroom','bath'];
 const sample=ORDER.map((n,i)=>({src:KR_SCENE(n,i+1),label:ROOM_LABEL[n],sample:true}));
 
 /* A reusable "film" player: crossfading stills with camera moves, timecode and listing card */
-/* Drag to reorder photo thumbnails (used in both the studio and Content Studio uploaders) */
+/* Drag to reorder photo thumbnails — pointer-based, so it works with a mouse
+   AND with touch. (HTML5 drag-and-drop never fires on phones, which is why
+   reordering did nothing on touch.) Mouse: drag once you move a few pixels.
+   Touch: press and hold briefly, then drag. The order is committed on release. */
 function makeSortable(container,arr,onChange){
-  let dragEl=null;
   container.querySelectorAll('.thumb').forEach((el,idx)=>{
-    el.setAttribute('draggable','true');el.dataset.idx=idx;
-    el.addEventListener('dragstart',e=>{dragEl=el;el.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',idx);}catch(_){}} );
-    el.addEventListener('dragend',()=>{el.classList.remove('dragging');dragEl=null;container.querySelectorAll('.thumb').forEach(t=>t.classList.remove('over'));});
-    el.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';});
-    el.addEventListener('dragenter',e=>{e.preventDefault();if(el!==dragEl)el.classList.add('over');});
-    el.addEventListener('dragleave',()=>el.classList.remove('over'));
-    el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('over');
-      if(!dragEl||dragEl===el)return;
-      const from=+dragEl.dataset.idx,to=+el.dataset.idx;const [m]=arr.splice(from,1);arr.splice(to,0,m);onChange();});
+    el.dataset.idx=idx;
+    let mode=null,sx=0,sy=0,timer=null;
+    const reset=()=>{el.classList.remove('dragging');el.style.pointerEvents='';el.style.touchAction='';el.style.userSelect='';};
+    const cancel=()=>{if(timer){clearTimeout(timer);timer=null;} if(mode==='drag')reset(); mode=null;};
+    el.addEventListener('pointerdown',e=>{
+      if(e.pointerType==='mouse'&&e.button!==0)return;
+      sx=e.clientX;sy=e.clientY;mode='maybe';
+      if(e.pointerType==='touch'){
+        timer=setTimeout(()=>{
+          timer=null;if(mode!=='maybe')return;
+          mode='drag';
+          try{el.setPointerCapture(e.pointerId);}catch(_){}
+          el.style.touchAction='none';el.style.pointerEvents='none';el.style.userSelect='none';
+          el.classList.add('dragging');
+        },350);
+      }
+    });
+    el.addEventListener('pointermove',e=>{
+      if(mode==='maybe'&&e.pointerType==='mouse'&&Math.hypot(e.clientX-sx,e.clientY-sy)>6){
+        mode='drag';
+        try{el.setPointerCapture(e.pointerId);}catch(_){}
+        el.style.pointerEvents='none';el.style.userSelect='none';
+        el.classList.add('dragging');
+      }
+      if(mode!=='drag')return;
+      let under=null;
+      try{under=document.elementFromPoint(e.clientX,e.clientY);}catch(_){}
+      const target=under?under.closest('.thumb'):null;
+      if(!target||target===el||!container.contains(target))return;
+      const r=target.getBoundingClientRect();
+      if((e.clientX-r.left)>(r.width/2))target.after(el);else target.before(el);
+    });
+    const finish=()=>{
+      if(timer){clearTimeout(timer);timer=null;}
+      if(mode==='drag'){
+        reset();
+        const order=[...container.querySelectorAll('.thumb')].map(t=>+t.dataset.idx);
+        const next=order.map(i=>arr[i]);
+        arr.length=0;next.forEach(p=>arr.push(p));
+        mode=null;
+        onChange();
+      } else mode=null;
+    };
+    el.addEventListener('pointerup',finish);
+    el.addEventListener('pointercancel',cancel);
   });
 }
 
@@ -537,7 +575,7 @@ function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='lu
  items.push({icon:'graphic',title:g[P.goal]||'Announcement graphic',price:12,meta:['Image','1:1 + 9:16'],tags:ch.length?['Social']:['Download']});
  if(ch.includes('email')||ch.includes('mls'))items.push({icon:'cover',title:'Listing cover image',price:9,meta:['Thumbnail','16:9'],tags:tagsFor(['email','mls'],ch,true)});
  return items;}
-const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:sample.slice()};
+const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
 const planModal=document.getElementById('planModal'),planBody=document.getElementById('planBody');
 function closePlan(){planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
 function ptrack(){return '<div class="track">'+Array.from({length:7},(_,k)=>'<span class="'+(k<=P.step?'done':'')+'"></span>').join('')+'</div>';}
@@ -581,9 +619,9 @@ function planRender(){
     drop.addEventListener('drop',e=>add(e.dataTransfer.files));
     paint();$('pback').onclick=()=>{P.step=3;planRender();};$('panalyze').onclick=()=>{P.step=5;planRender();};
   } else if(P.step===5){
-    const steps=['Reading your '+P.photos.length+' photos','Finding your best shots','Matching to your '+(LB[P.goal]||'listing')+' goal','Sizing for '+(P.channels.map(c=>CHL[c]).join(', ')||'every channel'),'Planning your content package'];
+    const steps=[P.photos.length?('Reading your '+P.photos.length+' photos'):'Reading your brief','Finding your best shots','Matching to your '+(LB[P.goal]||'listing')+' goal','Sizing for '+(P.channels.map(c=>CHL[c]).join(', ')||'every channel'),'Planning your content package'];
     planBody.innerHTML=`<div class="qhead"><div class="eyebrow">Analyzing</div><h3>Building your package…</h3><p class="hint">This takes a few seconds.</p></div>
-    <div class="scan"><img src="${P.photos[0].src}" alt=""></div>
+    ${P.photos.length?`<div class="scan"><img src="${P.photos[0].src}" alt=""></div>`:``}
     <div class="render" id="prender">${steps.map(t=>'<div><b></b>'+t+'</div>').join('')}</div>`;
     const rows=[...planBody.querySelectorAll('#prender div')];let k=0;
     const nx=()=>{rows.forEach((r,j)=>r.className=j<k?'done':j===k?'on':'');if(k>=rows.length){P.step=6;planRender();return;}k++;setTimeout(nx,reduced?150:900);};nx();
