@@ -29,7 +29,7 @@ const accountPath = "/signin";
       <h1>Listing photos,<br /><em>brought to life.</em></h1>
       <p>Professional property videos made from the photos you already have—motion, pacing, branding and delivery included.</p>
       <div className="mw-actions">
-        <a className="mw-button" href={accountPath} target="_top">Create your video <Icon name="arrow" size={16} /></a>
+        <a className="mw-button" href={accountPath} target="_top" data-mw="plan">Create your video <Icon name="arrow" size={16} /></a>
         <Link className="mw-button ghost" href="#how">See how it works</Link>
       </div>
       <small>No editing software. Your projects and finished files stay together in one workspace.</small>
