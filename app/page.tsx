@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Icon } from "./ui-icon";
-import { chatGPTSignInPath } from "./chatgpt-auth";
 
 const WrenMark = ({ compact = false }: { compact?: boolean }) => (
   <span className={compact ? "mw-logo compact" : "mw-logo"} aria-label="MotionWren">
@@ -11,7 +10,7 @@ const WrenMark = ({ compact = false }: { compact?: boolean }) => (
 );
 
 export default function HomePage() {
-  const accountPath = chatGPTSignInPath("/dashboard");
+  const accountPath = "/api/auth/google";
 
   return <main className="motionwren-site">
     <nav className="mw-nav" aria-label="Main navigation">
@@ -28,10 +27,10 @@ export default function HomePage() {
 
     <header className="mw-hero mw-wrap">
       <p className="mw-eyebrow">PROPERTY VIDEO, SIMPLIFIED</p>
-      <h1>Listing photos,<br/><em>brought to life.</em></h1>
+      <h1>Listing photos,<br /><em>brought to life.</em></h1>
       <p>Professional property videos made from the photos you already have—motion, pacing, branding and delivery included.</p>
       <div className="mw-actions">
-        <a className="mw-button" href={accountPath} target="_top">Create your video <Icon name="arrow" size={16}/></a>
+        <a className="mw-button" href={accountPath} target="_top">Create your video <Icon name="arrow" size={16} /></a>
         <Link className="mw-button ghost" href="#how">See how it works</Link>
       </div>
       <small>No editing software. Your projects and finished files stay together in one workspace.</small>
@@ -40,35 +39,35 @@ export default function HomePage() {
     <section className="mw-film mw-wrap" aria-label="MotionWren property video preview">
       <Image src="/og.png" alt="Preview of a finished MotionWren property film" width={1200} height={675} priority unoptimized />
       <div className="mw-film-shade" />
-      <div className="mw-film-top"><span><i/> MOTIONWREN FILM</span><span>16:9 · 1080P</span></div>
-      <div className="mw-film-card"><span>PROPERTY FILM</span><strong>Architecture stays true.<br/>The camera does the moving.</strong><small>Camera-only motion · smooth pacing · polished delivery</small></div>
+      <div className="mw-film-top"><span><i /> MOTIONWREN FILM</span><span>16:9 · 1080P</span></div>
+      <div className="mw-film-card"><span>PROPERTY FILM</span><strong>Architecture stays true.<br />The camera does the moving.</strong><small>Camera-only motion · smooth pacing · polished delivery</small></div>
       <div className="mw-film-progress" />
     </section>
 
     <section id="how" className="mw-section mw-wrap mw-center">
       <p className="mw-eyebrow">HOW IT WORKS</p>
-      <h2>Three clear steps.<br/>No editing software.</h2>
+      <h2>Three clear steps.<br />No editing software.</h2>
       <div className="mw-steps">
-        <article><span>01</span><Icon name="home"/><h3>Add the property</h3><p>Paste a listing link or enter the essentials yourself.</p></article>
-        <article><span>02</span><Icon name="upload"/><h3>Upload your photos</h3><p>Put them in the order you want and choose the format.</p></article>
-        <article><span>03</span><Icon name="finish"/><h3>Receive the film</h3><p>Track production, download the result and find it later.</p></article>
+        <article><span>01</span><Icon name="home" /><h3>Add the property</h3><p>Paste a listing link or enter the essentials yourself.</p></article>
+        <article><span>02</span><Icon name="upload" /><h3>Upload your photos</h3><p>Put them in the order you want and choose the format.</p></article>
+        <article><span>03</span><Icon name="finish" /><h3>Receive the film</h3><p>Track production, download the result and find it later.</p></article>
       </div>
     </section>
 
     <section className="mw-section mw-surface">
       <div className="mw-wrap mw-split">
-        <div><p className="mw-eyebrow">PROPERTY ACCURACY</p><h2>Built for homes,<br/>not random animation.</h2><p>The production system is designed around camera-only movement. Architecture, furniture, lighting and important listing details stay visually stable while the shot moves.</p></div>
+        <div><p className="mw-eyebrow">PROPERTY ACCURACY</p><h2>Built for homes,<br />not random animation.</h2><p>The production system is designed around camera-only movement. Architecture, furniture, lighting and important listing details stay visually stable while the shot moves.</p></div>
         <div className="mw-quality">
-          <article><Icon name="motion"/><span><strong>Purposeful motion</strong><small>Movement selected for the room and frame.</small></span></article>
-          <article><Icon name="finish"/><span><strong>Professional assembly</strong><small>Multi-shot films use real crossfades and consistent pacing.</small></span></article>
-          <article><Icon name="storage"/><span><strong>Durable delivery</strong><small>Originals and finished videos remain attached to your project.</small></span></article>
+          <article><Icon name="motion" /><span><strong>Purposeful motion</strong><small>Movement selected for the room and frame.</small></span></article>
+          <article><Icon name="finish" /><span><strong>Professional assembly</strong><small>Multi-shot films use real crossfades and consistent pacing.</small></span></article>
+          <article><Icon name="storage" /><span><strong>Durable delivery</strong><small>Originals and finished videos remain attached to your project.</small></span></article>
         </div>
       </div>
     </section>
 
     <section id="pricing" className="mw-section mw-wrap mw-center">
       <p className="mw-eyebrow">SIMPLE PRICING</p>
-      <h2>Start with one property.<br/>Scale when you need to.</h2>
+      <h2>Start with one property.<br />Scale when you need to.</h2>
       <div className="mw-pricing">
         <article><span>SINGLE</span><h3>$29</h3><strong>One complete property video</strong><p>Up to 20 seconds in 1080p, with project history and delivery.</p><a href={accountPath} target="_top">Start one project</a></article>
         <article className="featured"><span>FIVE-PACK</span><h3>$125</h3><strong>Five video credits</strong><p>For active agents and photographers managing several listings.</p><a href={accountPath} target="_top">Open your workspace</a></article>
@@ -77,9 +76,9 @@ export default function HomePage() {
     </section>
 
     <section className="mw-final">
-      <div className="mw-wrap"><WrenMark compact/><h2>Your next property video starts with the images you already have.</h2><a className="mw-button amber" href={accountPath} target="_top">Create account</a></div>
+      <div className="mw-wrap"><WrenMark compact /><h2>Your next property video starts with the images you already have.</h2><a className="mw-button amber" href={accountPath} target="_top">Create account</a></div>
     </section>
 
-    <footer className="mw-footer"><div className="mw-wrap"><WrenMark compact/><span>© {new Date().getFullYear()} MotionWren</span><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href={accountPath} target="_top">Sign in</a></div></div></footer>
+    <footer className="mw-footer"><div className="mw-wrap"><WrenMark compact /><span>© {new Date().getFullYear()} MotionWren</span><div><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/admin">Manager</Link><a href={accountPath} target="_top">Sign in</a></div></div></footer>
   </main>;
 }
