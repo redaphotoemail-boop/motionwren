@@ -2,10 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
-const inputStyle = { width: "100%", padding: "12px", border: "1px solid #ccc", borderRadius: 8, fontSize: 16, boxSizing: "border-box" as const };
-const labelStyle = { display: "flex", flexDirection: "column" as const, gap: 6, fontSize: 14 };
-
-export default function EmailAuthForm({ mode, onModeChange }: { mode: "signin" | "signup"; onModeChange: (mode: "signin" | "signup") => void }) {
+export default function EmailAuthForm({ mode }: { mode: "signin" | "signup" }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,26 +31,27 @@ export default function EmailAuthForm({ mode, onModeChange }: { mode: "signin" |
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12, textAlign: "left" }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" onClick={() => onModeChange("signin")} aria-pressed={mode === "signin"} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #ccc", background: mode === "signin" ? "#000" : "#fff", color: mode === "signin" ? "#fff" : "#000", cursor: "pointer" }}>Sign in</button>
-        <button type="button" onClick={() => onModeChange("signup")} aria-pressed={mode === "signup"} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #ccc", background: mode === "signup" ? "#000" : "#fff", color: mode === "signup" ? "#fff" : "#000", cursor: "pointer" }}>Create account</button>
-      </div>
+    <form className="auth-form" onSubmit={submit}>
       {mode === "signup" && (
-        <label style={labelStyle}>Name (optional)
-          <input style={inputStyle} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
+        <label className="field">
+          <span>Name <em>optional</em></span>
+          <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Jordan Lee" />
         </label>
       )}
-      <label style={labelStyle}>Email
-        <input style={inputStyle} type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+      <label className="field">
+        <span>Email</span>
+        <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@brokerage.com" />
       </label>
-      <label style={labelStyle}>Password
-        <span style={{ display: "flex", gap: 8 }}><input style={{ ...inputStyle, flex: 1 }} type={showPassword ? "text" : "password"} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"} style={{ padding: "0 12px", borderRadius: 8, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}>{showPassword ? "Hide" : "Show"}</button></span>
-        <small style={{ color: "#73767b" }}>Minimum 8 characters.</small>
+      <label className="field">
+        <span>Password</span>
+        <span className="field-row">
+          <input type={showPassword ? "text" : "password"} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "8 characters or more" : ""} />
+          <button type="button" className="field-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? "Hide" : "Show"}</button>
+        </span>
       </label>
-      {error && <p role="alert">{error}</p>}
-      <button className="mw-button" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in with email"}</button>
-      {mode === "signin" && <p style={{ margin: 0, textAlign: "center" }}><a href="/signin/reset">Forgot password?</a></p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <button className="btn btn-ink btn-lg auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
+      {mode === "signin" && <a className="auth-forgot" href="/signin/reset">Forgot password?</a>}
     </form>
   );
 }

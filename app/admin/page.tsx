@@ -3,30 +3,38 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "../ui-icon";
-import { studioEngines } from "../engine-catalog";
+import { studioEngine, studioEngines, type StudioEngineKey } from "../engine-catalog";
+import { Metric, PageHead, JobStatus, ago, bytes, cents, money } from "./ui";
 
-type Overview = { metrics: { users: Record<string, number>; projects: Record<string, number>; jobs: Record<string, number>; history: Record<string, number>; payments: Record<string, number>; subscriptions: Record<string, number>; storageBytes: number; assets: Record<string, number> }; recentProjects: Array<Record<string, string | number>>; recentJobs: Array<Record<string, string | number | null>>; recentActivity: Array<Record<string, string | number | null>>; system: Record<string, string> };
-const bytes = (value: number) => value < 1024 ** 2 ? `${(value / 1024).toFixed(1)} KB` : value < 1024 ** 3 ? `${(value / 1024 ** 2).toFixed(1)} MB` : `${(value / 1024 ** 3).toFixed(2)} GB`;
+type Row = Record<string, string | number | null>;
+type Overview = { metrics: { users: Record<string, number>; projects: Record<string, number>; jobs: Record<string, number>; history: Record<string, number>; payments: Record<string, number>; subscriptions: Record<string, number>; storageBytes: number; assets: Record<string, number> }; recentProjects: Row[]; recentJobs: Row[]; recentActivity: Row[]; system: Record<string, string> };
 
-export default function AdminDashboard() {
+const actionPhrases: Record<string, string> = {
+  "project.created": "created an order",
+  "project.submitted": "sent an order to production",
+  "project.delivered": "received a delivery",
+  "project.status_changed": "had a status change",
+  "project.deleted": "deleted a project",
+  "project.test-rows-cleared": "cleared test rows",
+  "asset.uploaded": "uploaded photos",
+  "asset.deleted": "removed a photo",
+  "listing.imported": "imported a listing link",
+  "billing.checkout_created": "opened checkout",
+  "account.deletion_requested": "asked to delete their account",
+  "retention.completed": "ran retention cleanup",
+};
+const phrase = (action: string) => actionPhrases[action] || action.replaceAll(".", " ").replaceAll("_", " ").replaceAll("-", " ");
+
+export default function AdminOverview() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [defaultEngine, setDefaultEngine] = useState<StudioEngineKey>("wan3");
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
-  const [secondsPerImage, setSecondsPerImage] = useState<3 | 5 | "auto">("auto");
-  const [savingTiming, setSavingTiming] = useState(false);
-  const [timingMessage, setTimingMessage] = useState("");
-  const [defaultEngine, setDefaultEngine] = useState("wan3");
-  const [savingEngine, setSavingEngine] = useState(false);
-  const [engineMessage, setEngineMessage] = useState("");
-  const [cleanupMessage, setCleanupMessage] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [productFilter, setProductFilter] = useState("all");
-  const [clearingTests, setClearingTests] = useState(false);
-  const [customerFilter, setCustomerFilter] = useState("all");
-  const [extraOrders, setExtraOrders] = useState<Array<Record<string, string | number>>>([]);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [runningRetention, setRunningRetention] = useState(false);
+  const [today, setToday] = useState("");
+  const [showAllActivity, setShowAllActivity] = useState(false);
+  const [greeting, setGreeting] = useState("Welcome back.");
 
   async function load() {
     setLoading(true); setError("");
@@ -34,59 +42,24 @@ export default function AdminDashboard() {
       const response = await fetch("/api/admin/overview", { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Operations data could not be loaded.");
-      setData(result); setExtraOrders([]);
+      setData(result);
     } catch (err) { setError(err instanceof Error ? err.message : "Operations data could not be loaded."); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void Promise.resolve().then(load); }, []);
-  useEffect(() => { const customer = new URLSearchParams(window.location.search).get("customer"); if (customer) setCustomerFilter(customer); }, []);
-  useEffect(() => { fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => { if (result.multiShotSecondsPerImage === 3 || result.multiShotSecondsPerImage === 5 || result.multiShotSecondsPerImage === "auto") setSecondsPerImage(result.multiShotSecondsPerImage); if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine); }).catch(() => undefined); }, []);
 
-  async function saveTiming(value: 3 | 5 | "auto") {
-    setSecondsPerImage(value); setSavingTiming(true); setTimingMessage("");
-    try {
-      const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ multiShotSecondsPerImage: value }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "The timing setting could not be saved.");
-      setTimingMessage(`New multi-shot scenes will use ${value} seconds per image.`);
-    } catch (error) { setTimingMessage(error instanceof Error ? error.message : "The timing setting could not be saved."); }
-    finally { setSavingTiming(false); }
-  }
-
-  async function saveEngine(value: string) {
-    setDefaultEngine(value); setSavingEngine(true); setEngineMessage("");
-    try {
-      const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ defaultEngine: value }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "The engine setting could not be saved.");
-      setEngineMessage(`New videos will use ${studioEngines.find((engine) => engine.key === value)?.name || value}.`);
-    } catch (error) { setEngineMessage(error instanceof Error ? error.message : "The engine setting could not be saved."); }
-    finally { setSavingEngine(false); }
-  }
-
-  async function clearTestRows() {
-    if (!window.confirm("Delete all of your own draft and failed test projects? Real client orders are untouched. This cannot be undone.")) return;
-    setClearingTests(true); setCleanupMessage("");
-    try {
-      const response = await fetch("/api/admin/cleanup-tests", { method: "POST" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Test rows could not be cleared.");
-      setCleanupMessage(`Cleared ${result.deletedProjects} test project${result.deletedProjects === 1 ? "" : "s"} and ${result.deletedAssets} stored file${result.deletedAssets === 1 ? "" : "s"}.`);
-      await load();
-    } catch (error) { setCleanupMessage(error instanceof Error ? error.message : "Test rows could not be cleared."); }
-    finally { setClearingTests(false); }
-  }
-
-  async function loadMoreOrders() {
-    setLoadingMore(true);
-    try {
-      const response = await fetch(`/api/admin/overview?offset=${allOrders.length}`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "More orders could not be loaded.");
-      setExtraOrders((items) => [...items, ...(result.recentProjects || [])]);
-    } catch (err) { setError(err instanceof Error ? err.message : "More orders could not be loaded."); }
-    finally { setLoadingMore(false); }
-  }
+  useEffect(() => {
+    // Old links pointed at /admin#orders; orders now have their own page.
+    if (window.location.hash === "#orders") { window.location.replace(`/admin/orders${window.location.search}`); return; }
+    if (window.location.hash === "#engines" || window.location.hash === "#timing") { window.location.replace("/admin/engines"); return; }
+    void Promise.resolve().then(() => {
+      const now = new Date();
+      const hour = now.getHours();
+      setGreeting(hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.");
+      setToday(now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }));
+      return load();
+    });
+    fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => { if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine); }).catch(() => undefined);
+  }, []);
 
   async function runRetention() {
     if (!window.confirm("Remove expired files, old terminal job records, AND expired customer deliveries now? This cannot be undone.")) return;
@@ -98,65 +71,128 @@ export default function AdminDashboard() {
     await load();
   }
 
-  const providerCost = Number(data?.metrics.jobs.providerCostCents || 0) / 100;
-  const statusGroup = (value: string) => value === "draft" ? "draft" : value === "failed" ? "failed" : value === "completed" ? "completed" : "production";
-  const allOrders = [...(data?.recentProjects || []), ...extraOrders];
-  const orderProducts = [...new Set(allOrders.map((project) => String(project.title)))];
-  const visibleOrders = allOrders.filter((project) => (statusFilter === "all" || statusGroup(String(project.status)) === statusFilter) && (productFilter === "all" || String(project.title) === productFilter) && (customerFilter === "all" || String(project.ownerEmail || project.ownerId || "") === customerFilter));
-  let sumPackage = 0; let sumCost = 0; let sumProfit = 0; let sumDraft = 0; let sumFailed = 0; let sumCompleted = 0;
-  for (const project of visibleOrders) {
-    const price = project.price !== null && project.price !== undefined && String(project.price) !== "" ? Number(project.price) : NaN;
-    const cost = project.productionCostCents !== null && project.productionCostCents !== undefined ? Number(project.productionCostCents) / 100 : NaN;
-    if (!Number.isNaN(price)) { sumPackage += price; if (statusGroup(String(project.status)) === "draft") sumDraft += price; if (statusGroup(String(project.status)) === "failed") sumFailed += price; if (statusGroup(String(project.status)) === "completed") sumCompleted += price; }
-    if (!Number.isNaN(cost)) sumCost += cost;
-    if (!Number.isNaN(price) && !Number.isNaN(cost)) sumProfit += price - cost;
-  }
-  const collectedTotal = 0; // No payment rows link to projects yet; Stripe is not connected, so nothing has been collected.
-  const revenue = Number(data?.metrics.payments.revenueCents || 0) / 100;
-  const activeProjects = Number(data?.metrics.projects.active || 0);
-  const failedJobs = Number(data?.metrics.jobs.failed || 0);
-  const stuckJobs = Number(data?.metrics.jobs.stuck || 0);
+  const metrics = data?.metrics;
+  const providerCost = Number(metrics?.jobs.providerCostCents || 0) / 100;
+  const revenue = Number(metrics?.payments.revenueCents || 0) / 100;
+  const totalProjects = Number(metrics?.projects.total || 0);
+  const activeProjects = Number(metrics?.projects.active || 0);
+  const draftProjects = Number(metrics?.projects.draft || 0);
+  const completedProjects = Number(metrics?.projects.completed || 0);
+  const failedProjects = Number(metrics?.projects.failed || 0);
+  const otherProjects = Math.max(0, totalProjects - activeProjects - draftProjects - completedProjects - failedProjects);
+  const failedJobs = Number(metrics?.jobs.failed || 0);
+  const stuckJobs = Number(metrics?.jobs.stuck || 0);
   const needsAttention = failedJobs + stuckJobs;
   const isReady = (value?: string) => value === "Operational" || value === "Connected";
   const setupItems = [
-    { name: "Video generation", value: data?.system.callbacks || "Checking", ready: isReady(data?.system.callbacks) },
-    { name: "Video finishing", value: data?.system.compositorStatus || "Checking", ready: isReady(data?.system.compositorStatus) },
-    { name: "Email", value: data?.system.email || "Checking", ready: isReady(data?.system.email) },
-    { name: "Billing", value: data?.system.billing || "Not connected", ready: isReady(data?.system.billing) },
+    { name: "Video generation", value: data?.system.callbacks || "Checking", ready: isReady(data?.system.callbacks), next: "Check the Worker configuration." },
+    { name: "Video finishing", value: data?.system.compositorStatus || "Checking", ready: isReady(data?.system.compositorStatus), next: "Check the Worker configuration." },
+    { name: "Email", value: data?.system.email || "Checking", ready: isReady(data?.system.email), next: "Add RESEND_API_KEY and a sender address to the Worker secrets." },
+    { name: "Billing", value: data?.system.billing || "Not connected", ready: isReady(data?.system.billing), next: "Add STRIPE_SECRET_KEY to the Worker secrets." },
+  ];
+  const engine = studioEngine(defaultEngine);
+  const pipeline = [
+    { key: "draft", label: "Saved", value: draftProjects },
+    { key: "production", label: "In production", value: activeProjects + otherProjects },
+    { key: "completed", label: "Ready", value: completedProjects },
+    { key: "failed", label: "Needs attention", value: failedProjects },
   ];
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
+  return <div className="mgr-page">
+    <PageHead eyebrow={today || "Overview"} title={greeting} sub="Your business, orders and production in one clear view.">
+      <button type="button" className="text-btn" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+      <Link className="btn btn-ink btn-sm" href="/studio"><Icon name="studio" size={15} />Open Studio</Link>
+    </PageHead>
+    {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
 
-  return <main className="portal-shell admin-shell owner-dashboard">
+    {data ? <>
+      <section className={`health${needsAttention ? " health-alert" : ""}`}>
+        <span className={`dot ${needsAttention ? "dot-bad" : "dot-ok"}`} />
+        <span><strong>{needsAttention ? `${needsAttention} item${needsAttention === 1 ? "" : "s"} need attention` : "Production is running normally"}</strong>{needsAttention ? ` · ${failedJobs} failed, ${stuckJobs} stuck over 15 minutes` : ` · ${activeProjects} active ${activeProjects === 1 ? "project" : "projects"} right now`}</span>
+        <Link className="text-btn" href={needsAttention ? "/admin/orders?status=failed" : "/admin/orders?status=production"}>View <Icon name="arrow" size={14} /></Link>
+      </section>
 
-    <section className="portal-content owner-content" id="overview">
-      <div className="owner-welcome"><div><span className="owner-only"><Icon name="shield" size={14}/>Manager access</span><h1>{greeting}</h1><p>Your business, orders and production in one clear view.</p></div><div><Link className="owner-access" href="/dashboard"><Icon name="projects" size={17}/>Open Customer Portal</Link><Link className="primary-action" href="/studio"><Icon name="studio" size={17}/>Open production studio</Link><button className="refresh-admin" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div></div>
-      {error && <div className="portal-alert error" role="alert">{error}</div>}
+      <section className="metrics" aria-label="Business metrics">
+        <Metric label="Collected revenue" value={money(revenue)} note={data.system.billing === "Connected" ? "Paid through Stripe" : "Stripe not connected yet"} />
+        <Metric label="Provider cost" value={money(providerCost)} note="Estimated, includes test jobs" />
+        <Metric label="Orders" value={totalProjects} note={`${activeProjects} in production`} />
+        <Metric label="Customers" value={Number(metrics?.users.total || 0)} note={`${Number(metrics?.users.active || 0)} active`} />
+      </section>
 
-      {data ? <><section className={`owner-health ${needsAttention ? "has-alert" : ""}`}><div><Icon name={needsAttention ? "alert" : "check"}/><span><strong>{needsAttention ? `${needsAttention} item${needsAttention === 1 ? "" : "s"} need attention` : "Production is running normally"}</strong><small>{needsAttention ? "Review the affected jobs below." : `${activeProjects} active ${activeProjects === 1 ? "project" : "projects"} right now.`}</small></span></div><a href="#production">View production <Icon name="arrow" size={15}/></a></section>
+      <section className="panel">
+        <div className="panel-head"><h2>Order pipeline</h2><Link className="text-btn" href="/admin/orders">All orders <Icon name="arrow" size={14} /></Link></div>
+        <div className="pipeline" role="img" aria-label={pipeline.map((step) => `${step.label} ${step.value}`).join(", ")}>
+          {pipeline.filter((step) => step.value > 0).map((step) => <i key={step.key} className={`pipe-${step.key}`} style={{ flexGrow: step.value }} />)}
+          {!totalProjects && <i className="pipe-empty" />}
+        </div>
+        <div className="pipeline-legend">
+          {pipeline.map((step) => <Link key={step.key} href={`/admin/orders?status=${step.key}`}><span className={`swatch pipe-${step.key}`} /><span>{step.label}</span><b>{step.value}</b></Link>)}
+        </div>
+      </section>
 
-      <section className="owner-metrics" aria-label="Business metrics">
-        <article><span>Customers</span><strong>{Number(data?.metrics.users.total || 0)}</strong><small>{Number(data?.metrics.users.active || 0)} active</small></article>
-        <article><span>Total projects</span><strong>{Number(data?.metrics.projects.total || 0)}</strong><small>{activeProjects} in production</small></article>
-        <article><span>Collected revenue</span><strong>${revenue.toFixed(2)}</strong><small>${providerCost.toFixed(2)} provider cost (est.) · ${(revenue - providerCost).toFixed(2)} est. profit, incl. test jobs</small></article>
-        <article><span>Storage</span><strong>{bytes(Number(data?.metrics.storageBytes || 0))}</strong><small>{Number(data?.metrics.assets.total || 0)} stored assets</small></article>
-      </section></> : <div className="portal-empty">Loading business metrics…</div>}
+      <div className="mgr-cols">
+        <section className="panel">
+          <div className="panel-head"><h2>Live production</h2><span className="muted small">Est. provider cost per job</span></div>
+          {data.recentJobs.length ? <ul className="rows">
+            {data.recentJobs.slice(0, 7).map((job) => <li key={String(job.id)} className="row">
+              <span className="row-main"><strong>{String(job.projectTitle || job.kind || "Render").replaceAll("-", " ")}</strong><small>{String(job.category || "")}{job.resolution ? ` · ${job.resolution}` : ""}{job.duration ? ` · ${job.duration}s` : ""} · {ago(Number(job.updatedAt))}{job.error ? ` · ${String(job.error).slice(0, 70)}` : ""}</small></span>
+              <span className="row-num">{cents(job.costCents)}</span>
+              <JobStatus status={String(job.status)} />
+            </li>)}
+          </ul> : <div className="empty-soft compact"><strong>No jobs yet</strong><span>Production activity will appear here.</span></div>}
+        </section>
 
-      <section className="owner-panel recent-orders" id="orders"><div className="owner-panel-head"><div><span>ORDERS</span><h2>Recent client projects</h2><p>Recent {allOrders.length} of {Number(data?.metrics.projects.total || 0)} projects</p></div><Link href="/dashboard">Client view <Icon name="arrow" size={14}/></Link><button className="danger-action" onClick={clearTestRows} disabled={clearingTests}>{clearingTests ? "Clearing…" : "Clear test rows"}</button></div>{cleanupMessage && <div className="timing-message" role="status">{cleanupMessage}</div>}<div><div><span>Status:</span></div><div className="order-filter-pills"><button aria-pressed={statusFilter === "all"} className={statusFilter === "all" ? "active" : ""} onClick={() => setStatusFilter("all")}>All</button><button aria-pressed={statusFilter === "draft"} className={statusFilter === "draft" ? "active" : ""} onClick={() => setStatusFilter("draft")}>Draft</button><button aria-pressed={statusFilter === "production"} className={statusFilter === "production" ? "active" : ""} onClick={() => setStatusFilter("production")}>In production</button><button aria-pressed={statusFilter === "failed"} className={statusFilter === "failed" ? "active" : ""} onClick={() => setStatusFilter("failed")}>Failed</button><button aria-pressed={statusFilter === "completed"} className={statusFilter === "completed" ? "active" : ""} onClick={() => setStatusFilter("completed")}>Completed</button></div><div><span>Product:</span></div><div className="order-filter-pills"><button aria-pressed={productFilter === "all"} className={productFilter === "all" ? "active" : ""} onClick={() => setProductFilter("all")}>All</button>{orderProducts.map((product) => <button key={product} aria-pressed={productFilter === product} className={productFilter === product ? "active" : ""} onClick={() => setProductFilter(product)}>{product}</button>)}</div></div>{customerFilter !== "all" && <div className="order-filter-pills"><span>Customer: {customerFilter}</span><button onClick={() => setCustomerFilter("all")}>Clear customer filter</button></div>}<div className="cost-totals"><span><b>{visibleOrders.length}</b> orders</span><span>Package <b>${sumPackage.toFixed(2)}</b></span><span>Collected <b>${collectedTotal.toFixed(2)}</b></span><span>Est. cost <b>${sumCost.toFixed(2)}</b></span><span>Est. profit <b>${sumProfit.toFixed(2)}</b></span></div><p className="timing-note">Package total includes Draft ${sumDraft.toFixed(2)}, Failed ${sumFailed.toFixed(2)}, Completed ${sumCompleted.toFixed(2)}. No payments collected yet — Stripe is not connected.</p><div className="clean-table orders-table"><div className="clean-table-head"><span>Property</span><span>Customer</span><span>Message</span><span>Package price</span><span>Est. cost</span><span>Est. profit</span><span>Status</span><span>Photos</span></div>{visibleOrders.length ? visibleOrders.map((project) => { const hasPrice = project.price !== null && project.price !== undefined && String(project.price) !== ""; const price = hasPrice ? Number(project.price) : 0; const hasCost = project.productionCostCents !== null && project.productionCostCents !== undefined; const cost = hasCost ? Number(project.productionCostCents) / 100 : 0; return <Link className="clean-table-row" href={`/admin/projects/${String(project.id)}`} key={String(project.id)}><span><strong>{String(project.title)}</strong><small>{new Date(Number(project.updatedAt)).toLocaleString()}</small></span><span>{String(project.ownerEmail || project.ownerId || "Unknown")}</span><span>{String(project.shortMessage || "")}</span><span>{hasPrice ? `$${price.toFixed(2)}` : "—"}</span><span>{hasCost ? `$${cost.toFixed(2)}` : "—"}</span><span>{hasPrice && hasCost ? `$${(price - cost).toFixed(2)}` : "—"}</span><span><b className={`status-pill ${String(project.status)}`}>{({ draft: "Saved", submitted: "Received", queued: "Queued", generating: "Creating scenes", stitching: "Finishing video", saving: "Preparing delivery", completed: "Ready", failed: "Needs attention" } as Record<string, string>)[String(project.status)] || String(project.status)}</b></span><span>{Number(project.assetCount || 0)}</span></Link>; }) : <div className="owner-empty"><Icon name="orders"/><strong>{allOrders.length ? "No orders match these filters" : "No projects yet"}</strong><span>{allOrders.length ? "Try a different status, product, or customer." : "New client orders will appear here."}</span></div>}</div>{Number(data?.metrics.projects.total || 0) > allOrders.length && <button className="secondary-action" onClick={loadMoreOrders} disabled={loadingMore} style={{ marginTop: 12 }}>{loadingMore ? "Loading…" : "Load more orders"}</button>}</section>
+        <div className="mgr-stack">
+          <section className="panel engine-now">
+            <p className="eyebrow">Default engine</p>
+            <h2>{engine.name}</h2>
+            <p className="muted">Every new customer video renders with this engine.</p>
+            <p className="engine-now-price">{Object.entries(engine.pricePerSecond).map(([resolution, price]) => `${resolution} $${Number(price).toFixed(3)}/s`).join(" · ")}</p>
+            <Link className="btn btn-soft btn-sm" href="/admin/engines">Change engine</Link>
+          </section>
+          <section className="panel">
+            <div className="panel-head"><h2>System</h2></div>
+            <ul className="system-list">
+              {setupItems.map((item) => <li key={item.name}><span className={`dot ${item.ready ? "dot-ok" : "dot-warn"}`} /><span>{item.name}</span><small>{item.value}</small></li>)}
+              <li><span className="dot dot-ok" /><span>Storage</span><small>{bytes(Number(metrics?.storageBytes || 0))} · {Number(metrics?.assets.total || 0)} files</small></li>
+            </ul>
+          </section>
+        </div>
+      </div>
 
-      <section className="owner-panel production-queue" id="production"><div className="owner-panel-head"><div><span>PRODUCTION</span><h2>Job activity</h2></div></div><div className="job-list">{data?.recentJobs.length ? data.recentJobs.slice(0, 8).map((job) => <div className="job-item" key={String(job.id)}><i className={String(job.status)}><Icon name={String(job.status) === "failed" ? "alert" : "motion"} size={15}/></i><span><strong>{String(job.projectTitle || job.kind).replaceAll("-", " ")}</strong><small>{String(job.category)} · ${(Number(job.costCents || 0) / 100).toFixed(2)} (est.) · {new Date(Number(job.updatedAt)).toLocaleDateString()}{job.error ? ` · ${String(job.error).slice(0, 80)}` : ""}</small></span><b className={`status-pill ${String(job.status)}`}>{String(job.status)}</b></div>) : <div className="owner-empty compact"><Icon name="motion"/><strong>No jobs yet</strong><span>Production activity will appear here.</span></div>}</div></section>
+      <section className="panel">
+        <div className="panel-head"><h2>Recent activity</h2><span className="muted small">Who did what · est. cost shown when production starts</span></div>
+        {data.recentActivity?.length ? <ul className="rows activity">
+          {data.recentActivity.slice(0, showAllActivity ? 20 : 8).map((event) => {
+            const actor = String(event.actorName || event.actorEmail || "System");
+            const costed = String(event.action) === "project.submitted" && event.costCents !== null && event.costCents !== undefined;
+            return <li key={String(event.id)} className="row">
+              <span className="avatar sm" aria-hidden="true">{actor.slice(0, 1).toUpperCase()}</span>
+              <span className="row-main"><strong>{actor} <em>{phrase(String(event.action))}</em></strong><small>{event.projectTitle ? String(event.projectTitle) : String(event.entityType || "activity")}{event.actorEmail && event.actorName ? ` · ${String(event.actorEmail)}` : ""}</small></span>
+              <span className="row-num">{costed ? cents(event.costCents) : ""}</span>
+              <time>{ago(Number(event.createdAt))}</time>
+            </li>;
+          })}
+        </ul> : <div className="empty-soft compact"><strong>No activity yet</strong><span>New business events will appear here.</span></div>}
+        {data.recentActivity?.length > 8 && <div className="table-more"><button type="button" className="btn btn-soft btn-sm" onClick={() => setShowAllActivity((value) => !value)}>{showAllActivity ? "Show less" : "Show more"}</button></div>}
+      </section>
 
-      <section className="owner-panel costs-panel" id="costs"><div className="owner-panel-head"><div><span>PRODUCTION COSTS</span><h2>What each video costs to make</h2><p>Engine prices per second of video, plus what production has actually cost so far. Until payments are connected, order prices are package totals, not collected payments.</p></div></div><div className="clean-table costs-table"><div className="clean-table-head"><span>Engine</span><span>Resolutions</span><span>Price per second</span></div>{studioEngines.map((engine) => <div className="clean-table-row" key={engine.key}><span><strong>{engine.name}</strong><small>{engine.bestFor}</small></span><span>{engine.resolutions.join(" · ")}</span><span>{Object.entries(engine.pricePerSecond).map(([resolution, price]) => `${resolution} $${Number(price).toFixed(3)}`).join(" · ")}</span></div>)}</div><div className="cost-totals"><span>Provider spend (est.) <strong>${providerCost.toFixed(2)}</strong></span><span>Collected revenue <strong>${revenue.toFixed(2)}</strong></span><span>Est. profit <strong>${(revenue - providerCost).toFixed(2)}</strong></span></div></section>
+      <details className="panel fold">
+        <summary><span><strong>Platform setup and infrastructure</strong><small>Storage, database and external connections</small></span><Icon name="arrow" size={16} /></summary>
+        <ul className="setup-list">
+          {setupItems.map((item) => <li key={item.name}><span className={`dot ${item.ready ? "dot-ok" : "dot-warn"}`} /><span><strong>{item.name}</strong><small>{item.value}</small>{!item.ready && <small className="next">Next step: {item.next}</small>}</span></li>)}
+        </ul>
+        <div className="infra">
+          <div><span className="eyebrow">Storage</span><strong>{data.system.storage || "Cloudflare R2"}</strong><small>Private originals and finished videos with lifecycle metadata.</small></div>
+          <div><span className="eyebrow">Database</span><strong>{data.system.database || "Cloudflare D1"}</strong><small>Accounts, projects, jobs, credits and audit records.</small></div>
+          <div><span className="eyebrow">Security</span><strong>Dependency audit</strong><small>{data.system.dependencyAudit || "Audit status unavailable"}</small></div>
+        </div>
+      </details>
 
-      <section className="owner-panel engine-control" id="engines"><div className="owner-panel-head"><div><span>PRODUCTION ENGINES</span><h2>Choose the right model</h2><p>Pick the engine every new video renders with. Every model below uses its connected production endpoint.</p></div><Link href="/studio">Compare in Studio <Icon name="arrow" size={14}/></Link></div><div className="engine-strip">{studioEngines.map((engine) => <button type="button" key={engine.key} className={engine.key === defaultEngine ? "engine-model active" : "engine-model"} onClick={() => { if (!window.confirm(`Make ${engine.name} the default engine for all new videos?`)) return; saveEngine(engine.key); }} disabled={savingEngine} aria-pressed={engine.key === defaultEngine}><span>{engine.key === defaultEngine ? "SELECTED" : engine.badge || "AVAILABLE"}</span><strong>{engine.name}</strong><small>{engine.resolutions.join(" · ")} · {engine.audio ? "Audio" : "Silent"}</small><small>{Object.entries(engine.pricePerSecond).map(([resolution, price]) => `${resolution} $${Number(price).toFixed(3)}/s`).join(" · ")}</small><p>{engine.description}</p></button>)}</div>{engineMessage && <small className="timing-message" role="status">{engineMessage}</small>}<p className="timing-note">Applies to new videos only. Videos already in production keep the engine they started with.</p><p className="timing-note">RECOMMENDED is our suggested starting point — the SELECTED engine is what new videos actually use.</p></section>
-
-      <section className="owner-panel timing-control" id="timing"><div className="owner-panel-head"><div><span>MULTI-SHOT DEFAULT</span><h2>Scene timing</h2><p>Controls the duration of each scene in new multi-shot productions.</p></div><Icon name="motion" size={22}/></div><div className="timing-options"><button className={secondsPerImage === "auto" ? "active" : ""} onClick={() => saveTiming("auto")} disabled={savingTiming} aria-pressed={secondsPerImage === "auto"}><strong>Automatic</strong><small>5s for 1–4 images · 3s for 5+ images</small></button><button className={secondsPerImage === 3 ? "active" : ""} onClick={() => saveTiming(3)} disabled={savingTiming} aria-pressed={secondsPerImage === 3}><strong>3 seconds</strong><small>Faster, tighter edits</small></button><button className={secondsPerImage === 5 ? "active" : ""} onClick={() => saveTiming(5)} disabled={savingTiming} aria-pressed={secondsPerImage === 5}><strong>5 seconds</strong><small>More room for smooth movement</small></button></div>{timingMessage && <small className="timing-message" role="status">{timingMessage}</small>}<p className="timing-note">This is owner-only. Automatic keeps small sequences readable and makes larger sequences more efficient. The final video length is calculated from the number of scenes and crossfades.</p></section>
-
-      <details className="owner-panel activity-panel"><summary><span><Icon name="history"/><b>Activity</b></span><small>Account, project and production events</small></summary><div className="activity-feed">{data?.recentActivity?.length ? data.recentActivity.map((event) => <div key={String(event.id)}><i><Icon name={String(event.action).includes("deleted") ? "alert" : String(event.action).includes("completed") ? "check" : "history"} size={15}/></i><span><strong>{String(event.action).replaceAll(".", " ").replaceAll("_", " ").replaceAll("-", " ")}</strong><small>{String(event.actorName || event.actorEmail || "System")} · {String(event.entityType || "activity")}</small></span><time>{new Date(Number(event.createdAt)).toLocaleString()}</time></div>) : <div className="owner-empty compact"><Icon name="history"/><strong>No activity yet</strong><span>New business events will appear here.</span></div>}</div></details>
-
-      <details className="owner-panel setup-panel"><summary><span><Icon name="storage"/><b>Platform setup and infrastructure</b></span><small>Storage, database and external connections</small></summary><div className="setup-body"><div className="setup-status-grid">{setupItems.map((item) => <div key={item.name}><i className={item.ready ? "ready" : "pending"}/><span><strong>{item.name}</strong><small>{item.value}</small>{!item.ready && <small>{item.name === "Billing" ? "Next step: add STRIPE_SECRET_KEY to the Worker secrets." : item.name === "Email" ? "Next step: add RESEND_API_KEY and a sender address to the Worker secrets." : "Next step: check the Worker configuration."}</small>}</span></div>)}</div><div className="infrastructure-cards"><article><span>STORAGE</span><h3>{data?.system.storage || "Cloudflare R2"}</h3><p>Private originals and finished videos with lifecycle metadata.</p></article><article><span>DATABASE</span><h3>{data?.system.database || "Cloudflare D1"}</h3><p>Accounts, projects, jobs, credits and audit records.</p></article><article><span>SECURITY</span><h3>Dependency audit</h3><p>{data?.system.dependencyAudit || "Audit status unavailable"}</p></article></div></div></details>
-      <section className="owner-panel"><div className="maintenance-row"><div><strong>Retention cleanup</strong><span>Remove expired source files, old terminal job records, and expired customer deliveries.</span>{maintenanceMessage && <small>{maintenanceMessage}</small>}</div><button onClick={runRetention} disabled={runningRetention}>{runningRetention ? "Running…" : "Run cleanup"}</button></div></section>
-    </section>
-  </main>;
+      <section className="panel maintenance">
+        <div><strong>Retention cleanup</strong><small>Remove expired source files, old terminal job records, and expired customer deliveries.</small>{maintenanceMessage && <small className="note">{maintenanceMessage}</small>}</div>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={runRetention} disabled={runningRetention}>{runningRetention ? "Running…" : "Run cleanup"}</button>
+      </section>
+    </> : !error && <div className="metrics">{[0, 1, 2, 3].map((index) => <div key={index} className="metric skeleton" />)}</div>}
+  </div>;
 }

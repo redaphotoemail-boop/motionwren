@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../../ui-icon";
+import { Metric, PageHead, ago, cents, money } from "../ui";
 
 type Customer = {
   id: string;
@@ -18,6 +19,8 @@ type Customer = {
   activeProjects: number;
   deliveredProjects: number;
   lastProjectAt: number | null;
+  costCents?: number;
+  jobCount?: number;
 };
 
 export default function CustomersPage() {
@@ -51,17 +54,39 @@ export default function CustomersPage() {
   const customerAccounts = customers.filter((customer) => customer.role === "customer");
   const active = customerAccounts.filter((customer) => Number(customer.activeProjects) > 0).length;
   const delivered = customerAccounts.reduce((total, customer) => total + Number(customer.deliveredProjects || 0), 0);
+  const customerCost = customerAccounts.reduce((total, customer) => total + Number(customer.costCents || 0), 0) / 100;
 
-  return <main className="portal-shell admin-shell owner-dashboard">
-    <section className="portal-content owner-content customer-crm">
-      <div className="owner-welcome"><div><span className="owner-only"><Icon name="shield" size={14}/>Manager access</span><h1>Customers</h1><p>Accounts, production activity, credits and delivery history.</p></div><div><button className="refresh-admin" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button><Link className="owner-access" href="/admin"><Icon name="dashboard" size={17}/>Business overview</Link><Link className="primary-action" href="/dashboard"><Icon name="projects" size={17}/>Client experience</Link></div></div>
-      {error && <div className="portal-alert error" role="alert">{error}</div>}
+  return <div className="mgr-page">
+    <PageHead eyebrow="Customers" title="Every account in one place" sub="Who your customers are, what they ordered and what their videos cost to make.">
+      <button type="button" className="text-btn" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+    </PageHead>
+    {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
 
-      <section className="crm-summary"><article><span>Customer accounts</span><strong>{customerAccounts.length}</strong></article><article><span>In production</span><strong>{active}</strong></article><article><span>Videos delivered</span><strong>{delivered}</strong></article></section>
-
-      <section className="owner-panel crm-directory"><div className="crm-toolbar"><div><span className="label">CUSTOMER DIRECTORY</span><h2>Every account in one place</h2></div><div className="crm-controls"><label><Icon name="projects" size={16}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or email" aria-label="Search customers"/></label><div>{(["all","active","delivered"] as const).map((value) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{value === "all" ? "All" : value === "active" ? "Active" : "Delivered"}</button>)}</div></div></div>
-        {loading ? <div className="owner-empty"><span>Loading customers…</span></div> : visibleCustomers.length ? <div className="crm-table"><div className="crm-table-head"><span>Customer</span><span>Plan</span><span>Credits</span><span>Projects</span><span>Delivered</span><span>Last activity</span></div>{visibleCustomers.map((customer) => <a className="crm-table-row" style={{ textDecoration: "none", color: "inherit" }} href={`/admin?customer=${encodeURIComponent(customer.email)}#orders`} key={customer.id}><span><i>{customer.displayName.slice(0, 1).toUpperCase()}</i><span><strong>{customer.displayName}</strong><small>{customer.email}</small></span></span><span><b className="crm-plan">{customer.role === "admin" ? "owner" : customer.plan}</b></span><span>{customer.plan === "internal" ? "—" : customer.creditBalance}</span><span>{customer.projectCount}</span><span>{customer.deliveredProjects}</span><span><strong>{customer.lastProjectAt ? new Date(customer.lastProjectAt).toLocaleDateString() : "No projects"}</strong><small>Joined {new Date(customer.createdAt).toLocaleDateString()}</small></span></a>)}</div> : <div className="owner-empty"><Icon name="user"/><strong>No matching customers</strong><span>Change the search or filter.</span></div>}
-      </section>
+    <section className="metrics" aria-label="Customer totals">
+      <Metric label="Customer accounts" value={customerAccounts.length} />
+      <Metric label="In production" value={active} note="Customers with active videos" />
+      <Metric label="Videos delivered" value={delivered} />
+      <Metric label="Customer production cost" value={money(customerCost)} note="Estimated, excludes your own tests" />
     </section>
-  </main>;
+
+    <section className="panel">
+      <div className="filters">
+        <label className="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or email" aria-label="Search customers" /></label>
+        <div className="tabs" aria-label="Filter">{(["all", "active", "delivered"] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "All" : value === "active" ? "Active" : "Delivered"}</button>)}</div>
+      </div>
+
+      <div className="table customers" role="table" aria-label="Customers">
+        <div className="table-head" role="row"><span>Customer</span><span>Plan</span><span>Orders</span><span>Delivered</span><span>Est. cost</span><span>Last activity</span></div>
+        {loading && !customers.length ? <div className="empty-soft compact"><span>Loading customers…</span></div> : visibleCustomers.length ? visibleCustomers.map((customer) => <Link role="row" className="table-row" href={`/admin/orders?customer=${encodeURIComponent(customer.email)}`} key={customer.id}>
+          <span className="cell-person with-avatar"><span className="avatar sm" aria-hidden="true">{(customer.displayName || customer.email).slice(0, 1).toUpperCase()}</span><span><strong>{customer.displayName}</strong><small>{customer.email}</small></span></span>
+          <span data-label="Plan"><span className="tag">{customer.role === "admin" ? "owner" : customer.plan}</span>{customer.plan !== "internal" && <small className="cell-sub">{customer.creditBalance} credits</small>}</span>
+          <span className="cell-num" data-label="Orders">{customer.projectCount}{Number(customer.activeProjects) > 0 && <small className="cell-sub">{customer.activeProjects} active</small>}</span>
+          <span className="cell-num" data-label="Delivered">{customer.deliveredProjects}</span>
+          <span className="cell-num" data-label="Est. cost">{cents(customer.costCents)}{Number(customer.jobCount || 0) > 0 && <small className="cell-sub">{customer.jobCount} job{customer.jobCount === 1 ? "" : "s"}</small>}</span>
+          <span className="cell-time"><strong>{customer.lastProjectAt ? ago(customer.lastProjectAt) : "No orders"}</strong><small>Joined {new Date(customer.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</small></span>
+        </Link>) : <div className="empty-soft compact"><strong>No matching customers</strong><span>Change the search or filter.</span></div>}
+      </div>
+      <p className="fine">Select a customer to see each of their orders with its estimated cost.</p>
+    </section>
+  </div>;
 }

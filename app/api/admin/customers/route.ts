@@ -18,7 +18,9 @@ export async function GET() {
         COUNT(DISTINCT p.id) AS projectCount,
         SUM(CASE WHEN p.status IN ('submitted','queued','generating','stitching','saving') THEN 1 ELSE 0 END) AS activeProjects,
         SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) AS deliveredProjects,
-        MAX(p.updated_at) AS lastProjectAt
+        MAX(p.updated_at) AS lastProjectAt,
+        (SELECT COALESCE(SUM(j.cost_cents), 0) FROM render_jobs j WHERE j.owner_id = u.id) AS costCents,
+        (SELECT COUNT(*) FROM render_jobs j WHERE j.owner_id = u.id) AS jobCount
       FROM users u
       LEFT JOIN projects p ON p.owner_id = u.id
       GROUP BY u.id
