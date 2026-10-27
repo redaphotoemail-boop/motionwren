@@ -14,9 +14,6 @@
   --mono:"Geist Mono", ui-monospace, Menlo, monospace;
   --r:18px;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --paper:#0E1014; --surface:#161920; --ink:#F1F1EC; --muted:#9BA1A9; --line:#252932;
-  --dusk:#C8D2F2; --amber:#F0AE4E; --amber-ink:#F0AE4E; --screen:#05070A; --on-screen:#F3F1EC; color-scheme:dark}}
 :root[data-theme="dark"]{
   --paper:#0E1014; --surface:#161920; --ink:#F1F1EC; --muted:#9BA1A9; --line:#252932;
   --dusk:#C8D2F2; --amber:#F0AE4E; --amber-ink:#F0AE4E; --screen:#05070A; --on-screen:#F3F1EC; color-scheme:dark}
@@ -590,7 +587,7 @@ const CHL={instagram:'Instagram',tiktok:'TikTok',mls:'MLS',youtube:'YouTube',fac
 function listJoin(a){return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+' and '+a.slice(-1);}
 function tagsFor(list,ch,fb){const s=list.filter(x=>ch.includes(x)).map(x=>CHL[x]);return s.length?s:(fb?[CHL[list[0]]]:[]);}
 function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='luxury',items=[];
- items.push({icon:'video',title:'Hero listing film',price:39,meta:[(estate?60:30)+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,true)});
+ items.push({icon:'video',title:'Hero listing film',price:39,meta:[(estate?60:30)+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
  if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:19,meta:['20 sec','9:16','hook + captions'],tags:tagsFor(['instagram','tiktok'],ch,true)});
  if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:9,meta:['10 sec','9:16'],tags:['Instagram']});
  if(ch.includes('instagram')||ch.includes('facebook'))items.push({icon:'post',title:'Feed post set',price:19,meta:['3 cards','1:1'],tags:tagsFor(['instagram','facebook'],ch,true)});
@@ -600,14 +597,14 @@ function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='lu
  return items;}
 const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
 const planModal=document.getElementById('planModal'),planBody=document.getElementById('planBody');
-function closePlan(){planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
+function closePlan(force){if(!force&&(P.goal||P.prop||P.channels.length||P.vibe||P.photos.filter(p=>!p.sample).length)&&!window.confirm('Close without saving? Your answers and photos will be lost.'))return;planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
 function ptrack(){return '<div class="track">'+Array.from({length:7},(_,k)=>'<span class="'+(k<=P.step?'done':'')+'"></span>').join('')+'</div>';}
 function planRender(){
   const $=id=>document.getElementById(id);
   if(P.step<4){
     const q=QS[P.step],ok=q.key+'Other',sel=v=>q.multi?P.channels.includes(v):P[q.key]===v,can=()=>q.multi?P.channels.length>0:!!P[q.key];
     const otherOn=()=>q.multi?P.channels.includes('other'):P[q.key]==='other';
-    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Question ${P.step+1} of 4</div><h3>${q.title}</h3><p class="hint">${q.hint}</p></div>
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step ${P.step+1} of 7</div><h3>${q.title}</h3><p class="hint">${q.hint}</p></div>
     <div class="qgrid">${q.opts.map(([v,label,icon])=>`<button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qtick"></span></button>`).join('')}</div>
     <input type="text" class="qother" id="qother" placeholder="Tell us a bit more…" value="${(P[ok]||'').replace(/"/g,'&quot;')}" ${otherOn()?'':'hidden'}>
     <div class="actions">${P.step>0?'<button class="btn ghost" id="pback" type="button">Back</button>':''}<button class="btn" id="pnext" type="button">Continue</button></div>`;
@@ -621,13 +618,14 @@ function planRender(){
     if($('pback'))$('pback').onclick=()=>{P.step--;planRender();};
     $('pnext').onclick=()=>{if(can()){P.step++;planRender();}};
   } else if(P.step===4){
-    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Almost there</div><h3>Add your listing photos</h3><p class="hint">Drag them in and we'll analyze what we can make from them.</p></div>
-    <div class="drop" id="pdrop" tabindex="0" role="button" aria-label="Add photos"><strong>Drag photos here</strong><small>or click to choose · JPG or PNG</small><input type="file" id="pfile" accept="image/jpeg,image/png" multiple hidden></div>
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 5 of 7</div><h3>Add your listing photos</h3><p class="hint">Add at least 2 photos — up to 20. JPG, PNG or WebP. We'll build your package from them.</p></div>
+    <div class="drop" id="pdrop" tabindex="0" role="button" aria-label="Add photos"><strong>Drag photos here</strong><small>or click to choose · JPG, PNG or WebP</small><input type="file" id="pfile" accept="image/jpeg,image/png,image/webp" multiple hidden></div>
     <div class="thumbs" id="pthumbs"></div><div class="tag" id="ptag2"></div>
     <div class="actions"><button class="btn ghost" id="pback" type="button">Back</button><button class="btn amber" id="panalyze" type="button">Analyze my photos</button></div>`;
     const drop=$('pdrop'),file=$('pfile');
     const paint=()=>{$('pthumbs').innerHTML=P.photos.map((p,k)=>`<div class="thumb"><img src="${p.src}" alt="" draggable="false"><button type="button" aria-label="Move photo left" data-d="-1" style="left:5px;right:auto;${k===0?'visibility:hidden;':''}">‹</button><button type="button" aria-label="Move photo right" data-d="1" ${k===P.photos.length-1?'style="visibility:hidden"':''}>›</button><span class="i">${String(k+1).padStart(2,'0')}</span></div>`).join('');
       $('ptag2').textContent=(P.photos.some(p=>p.sample)?'Sample photos · ':'')+P.photos.length+' photos'+(P.photos.length>1?' · drag or use ‹ › to reorder':'');
+      $('panalyze').disabled=P.photos.filter(p=>!p.sample).length<2;
       makeSortable($('pthumbs'),P.photos,paint);
       $('pthumbs').querySelectorAll('button').forEach(b=>{
         b.addEventListener('pointerdown',e=>e.stopPropagation());
@@ -636,7 +634,7 @@ function planRender(){
           const i=thumbs.indexOf(b.closest('.thumb')),j=i+Number(b.dataset.d);
           if(i<0||j<0||j>=P.photos.length)return;
           const m=P.photos.splice(i,1)[0];P.photos.splice(j,0,m);paint();});});};
-    const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png)/.test(f.type)).slice(0,28);if(!list.length)return;if(P.photos.every(p=>p.sample))P.photos=[];let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{P.photos.push({src:r.result});if(--left===0)paint();};r.readAsDataURL(f);});
+    const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png|webp)/.test(f.type)).slice(0,20);if(!list.length)return;if(P.photos.every(p=>p.sample))P.photos=[];let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{P.photos.push({src:r.result});if(--left===0)paint();};r.readAsDataURL(f);});
       /* BACKEND: photos travel with the Create event now (see pcreate) — the host uploads them to each video project and starts production. No draft is created here. */};
     drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
     file.onchange=()=>add(file.files);
@@ -645,8 +643,8 @@ function planRender(){
     drop.addEventListener('drop',e=>add(e.dataTransfer.files));
     paint();$('pback').onclick=()=>{P.step=3;planRender();};$('panalyze').onclick=()=>{P.step=5;planRender();};
   } else if(P.step===5){
-    const steps=[P.photos.length?('Reading your '+P.photos.length+' photos'):'Reading your brief','Finding your best shots','Matching to your '+(LB[P.goal]||'listing')+' goal','Sizing for '+(P.channels.map(c=>CHL[c]).join(', ')||'every channel'),'Planning your content package'];
-    planBody.innerHTML=`<div class="qhead"><div class="eyebrow">Analyzing</div><h3>Building your package…</h3><p class="hint">This takes a few seconds.</p></div>
+    const steps=[P.photos.length?('Reading your '+P.photos.length+' photos'):'Reading your brief','Putting your package together','Matching to your '+(LB[P.goal]||'listing')+' goal','Sizing for '+(P.channels.map(c=>CHL[c]).join(', ')||'every channel'),'Planning your content package'];
+    planBody.innerHTML=`<div class="qhead"><div class="eyebrow">Step 6 of 7</div><h3>Building your package…</h3><p class="hint">This takes a few seconds.</p></div>
     ${P.photos.length?`<div class="scan"><img src="${P.photos[0].src}" alt=""></div>`:``}
     <div class="render" id="prender">${steps.map(t=>'<div><b></b>'+t+'</div>').join('')}</div>`;
     const rows=[...planBody.querySelectorAll('#prender div')];let k=0;
@@ -655,20 +653,22 @@ function planRender(){
     const items=recommend(P);items.forEach(it=>it.sel=true);
     const chL=P.channels.map(c=>CHL[c]);
     const rationale=`For a ${LB[P.goal]||'listing'} ${LB[P.prop]||''} ${chL.length?'going to '+listJoin(chL):'ready for any channel'}, here's what we'd make. Keep the whole package, or pick just what you want:`;
-    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Recommended for you</div><h3>Your content package</h3><p class="hint">${rationale}</p></div>
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 7 of 7</div><h3>Your content package</h3><p class="hint">${rationale}</p></div>
     <div class="pkg">${items.map((it,i)=>`<button type="button" class="pkg-item" data-i="${i}" aria-pressed="true" style="animation-delay:${i*60}ms">${ic(it.icon)}<div class="pm"><div class="pt">${it.title}</div><div class="pmeta">${it.meta.concat(it.tags).map(m=>'<span>'+m+'</span>').join('')}</div></div><span class="pprice">$${it.price}</span><span class="pcheck"></span></button>`).join('')}</div>
-    <div class="pkg-sum"><div><div class="pkg-price" id="pkgPrice"></div><div class="saveline" id="saveLine"></div></div>
-    <div class="actions" style="margin:0"><button class="btn ghost" id="predo" type="button">Start over</button><button class="btn amber" id="pcreate" type="button">Create this package</button></div></div>`;
+    <div class="pkg-sum"><div><div class="pkg-price" id="pkgPrice"></div><div class="saveline" id="saveLine"></div></div><p id="videoNote" hidden style="margin-top:10px;color:var(--muted);font-size:14px;line-height:1.5">You picked graphics only — this order will be saved, not produced. Add a video piece to start production.</p>
+    <div class="actions" style="margin:0"><button class="btn ghost" id="pback2" type="button">Back</button><button class="btn ghost" id="predo" type="button">Change answers</button><button class="btn amber" id="pcreate" type="button">Create this package</button></div></div>`;
     const upd=()=>{const s=items.filter(i=>i.sel),sum=s.reduce((a,i)=>a+i.price,0),all=items.length>0&&items.every(i=>i.sel),total=all?Math.round(sum*0.85):sum;
       $('pkgPrice').innerHTML=`$${total}<small> · ${s.length} ${s.length===1?'piece':'pieces'}</small>`;
       $('saveLine').textContent=all?`Full package — you save $${sum-total}`:(s.length?'Add the rest to save 15%':'Pick at least one piece');
-      const cb=$('pcreate');cb.disabled=!s.length;cb.textContent=all?'Create this package':'Create selected';};
+      const cb=$('pcreate');cb.disabled=!s.length;cb.textContent=all?'Create this package':'Create selected';
+      $('videoNote').hidden=!(s.length&&!items.some(i=>i.sel&&['video','reel','story'].includes(i.icon)));};
     planBody.querySelectorAll('.pkg-item').forEach(b=>b.onclick=()=>{const it=items[+b.dataset.i];it.sel=!it.sel;b.setAttribute('aria-pressed',it.sel);upd();});
     upd();
+    $('pback2').onclick=()=>{P.step=4;planRender();};
     $('predo').onclick=()=>{P.step=0;P.goal=P.prop=P.vibe=null;P.channels=[];planRender();};
     $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is 15% off when the whole package is selected. Photos are the uploaded data URLs in display order (samples excluded); the host uploads them to each video project and starts production automatically. */
     const sel=items.filter(i=>i.sel),sum=sel.reduce((a,i)=>a+i.price,0),total=items.length&&items.every(i=>i.sel)?Math.round(sum*0.85):sum;
-    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,photos:P.photos.filter(p=>!p.sample).map(p=>p.src)});closePlan();};
+    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,photos:P.photos.filter(p=>!p.sample).map(p=>p.src)});closePlan(true);};
   }
 }
 function openPlan(){planModal.hidden=false;document.body.style.overflow='hidden';planRender();planModal.querySelector('.x').focus();}
