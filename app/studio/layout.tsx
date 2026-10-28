@@ -9,7 +9,7 @@ export default async function StudioLayout({ children }: { children: React.React
     const { env } = await import("cloudflare:workers");
     await requireAdmin(env);
   } catch (error) {
-    if (error instanceof HttpError && error.status === 401) redirect("/api/auth/google");
+    if (error instanceof HttpError && error.status === 401) redirect("/signin");
     redirect("/dashboard");
   }
   return <ManagerShell>{children}</ManagerShell>;

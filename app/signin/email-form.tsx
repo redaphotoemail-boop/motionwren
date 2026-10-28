@@ -44,7 +44,7 @@ export default function EmailAuthForm({ mode }: { mode: "signin" | "signup" }) {
       </label>
       <label className="field">
         <span>Password</span>
-        <span className="field-row">
+        <span className="pass-row">
           <input type={showPassword ? "text" : "password"} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "8 characters or more" : ""} />
           <button type="button" className="field-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? "Hide" : "Show"}</button>
         </span>

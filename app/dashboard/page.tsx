@@ -139,7 +139,7 @@ export default function CustomerDashboard() {
   for (const project of projects) counts[groupOf(project.status)] += 1;
   const visibleProjects = projects.filter((project) => filter === "all" || groupOf(project.status) === filter);
   const firstUnread = notifications.find((item) => !item.readAt);
-  const firstName = account?.displayName ? account.displayName.split(/[\s@]/)[0] : "";
+  const firstName = account?.displayName && !account.displayName.includes("@") ? account.displayName.trim().split(/\s+/)[0] : "";
   const summary = [counts.production && `${counts.production} in production`, counts.completed && `${counts.completed} ready`, counts.failed && `${counts.failed} need${counts.failed === 1 ? "s" : ""} attention`].filter(Boolean).join(" · ");
   const initial = (account?.displayName || account?.email || "M").slice(0, 1).toUpperCase();
 

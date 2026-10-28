@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
 import { Wordmark } from "./components/brand";
 import PropertyFilm from "./components/property-film";
@@ -31,7 +32,9 @@ function StepVisual({ kind }: { kind: (typeof steps)[number]["visual"] }) {
   </div>;
 }
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams?: Promise<{ owner?: string }> }) {
+  // A Google sign-in that did not finish returns here; send people back to sign-in with a note.
+  if ((await searchParams)?.owner === "restricted") redirect("/signin?google=failed");
   const { env } = await import("cloudflare:workers");
   const session = await getGoogleSession(env);
   const accountPath = session ? (configuredAdmins(env).has(session.email.toLowerCase()) ? "/admin" : "/dashboard") : "/signin";
