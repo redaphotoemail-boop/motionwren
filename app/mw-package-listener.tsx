@@ -21,7 +21,7 @@ type PackageDetail = { items?: unknown; answers?: unknown; total?: unknown; phot
 type SavedItem = { title: string; price: number; icon: string; kind: "video" | "graphic" };
 type SavedAnswers = { goal?: string; prop?: string; channels?: string[]; vibe?: string };
 type VideoStage = "new" | "created" | "uploaded" | "submitted" | "generating";
-type VideoEntry = { title: string; price: number; icon: string; aspect: "horizontal" | "vertical"; targetDuration: number; projectId: string | null; stage: VideoStage; error?: string };
+type VideoEntry = { title: string; price: number; icon: string; aspect: "horizontal" | "vertical"; targetDuration: number; projectId: string | null; stage: VideoStage; error?: string; uploaded?: number };
 type SavedPackage = { items: SavedItem[]; answers: SavedAnswers; total: number; photos: string[]; video: VideoEntry[]; graphics: string[]; attempted: boolean };
 
 const PENDING_KEY = "mw:pending-package";
@@ -29,6 +29,13 @@ const IDB_NAME = "motionwren";
 const IDB_STORE = "pendingPackages";
 const IDB_KEY = "current";
 const VIDEO_ICONS = new Set(["video", "reel", "story"]);
+/* Production uses the first 12 photos of a project (the generate route reads
+   them ORDER BY sort_order LIMIT 12), so each video project receives exactly
+   those, in the customer's order. Uploading all 20 to every video only spent
+   the 40-uploads-an-hour allowance: a three-video package with 14 or more
+   photos ran out of it before the last video could start. */
+const PRODUCTION_PHOTOS = 12;
+export type PipelineProgress = { done: number; total: number; stage: "upload" | "start" };
 
 function classify(item: PackageItem): "video" | "graphic" {
   if (item.kind === "video" || item.kind === "graphic") return item.kind;
@@ -91,12 +98,21 @@ function summarize(pkg: SavedPackage): string {
 async function errorText(res: Response): Promise<string> {
   try {
     const data = (await res.json()) as { error?: unknown };
-    if (typeof data.error === "string" && data.error) return data.error;
+    if (typeof data.error === "string" && data.error) return friendlyError(data.error);
   } catch {
     /* Fall through to the status-based message. */
   }
   if (res.status === 429) return "Too many requests — please wait a bit and try again.";
   return "Couldn't create your package. Please try again.";
+}
+
+/* The server's limit message counts seconds ("Try again in 2400 seconds");
+   say it in minutes instead. */
+function friendlyError(message: string): string {
+  const match = /try again in (\d+) seconds/i.exec(message);
+  if (!match) return message;
+  const minutes = Math.ceil(Number(match[1]) / 60);
+  return minutes <= 1 ? "Too many requests. Try again in a minute." : `Too many requests. Try again in about ${minutes} minutes.`;
 }
 
 function dataUrlToFile(src: string, name: string): File | null {
@@ -193,8 +209,19 @@ type PipelineResult = { done: boolean; auth: boolean; errors: string[] };
 /* Runs the pipeline for one package, resuming from each entry's recorded
    stage. Stage is progress only; a failure records entry.error and keeps
    the stage, so a retry resumes instead of duplicating work. */
-async function runPackage(pkg: SavedPackage): Promise<PipelineResult> {
+async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelineProgress) => void): Promise<PipelineResult> {
   const errors: string[] = [];
+  const photos = pkg.photos.slice(0, PRODUCTION_PHOTOS);
+  const total = pkg.video.length * photos.length;
+  const doneCount = () =>
+    pkg.video.reduce((sum, entry) => sum + (entry.stage === "new" ? 0 : entry.stage === "created" ? Math.min(entry.uploaded || 0, photos.length) : photos.length), 0);
+  const report = (stage: PipelineProgress["stage"]) => {
+    try {
+      onProgress?.({ done: doneCount(), total, stage });
+    } catch {
+      /* Progress display must never break production. */
+    }
+  };
   if (!pkg.video.length || pkg.photos.length < 2) {
     // No video pieces, or too few photos to render: keep today's behavior —
     // one draft order the customer can see. Production needs two photos.
@@ -227,9 +254,24 @@ async function runPackage(pkg: SavedPackage): Promise<PipelineResult> {
         await idbPut(pkg);
       }
       if (entry.stage === "created" && entry.projectId) {
+        // Resume where the server left off: photos already stored for this
+        // project are never sent twice (a retry used to start again at photo 1).
+        let start = Math.min(entry.uploaded || 0, photos.length);
+        try {
+          const current = await fetch(`/api/projects/${entry.projectId}`, { cache: "no-store" });
+          if (current.status === 401) return { done: false, auth: true, errors };
+          if (current.ok) {
+            const data = (await current.json()) as { project?: { assets?: unknown[] } };
+            if (Array.isArray(data.project?.assets)) start = Math.min(data.project.assets.length, photos.length);
+          }
+        } catch {
+          /* Keep the local count; the upload below reports any network failure. */
+        }
+        entry.uploaded = start;
+        report("upload");
         let failed = false;
-        for (let i = 0; i < pkg.photos.length; i += 1) {
-          const file = dataUrlToFile(pkg.photos[i], `photo-${String(i + 1).padStart(2, "0")}`);
+        for (let i = start; i < photos.length; i += 1) {
+          const file = dataUrlToFile(photos[i], `photo-${String(i + 1).padStart(2, "0")}`);
           if (!file) {
             entry.error = "A photo could not be read.";
             failed = true;
@@ -244,6 +286,8 @@ async function runPackage(pkg: SavedPackage): Promise<PipelineResult> {
             failed = true;
             break;
           }
+          entry.uploaded = i + 1;
+          report("upload");
         }
         if (failed) {
           errors.push(`${entry.title}: ${entry.error}`);
@@ -254,6 +298,7 @@ async function runPackage(pkg: SavedPackage): Promise<PipelineResult> {
         await idbPut(pkg);
       }
       if (entry.stage === "uploaded" && entry.projectId) {
+        report("start");
         const sub = await fetch(`/api/projects/${entry.projectId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
         if (sub.status === 401) return { done: false, auth: true, errors };
         if (!sub.ok) {
@@ -300,15 +345,38 @@ type Banner = { message: string; retryPackage: boolean };
    window by the studio loader) and runs the order through production. */
 export default function MwPackageListener() {
   const [banner, setBanner] = useState<Banner | null>(null);
+  const [progress, setProgress] = useState<PipelineProgress | null>(null);
 
   useEffect(() => {
+    let running = false;
+    // Closing or reloading mid-upload used to abandon the package silently.
+    // Ask first while photos are still going up.
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!running) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    async function run(pkg: SavedPackage): Promise<PipelineResult> {
+      running = true;
+      setBanner(null);
+      setProgress({ done: 0, total: 0, stage: "upload" });
+      try {
+        return await runPackage(pkg, setProgress);
+      } finally {
+        running = false;
+        setProgress(null);
+      }
+    }
+
     async function flushPending() {
       // New path: an IndexedDB package that has never been attempted.
       // Attempted packages wait for the banner's Try again — otherwise every
       // dashboard visit would retry (and could hit the hourly rate limits).
       const pending = await idbGet();
       if (pending && !pending.attempted) {
-        const result = await runPackage(pending);
+        const result = await run(pending);
         if (result.auth) return; // Still signed out — keep it for the next visit.
         if (result.done) {
           await idbDel();
@@ -386,7 +454,7 @@ export default function MwPackageListener() {
         setBanner({ message: "Couldn't reach MotionWren. Check your connection and try again.", retryPackage: true });
         return;
       }
-      const result = await runPackage(pkg);
+      const result = await run(pkg);
       if (result.auth) {
         window.location.assign("/signin");
         return;
@@ -403,12 +471,13 @@ export default function MwPackageListener() {
     }
 
     async function retryPipeline() {
+      if (running) return;
       setBanner(null);
       const pending = await idbGet();
       if (!pending) return;
       pending.attempted = false;
       await idbPut(pending);
-      const result = await runPackage(pending);
+      const result = await run(pending);
       if (result.auth) {
         window.location.assign("/signin");
         return;
@@ -428,55 +497,55 @@ export default function MwPackageListener() {
     (window as unknown as { __mwRetryPipeline?: () => void }).__mwRetryPipeline = retryPipeline;
     return () => {
       window.removeEventListener("mw:package", onPackage);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       delete (window as unknown as { __mwRetryPipeline?: () => void }).__mwRetryPipeline;
     };
   }, []);
 
+  if (progress) {
+    const uploading = progress.stage === "upload" && progress.total > 0;
+    const label = progress.stage === "start" ? "Starting production" : uploading ? "Uploading your photos" : "Preparing your order";
+    const percent = progress.stage === "start" ? 100 : progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+    return (
+      <div className="mw-toast" role="status" aria-live="polite">
+        <div className="mw-toast-row">
+          <span className="mw-toast-spin" aria-hidden="true" />
+          <strong>{label}</strong>
+          {uploading && <span className="mw-toast-count">{progress.done} / {progress.total}</span>}
+        </div>
+        <div className="mw-toast-bar" aria-hidden="true"><i style={{ width: `${Math.max(4, percent)}%` }} /></div>
+        <p className="mw-toast-note">Keep this page open until it finishes.</p>
+      </div>
+    );
+  }
+
   if (!banner) return null;
   return (
-    <div
-      role="alert"
-      style={{
-        position: "fixed",
-        top: 16,
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 9999,
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        maxWidth: "calc(100vw - 32px)",
-        background: "#fff",
-        border: "1px solid #e5e5e5",
-        borderRadius: 12,
-        padding: "12px 16px",
-        boxShadow: "0 8px 30px rgba(0,0,0,.12)",
-        fontSize: 14,
-        lineHeight: 1.4,
-        color: "#111",
-      }}
-    >
-      <span>{banner.message}</span>
-      <button
-        type="button"
-        onClick={() => {
-          if (banner.retryPackage) {
-            const retry = (window as unknown as { __mwRetryPipeline?: () => void }).__mwRetryPipeline;
-            if (retry) {
-              retry();
-              return;
+    <div className="mw-toast mw-toast-alert" role="alert">
+      <p className="mw-toast-msg">{banner.message}</p>
+      <div className="mw-toast-actions">
+        <button
+          type="button"
+          className="btn btn-ink btn-sm"
+          onClick={() => {
+            if (banner.retryPackage) {
+              const retry = (window as unknown as { __mwRetryPipeline?: () => void }).__mwRetryPipeline;
+              if (retry) {
+                retry();
+                return;
+              }
             }
-          }
-          setBanner(null);
-          const studio = (window as unknown as { MotionWrenStudio?: { open?: (flow: string) => void } }).MotionWrenStudio;
-          if (studio?.open) studio.open("plan");
-        }}
-      >
-        Try again
-      </button>
-      <button type="button" aria-label="Dismiss" onClick={() => setBanner(null)}>
-        ×
-      </button>
+            setBanner(null);
+            const studio = (window as unknown as { MotionWrenStudio?: { open?: (flow: string) => void } }).MotionWrenStudio;
+            if (studio?.open) studio.open("plan");
+          }}
+        >
+          Try again
+        </button>
+        <button type="button" className="mw-toast-x" aria-label="Dismiss" onClick={() => setBanner(null)}>
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+        </button>
+      </div>
     </div>
   );
 }

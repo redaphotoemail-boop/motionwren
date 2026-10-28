@@ -96,18 +96,52 @@ section{padding-block:clamp(80px,12vw,150px)}
 .track span.done{background:var(--ink)}
 .pane h3{font-size:30px}
 .pane .hint{color:var(--muted);margin:8px 0 22px;font-size:16px}
-.drop{border-radius:18px;background:var(--paper);padding:26px;text-align:center;cursor:pointer;transition:background .2s}
+.drop{display:block;border-radius:18px;background:var(--paper);padding:26px;text-align:center;cursor:pointer;transition:background .2s}
 .drop.over{background:color-mix(in srgb,var(--amber) 18%,var(--paper))}
 .drop strong{display:block;font:600 17px/1.3 var(--display)}
 .drop small{color:var(--muted)}
-.thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
-.thumb{position:relative;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:var(--paper);cursor:grab}
-.thumb:active{cursor:grabbing}
-.thumb.dragging{opacity:.4}
-.thumb.over{box-shadow:inset 0 0 0 3px var(--amber)}
-.thumb img{width:100%;height:100%;object-fit:cover;pointer-events:none}
-.thumb button{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;font-size:14px;line-height:1}
-.thumb .i{position:absolute;left:6px;bottom:5px;font:500 10px/1 var(--mono);color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+/* Photo step: add, reorder (finger or mouse), remove, start over */
+.pick{position:relative}
+.pfile{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none}
+.pfile:focus-visible~.drop,.pfile:focus-visible~.thumbs .addtile{outline:3px solid var(--amber);outline-offset:3px}
+.pick.over .drop{background:color-mix(in srgb,var(--amber) 18%,var(--paper))}
+.pick.over .thumbs:not(:empty){outline:2px dashed var(--amber);outline-offset:6px;border-radius:14px}
+.thumbs{position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:560px){.thumbs{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}}
+.thumb{position:relative;aspect-ratio:4/3;border-radius:12px;overflow:hidden;background:var(--paper);cursor:grab;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;transition:transform .16s ease,opacity .16s ease}
+.thumb img{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none;-webkit-user-drag:none;-webkit-touch-callout:none}
+.thumb:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.thumb.press{transform:scale(.96)}
+.thumb.ph{background:color-mix(in srgb,var(--amber) 14%,var(--paper));box-shadow:inset 0 0 0 2px var(--amber)}
+.thumb.ph>*{opacity:0}
+.thumb.out{transform:scale(.88);opacity:0}
+.thumb.loading{cursor:default;display:grid;place-items:center}
+.thumb.loading::before{content:"";width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line);border-top:2px solid var(--amber);animation:spin .9s linear infinite}
+.thumb .i{position:absolute;left:7px;bottom:7px;font:500 10px/1 var(--mono);letter-spacing:.04em;color:#fff;background:rgba(12,14,20,.5);padding:4px 6px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.thumb .rm{position:absolute;top:6px;right:6px;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:rgba(12,14,20,.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#fff;cursor:pointer;display:grid;place-items:center}
+.thumb .rm::before{content:"";position:absolute;inset:-6px}
+.thumb .rm svg{width:12px;height:12px;stroke:currentColor;stroke-width:2.4;stroke-linecap:round}
+.thumb .rm:focus-visible{outline:3px solid var(--amber);outline-offset:1px}
+.addtile{aspect-ratio:4/3;border-radius:12px;background:var(--paper);color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;font:500 13px var(--body);transition:background .15s,color .15s}
+.addtile:hover{background:var(--line);color:var(--ink)}
+.addtile svg{width:22px;height:22px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;fill:none}
+.pghost{position:fixed;z-index:200;margin:0;pointer-events:none;border-radius:12px;overflow:hidden;background:var(--paper);box-shadow:0 26px 60px -14px rgba(0,0,0,.5);transition:transform .16s cubic-bezier(.2,.8,.2,1);will-change:left,top,transform}
+.pghost.up{transform:scale(1.07)}
+.pghost.land{transition:left .18s cubic-bezier(.2,.8,.2,1),top .18s cubic-bezier(.2,.8,.2,1),transform .18s ease}
+.pghost img{display:block;width:100%;height:100%;object-fit:cover}
+.pghost .i{position:absolute;left:7px;bottom:7px;font:500 10px/1 var(--mono);color:#fff;background:rgba(12,14,20,.5);padding:4px 6px;border-radius:6px}
+html.pdragging,html.pdragging *{cursor:grabbing!important}
+.pbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;min-height:34px}
+.pbar .tag{margin:0;line-height:1.6;transition:color .2s}
+.pbar .tag.nudge{color:var(--amber-ink)}
+.pover{appearance:none;border:0;background:none;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font:500 14px var(--body);color:var(--muted);padding:8px 2px;border-radius:8px;white-space:nowrap}
+.pover:hover{color:var(--ink)}
+.pover.arm{color:var(--amber-ink);font-weight:600}
+.pover svg{width:15px;height:15px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.pover:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.pmsg{margin:8px 0 0;font-size:14px;line-height:1.45;color:var(--amber-ink)}
+.pmsg:empty{display:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .tag{display:inline-block;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:12px}
 label.f{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
 input[type=text],input[type=url]{width:100%;font:500 16px var(--body);color:var(--ink);background:var(--paper);border:0;border-radius:12px;padding:14px 16px}
@@ -468,81 +502,318 @@ const ORDER=['exterior','living','kitchen','dining','bedroom','bath'];
 const sample=ORDER.map((n,i)=>({src:KR_SCENE(n,i+1),label:ROOM_LABEL[n],sample:true}));
 
 /* A reusable "film" player: crossfading stills with camera moves, timecode and listing card */
-/* Drag to reorder photo thumbnails — pointer-based, so it works with a mouse
-   AND with touch. (HTML5 drag-and-drop never fires on phones, which is why
-   reordering did nothing on touch.) Mouse: drag once you move a few pixels.
-   Touch: press and hold briefly, then drag. The order is committed on release.
-   Release is watched at window level (plus a mouseup fallback) so a drop can
-   never leave a thumbnail stuck half-dragged: if the drop is missed, the next
-   touch cleans the old drag up first. A commit that does not map exactly back
-   onto the photo list is dropped, so photos can never duplicate or vanish. */
-let sortActive=null;
-function sortReset(st){st.el.classList.remove('dragging');st.el.style.pointerEvents='';st.el.style.touchAction='';st.el.style.userSelect='';}
-function sortApplyOrder(st){
-  const photos=[...st.container.querySelectorAll('.thumb')].map(el=>el._photo).filter(Boolean);
-  if(photos.length!==st.arr.length||new Set(photos).size!==photos.length)return false;
-  st.arr.length=0;photos.forEach(p=>st.arr.push(p));
-  st.container.querySelectorAll('.thumb').forEach((el,k)=>{const b=el.querySelector('.i');if(b)b.textContent=String(k+1).padStart(2,'0');});
-  return true;
-}
-function sortCommit(st){
+/* ---------- Photo step: add, reorder, remove, start over ----------
+   Reorder works the way phones and computers already do:
+   - Finger: press and hold a photo for a moment — it lifts — then drag it.
+     A quick swipe still scrolls, so the grid never traps the page.
+   - Mouse: just drag. Keyboard: focus a photo, arrow keys move it, Delete
+     removes it.
+   The lifted photo follows the pointer, the others slide out of the way, and
+   the sheet scrolls when the pointer nears the top or bottom edge. Touch uses
+   touch events, not pointer events: iOS cancels a pointer drag the moment it
+   decides to scroll, while a held finger's touchmove can still be prevented.
+   The dragged tile itself never leaves the DOM (its neighbours move around
+   it), so the browser keeps delivering its touch and pointer events. The
+   order is read back from the grid by photo id on drop, so a photo can never
+   be duplicated or lost.
+   Adding: photos are prepared one at a time. A photo larger than 3072px on its
+   long side is resized to that (JPEG, 90%) — full-size phone originals were
+   heavy enough to stall on cellular — and every read has an error path and a
+   timeout, so one bad or slow file can no longer stop the rest. The file
+   input is cleared after each pick so the same photo can be picked again. */
+const PH_MAX=20,PH_LONG=3072,PH_THUMB=480,PH_HOLD=200;
+const PH={gen:0,msg:'',drag:null,dirty:false,seq:0,armTimer:null,nudgeTimer:null};
+const phEl=id=>document.getElementById(id);
+const phPad=k=>String(k).padStart(2,'0');
+const phTouchUI=()=>{try{return matchMedia('(hover: none) and (pointer: coarse)').matches;}catch(_){return false;}};
+const PH_X='<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>';
+const PH_PLUS='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+const PH_REDO='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
+
+function phReadUrl(blob,ms){return new Promise((res,rej)=>{
+  const r=new FileReader();let done=false,timer=0;
+  const end=(fn,v)=>{if(done)return;done=true;clearTimeout(timer);fn(v);};
+  timer=setTimeout(()=>{try{r.abort();}catch(_){}end(rej,new Error('timeout'));},ms||30000);
+  r.onload=()=>typeof r.result==='string'?end(res,r.result):end(rej,new Error('read'));
+  r.onerror=r.onabort=()=>end(rej,r.error||new Error('read'));
+  try{r.readAsDataURL(blob);}catch(e){end(rej,e);}
+});}
+function phLoadImg(url,ms){return new Promise((res,rej)=>{
+  const img=new Image();let done=false;
+  const timer=setTimeout(()=>{if(!done){done=true;rej(new Error('timeout'));}},ms||45000);
+  img.onload=()=>{if(!done){done=true;clearTimeout(timer);res(img);}};
+  img.onerror=()=>{if(!done){done=true;clearTimeout(timer);rej(new Error('decode'));}};
+  img.decoding='async';img.src=url;
+});}
+function phEncode(img,long,q){return new Promise((res,rej)=>{
+  const w=img.naturalWidth,h=img.naturalHeight,s=Math.min(1,long/Math.max(w,h));
+  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*s));c.height=Math.max(1,Math.round(h*s));
+  const free=()=>{c.width=0;c.height=0;};/* iOS caps total canvas memory; release it right away */
+  const g=c.getContext('2d');if(!g){free();rej(new Error('canvas'));return;}
+  g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
+  g.drawImage(img,0,0,c.width,c.height);
+  try{c.toBlob(b=>{free();b?res(b):rej(new Error('encode'));},'image/jpeg',q);}catch(e){free();rej(e);}
+}).then(b=>phReadUrl(b));}
+async function phPrepare(file){
+  const okType=/^image\/(jpeg|png|webp)$/.test(file.type||'');
+  const url=URL.createObjectURL(file);
   try{
-    if(sortApplyOrder(st))st.onChange();
-  }catch(_){/* Keep the old order; styles are still reset below. */}
-}
-function sortFinish(){
-  const st=sortActive;if(!st)return;sortActive=null;
-  if(st.timer)clearTimeout(st.timer);
-  if(st.mode==='drag'){try{sortCommit(st);}finally{sortReset(st);}}
-}
-function sortCancel(){
-  const st=sortActive;if(!st)return;sortActive=null;
-  if(st.timer)clearTimeout(st.timer);
-  if(st.mode==='drag')sortReset(st);
-}
-window.addEventListener('pointerup',sortFinish);
-window.addEventListener('pointercancel',sortCancel);
-window.addEventListener('mouseup',sortFinish);
-function makeSortable(container,arr,onChange){
-  container.querySelectorAll('.thumb').forEach((el,idx)=>{
-    el.dataset.idx=idx;el._photo=arr[idx];
-    el.addEventListener('pointerdown',e=>{
-      if(e.target.closest&&e.target.closest('button'))return;
-      if(e.pointerType==='mouse'&&e.button!==0)return;
-      if(sortActive&&sortActive.mode==='drag')sortReset(sortActive);
-      sortActive=null;
-      const st={el,container,arr,onChange,mode:'maybe',sx:e.clientX,sy:e.clientY,timer:null};
-      sortActive=st;
-      if(e.pointerType==='touch'){
-        st.timer=setTimeout(()=>{
-          st.timer=null;if(sortActive!==st||st.mode!=='maybe')return;
-          st.mode='drag';
-          try{el.setPointerCapture(e.pointerId);}catch(_){}
-          el.style.touchAction='none';el.style.pointerEvents='none';el.style.userSelect='none';
-          el.classList.add('dragging');
-        },350);
+    /* A photo this browser cannot open is broken or unsupported: report it. */
+    const img=await phLoadImg(url);
+    if(!img.naturalWidth||!img.naturalHeight)throw new Error('decode');
+    const big=Math.max(img.naturalWidth,img.naturalHeight)>PH_LONG;
+    let src;
+    if(!big&&okType&&file.size<=8*1024*1024)src=await phReadUrl(file);
+    else{
+      try{src=await phEncode(img,PH_LONG,.9);}
+      catch(e){/* Resizing ran out of memory: send the original if the server accepts it. */
+        if(!(okType&&file.size<=20*1024*1024))throw e;
+        src=await phReadUrl(file);
       }
-    });
-    el.addEventListener('pointermove',e=>{
-      const st=sortActive;if(!st||st.el!==el)return;
-      if(st.mode==='maybe'&&e.pointerType==='mouse'&&Math.hypot(e.clientX-st.sx,e.clientY-st.sy)>6){
-        st.mode='drag';
-        try{el.setPointerCapture(e.pointerId);}catch(_){}
-        el.style.pointerEvents='none';el.style.userSelect='none';
-        el.classList.add('dragging');
-      }
-      if(st.mode!=='drag')return;
-      let under=null;
-      try{under=document.elementFromPoint(e.clientX,e.clientY);}catch(_){}
-      const target=under?under.closest('.thumb'):null;
-      if(!target||target===el||!container.contains(target))return;
-      const r=target.getBoundingClientRect();
-      if((e.clientX-r.left)>(r.width/2))target.after(el);else target.before(el);
-      sortApplyOrder({container,arr});
-    });
-    el.addEventListener('lostpointercapture',()=>{if(sortActive&&sortActive.el===el&&sortActive.mode==='drag')sortFinish();});
+    }
+    let thumb=src;try{thumb=await phEncode(img,PH_THUMB,.82);}catch(_){/* show the photo itself */}
+    return {src,thumb};
+  }finally{URL.revokeObjectURL(url);}
+}
+
+function phTile(p,k,n){
+  if(p.loading)return `<div class="thumb loading" data-id="${p.id}" role="listitem" aria-label="Adding a photo"></div>`;
+  return `<div class="thumb" data-id="${p.id}" role="listitem" tabindex="0" aria-label="Photo ${k+1} of ${n}"><img src="${p.thumb||p.src}" alt="" draggable="false"><span class="i">${phPad(k+1)}</span><button type="button" class="rm" aria-label="Remove photo ${k+1}">${PH_X}</button></div>`;
+}
+function phPaint(){
+  const grid=phEl('pthumbs');if(!grid)return;
+  if(PH.drag){PH.dirty=true;phStatus();return;}/* never rebuild the grid under a live drag */
+  const n=P.photos.length;
+  grid.innerHTML=P.photos.map((p,k)=>phTile(p,k,n)).join('')+(n&&n<PH_MAX?`<label class="addtile" for="pfile" role="listitem">${PH_PLUS}<span>Add</span></label>`:'');
+  const drop=phEl('pdrop');if(drop)drop.hidden=n>0;
+  grid.querySelectorAll('.thumb:not(.loading)').forEach(phBind);
+  phStatus();
+}
+function phStatus(){
+  const ready=P.photos.filter(p=>!p.loading).length,busy=P.photos.some(p=>p.loading);
+  const tag=phEl('ptag2');
+  if(tag)tag.textContent=busy?'Adding photos…':ready?(ready+(ready===1?' photo':' photos')+(ready>1?' · '+(phTouchUI()?'Hold and drag to reorder':'Drag to reorder'):'')):'';
+  const over=phEl('pover');if(over)over.hidden=!P.photos.length;
+  const go=phEl('panalyze');if(go)go.disabled=busy||ready<2;
+  const msg=phEl('pmsg');if(msg)msg.textContent=PH.msg;
+}
+function phSay(text){const live=phEl('plive');if(live){live.textContent='';setTimeout(()=>{live.textContent=text;},30);}}
+function phNudge(){const t=phEl('ptag2');if(!t)return;t.classList.add('nudge');clearTimeout(PH.nudgeTimer);PH.nudgeTimer=setTimeout(()=>t.classList.remove('nudge'),1400);}
+function phRenumber(grid){
+  const tiles=[...grid.querySelectorAll('.thumb')],n=tiles.length;
+  tiles.forEach((t,k)=>{
+    const b=t.querySelector('.i');if(b)b.textContent=phPad(k+1);
+    if(!t.classList.contains('loading'))t.setAttribute('aria-label','Photo '+(k+1)+' of '+n);
+    const rm=t.querySelector('.rm');if(rm)rm.setAttribute('aria-label','Remove photo '+(k+1));
   });
 }
+function phCommit(grid){
+  const byId=new Map(P.photos.map(p=>[p.id,p]));
+  const next=[...grid.querySelectorAll('.thumb')].map(t=>byId.get(t.dataset.id)).filter(Boolean);
+  if(next.length===P.photos.length&&new Set(next).size===next.length){P.photos.length=0;next.forEach(p=>P.photos.push(p));phRenumber(grid);}
+  else{PH.dirty=false;phPaint();}/* out of sync: redraw from the list, which is the source of truth */
+}
+/* Slide tiles from where they were to where they now are (FLIP). */
+function phFlip(grid,mutate){
+  const tiles=[...grid.children],from=tiles.map(t=>t.getBoundingClientRect());
+  mutate();
+  tiles.forEach(t=>{t.style.transition='none';t.style.transform='none';});
+  const to=tiles.map(t=>t.getBoundingClientRect());
+  tiles.forEach((t,k)=>{const dx=from[k].left-to[k].left,dy=from[k].top-to[k].top;t.style.transform=(dx||dy)?`translate(${dx}px,${dy}px)`:'';});
+  void grid.offsetWidth;
+  tiles.forEach(t=>{t.style.transition=reduced?'none':'transform .22s cubic-bezier(.2,.8,.2,1)';t.style.transform='';});
+  clearTimeout(grid._flipT);grid._flipT=setTimeout(()=>tiles.forEach(t=>{t.style.transition='';}),260);
+}
+/* The slot under the pointer is the tile whose resting centre is nearest. */
+function phHit(st){
+  const grid=st.grid,gr=grid.getBoundingClientRect(),tiles=[...grid.querySelectorAll('.thumb')];
+  let best=null,bd=Infinity;
+  tiles.forEach(t=>{const cx=gr.left+t.offsetLeft+t.offsetWidth/2,cy=gr.top+t.offsetTop+t.offsetHeight/2,d=(st.x-cx)*(st.x-cx)+(st.y-cy)*(st.y-cy);if(d<bd){bd=d;best=t;}});
+  if(!best||best===st.el)return;
+  const from=tiles.indexOf(st.el),to=tiles.indexOf(best),el=st.el;
+  phFlip(grid,()=>{
+    if(from<to){for(let k=from+1;k<=to;k++)el.before(tiles[k]);}
+    else{for(let k=from-1;k>=to;k--)el.after(tiles[k]);}
+  });
+  phRenumber(grid);
+  const gi=st.ghost&&st.ghost.querySelector('.i'),ei=el.querySelector('.i');if(gi&&ei)gi.textContent=ei.textContent;
+}
+function phLift(st){
+  const el=st.el,r=el.getBoundingClientRect();
+  st.mode='drag';el.classList.remove('press');
+  st.ox=Math.max(0,Math.min(r.width,st.sx-r.left));st.oy=Math.max(0,Math.min(r.height,st.sy-r.top));
+  const img=el.querySelector('img'),num=el.querySelector('.i');
+  const g=document.createElement('div');g.className='pghost';g.setAttribute('aria-hidden','true');
+  g.innerHTML=(img?`<img src="${img.getAttribute('src')}" alt="">`:'')+`<span class="i">${num?num.textContent:''}</span>`;
+  Object.assign(g.style,{width:r.width+'px',height:r.height+'px',left:(st.x-st.ox)+'px',top:(st.y-st.oy)+'px',transformOrigin:st.ox+'px '+st.oy+'px'});
+  document.body.appendChild(g);st.ghost=g;void g.offsetWidth;g.classList.add('up');
+  el.classList.add('ph');document.documentElement.classList.add('pdragging');
+  try{if(navigator.vibrate)navigator.vibrate(8);}catch(_){}
+  const tick=()=>{if(PH.drag!==st)return;phAutoScroll(st);st.raf=requestAnimationFrame(tick);};
+  st.raf=requestAnimationFrame(tick);
+}
+function phMove(st,x,y){
+  st.x=x;st.y=y;if(st.mode!=='drag')return;
+  st.ghost.style.left=(x-st.ox)+'px';st.ghost.style.top=(y-st.oy)+'px';
+  phHit(st);
+}
+function phAutoScroll(st){
+  const sc=phEl('planModal');if(!sc)return;
+  const vh=window.innerHeight,edge=Math.min(96,vh*.16);let v=0;
+  if(st.y<edge)v=-(edge-st.y)/edge;else if(st.y>vh-edge)v=(st.y-(vh-edge))/edge;
+  if(!v)return;
+  const before=sc.scrollTop;sc.scrollTop+=Math.round(Math.max(-1,Math.min(1,v))*16);
+  if(sc.scrollTop!==before)phHit(st);
+}
+function phDrop(){
+  const st=PH.drag;if(!st)return;PH.drag=null;
+  clearTimeout(st.timer);cancelAnimationFrame(st.raf);st.el.classList.remove('press');
+  document.documentElement.classList.remove('pdragging');
+  if(st.grid&&st.pointer!==undefined){try{st.grid.releasePointerCapture(st.pointer);}catch(_){}}
+  if(st.mode==='drag'){
+    phCommit(st.grid);
+    const g=st.ghost,el=st.el,gr=st.grid.getBoundingClientRect();
+    const done=()=>{if(g)g.remove();el.classList.remove('ph');};
+    if(g&&!reduced){g.classList.add('land');g.classList.remove('up');g.style.left=(gr.left+el.offsetLeft)+'px';g.style.top=(gr.top+el.offsetTop)+'px';setTimeout(done,190);}
+    else done();
+    phSay('Photo moved to position '+([...st.grid.querySelectorAll('.thumb')].indexOf(el)+1)+'.');
+  }else if(st.tap){phNudge();}
+  if(PH.dirty){PH.dirty=false;setTimeout(phPaint,reduced?0:200);}
+}
+function phBind(el){
+  const grid=el.parentElement;
+  el.addEventListener('touchstart',e=>{
+    if(e.touches.length!==1||e.target.closest('.rm'))return;
+    if(PH.drag)phDrop();
+    const t=e.touches[0];
+    const st={el,grid,mode:'press',x:t.clientX,y:t.clientY,sx:t.clientX,sy:t.clientY,touch:t.identifier};
+    PH.drag=st;el.classList.add('press');
+    st.timer=setTimeout(()=>{if(PH.drag===st&&st.mode==='press')phLift(st);},PH_HOLD);
+  },{passive:true});
+  el.addEventListener('touchmove',e=>{
+    const st=PH.drag;if(!st||st.el!==el)return;
+    const t=[...e.changedTouches].find(c=>c.identifier===st.touch);if(!t)return;
+    if(st.mode==='press'){
+      /* Moved before the hold finished: it's a scroll, not a drag. */
+      if(Math.hypot(t.clientX-st.sx,t.clientY-st.sy)>10){clearTimeout(st.timer);el.classList.remove('press');PH.drag=null;}
+      return;
+    }
+    if(e.cancelable)e.preventDefault();
+    phMove(st,t.clientX,t.clientY);
+  },{passive:false});
+  const endTouch=e=>{const st=PH.drag;if(!st||st.el!==el)return;if(st.mode==='press'&&e.type==='touchend')st.tap=true;phDrop();};
+  el.addEventListener('touchend',endTouch);
+  el.addEventListener('touchcancel',endTouch);
+  el.addEventListener('contextmenu',e=>e.preventDefault());
+  /* Phones snap a fingertip to the nearest tappable thing; marking the photo
+     itself as tappable keeps a press near its middle on the photo instead of
+     landing on its remove button. */
+  el.addEventListener('click',()=>{});
+  el.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='touch'||e.button!==0||e.target.closest('.rm'))return;
+    e.preventDefault();
+    if(PH.drag)phDrop();
+    PH.drag={el,grid,mode:'press',x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,pointer:e.pointerId};
+    try{grid.setPointerCapture(e.pointerId);}catch(_){}
+  });
+  el.addEventListener('keydown',e=>phKey(e,el));
+  const rm=el.querySelector('.rm');
+  if(rm)rm.addEventListener('click',e=>{e.stopPropagation();phRemove(el.dataset.id);});
+}
+window.addEventListener('pointermove',e=>{
+  const st=PH.drag;if(!st||st.pointer!==e.pointerId)return;
+  if(st.mode==='press'){if(Math.hypot(e.clientX-st.sx,e.clientY-st.sy)>4){st.x=e.clientX;st.y=e.clientY;phLift(st);}return;}
+  phMove(st,e.clientX,e.clientY);
+});
+window.addEventListener('pointerup',e=>{const st=PH.drag;if(st&&st.pointer===e.pointerId)phDrop();});
+window.addEventListener('pointercancel',e=>{const st=PH.drag;if(st&&st.pointer===e.pointerId)phDrop();});
+window.addEventListener('blur',()=>{if(PH.drag)phDrop();});
+function phKey(e,el){
+  const id=el.dataset.id,i=P.photos.findIndex(p=>p.id===id);if(i<0)return;
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();phRemove(id);return;}
+  const grid=el.parentElement,cols=Math.max(1,getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length);
+  const d={ArrowLeft:-1,ArrowRight:1,ArrowUp:-cols,ArrowDown:cols}[e.key];if(!d)return;
+  e.preventDefault();
+  const j=Math.max(0,Math.min(P.photos.length-1,i+d));if(j===i)return;
+  const m=P.photos.splice(i,1)[0];P.photos.splice(j,0,m);
+  phPaint();
+  const t=document.querySelector(`#pthumbs .thumb[data-id="${m.id}"]`);if(t)t.focus();
+  phSay('Photo moved to position '+(j+1)+' of '+P.photos.length+'.');
+}
+function phRemove(id){
+  const i=P.photos.findIndex(p=>p.id===id);if(i<0)return;
+  const t=document.querySelector(`#pthumbs .thumb[data-id="${id}"]`);
+  P.photos.splice(i,1);PH.msg='';
+  const after=()=>{
+    phPaint();
+    const left=document.querySelectorAll('#pthumbs .thumb:not(.loading)');
+    const next=left[Math.min(i,left.length-1)];if(next&&t&&t.contains(document.activeElement))next.focus({preventScroll:true});
+    phSay('Photo removed.');
+  };
+  if(t&&!reduced){t.classList.add('out');setTimeout(after,150);}else after();
+}
+function phDisarm(btn){clearTimeout(PH.armTimer);btn.classList.remove('arm');const s=btn.querySelector('span');if(s)s.textContent='Start over';}
+function phStartOver(btn){
+  if(!btn.classList.contains('arm')){
+    btn.classList.add('arm');const s=btn.querySelector('span');if(s)s.textContent='Clear all photos?';
+    clearTimeout(PH.armTimer);PH.armTimer=setTimeout(()=>phDisarm(btn),3500);return;
+  }
+  phDisarm(btn);
+  PH.gen++;/* stops any photos still being prepared */
+  if(PH.drag)phDrop();
+  P.photos=[];PH.msg='';PH.dirty=false;
+  const f=phEl('pfile');if(f)f.value='';
+  phPaint();phSay('All photos cleared.');
+}
+async function phAdd(files){
+  const list=[...(files||[])];
+  const input=phEl('pfile');if(input)input.value='';
+  if(!list.length)return;
+  const pics=list.filter(f=>/^image\//.test(f.type||'')||/\.(jpe?g|png|webp|heic|heif)$/i.test(f.name||''));
+  const room=Math.max(0,PH_MAX-P.photos.length),take=pics.slice(0,room);
+  const over=pics.length-take.length,other=list.length-pics.length;
+  /* One short line about anything that didn't make it in. */
+  const note=failed=>{
+    const bad=failed+other,parts=[];
+    if(bad)parts.push(other?`${bad} ${bad===1?'file':'files'} couldn't be added. Use JPG, PNG or WebP photos.`:`${bad} ${bad===1?'photo':'photos'} couldn't be added. Try again, or use JPG, PNG or WebP.`);
+    if(over)parts.push(`20 photos is the limit — ${over} ${over===1?'was':'were'} not added.`);
+    return parts.join(' ');
+  };
+  PH.msg=note(0);
+  if(!take.length){phStatus();return;}
+  const gen=PH.gen,items=take.map(f=>({id:'ph'+(++PH.seq),loading:true,file:f}));
+  items.forEach(it=>P.photos.push(it));
+  phPaint();
+  let failed=0;
+  for(const it of items){
+    let out=null;
+    try{out=await phPrepare(it.file);}catch(_){out=null;}
+    if(PH.gen!==gen)return;
+    it.file=null;it.loading=false;
+    if(out){it.src=out.src;it.thumb=out.thumb;phSwap(it);}
+    else{failed++;const k=P.photos.indexOf(it);if(k>=0)P.photos.splice(k,1);phUnTile(it.id);}
+    phStatus();
+  }
+  PH.msg=note(failed);
+  phPaint();
+}
+function phSwap(it){
+  const grid=phEl('pthumbs');if(!grid)return;
+  const old=grid.querySelector(`.thumb[data-id="${it.id}"]`);if(!old)return;
+  const k=[...grid.querySelectorAll('.thumb')].indexOf(old);
+  const box=document.createElement('div');box.innerHTML=phTile(it,k,P.photos.length);
+  const el=box.firstElementChild;old.replaceWith(el);phBind(el);
+}
+function phUnTile(id){
+  const grid=phEl('pthumbs'),t=grid&&grid.querySelector(`.thumb[data-id="${id}"]`);
+  if(t){t.remove();phRenumber(grid);}
+}
+/* Files dropped anywhere on the photo step are added; dropped anywhere else
+   they are ignored instead of replacing the page. */
+const phHasFiles=e=>{try{return [...((e.dataTransfer&&e.dataTransfer.types)||[])].includes('Files');}catch(_){return false;}};
+window.addEventListener('dragover',e=>{if(!phHasFiles(e))return;e.preventDefault();const p=phEl('ppick');if(p)p.classList.add('over');});
+window.addEventListener('dragleave',e=>{if(e.relatedTarget)return;const p=phEl('ppick');if(p)p.classList.remove('over');});
+window.addEventListener('drop',e=>{if(!phHasFiles(e))return;e.preventDefault();const p=phEl('ppick');if(!p)return;p.classList.remove('over');phAdd(e.dataTransfer.files);});
 
 /* ---------- Studio: the actual product flow (5 steps) ---------- */
 /* ---------- Content Studio: visual questions → analysis → recommended package ---------- */
@@ -597,7 +868,7 @@ function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='lu
  return items;}
 const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
 const planModal=document.getElementById('planModal'),planBody=document.getElementById('planBody');
-function closePlan(force){if(!force&&(P.goal||P.prop||P.channels.length||P.vibe||P.photos.filter(p=>!p.sample).length)&&!window.confirm('Close without saving? Your answers and photos will be lost.'))return;planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
+function closePlan(force){phDrop();if(!force&&(P.goal||P.prop||P.channels.length||P.vibe||P.photos.filter(p=>!p.sample).length)&&!window.confirm('Close without saving? Your answers and photos will be lost.'))return;planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
 function ptrack(){return '<div class="track">'+Array.from({length:7},(_,k)=>'<span class="'+(k<=P.step?'done':'')+'"></span>').join('')+'</div>';}
 function planRender(){
   const $=id=>document.getElementById(id);
@@ -618,30 +889,22 @@ function planRender(){
     if($('pback'))$('pback').onclick=()=>{P.step--;planRender();};
     $('pnext').onclick=()=>{if(can()){P.step++;planRender();}};
   } else if(P.step===4){
+    const touch=phTouchUI();
     planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 5 of 7</div><h3>Add your listing photos</h3><p class="hint">Add at least 2 photos — up to 20. JPG, PNG or WebP. We'll build your package from them.</p></div>
-    <div class="drop" id="pdrop" tabindex="0" role="button" aria-label="Add photos"><strong>Drag photos here</strong><small>or click to choose · JPG, PNG or WebP</small><input type="file" id="pfile" accept="image/jpeg,image/png,image/webp" multiple hidden></div>
-    <div class="thumbs" id="pthumbs"></div><div class="tag" id="ptag2"></div>
+    <div class="pick" id="ppick">
+      <input type="file" id="pfile" class="pfile" accept="image/jpeg,image/png,image/webp" multiple aria-label="Add photos">
+      <label class="drop" id="pdrop" for="pfile"><strong>${touch?'Add your photos':'Drag photos here'}</strong><small>${touch?'Tap to choose':'or click to choose'} · JPG, PNG or WebP</small></label>
+      <div class="thumbs" id="pthumbs" role="list" aria-label="Your photos, in film order"></div>
+      <div class="pbar"><span class="tag" id="ptag2"></span><button type="button" class="pover" id="pover" hidden>${PH_REDO}<span>Start over</span></button></div>
+      <p class="pmsg" id="pmsg" role="status"></p><span class="sr" id="plive" aria-live="polite"></span>
+    </div>
     <div class="actions"><button class="btn ghost" id="pback" type="button">Back</button><button class="btn amber" id="panalyze" type="button">Analyze my photos</button></div>`;
-    const drop=$('pdrop'),file=$('pfile');
-    const paint=()=>{$('pthumbs').innerHTML=P.photos.map((p,k)=>`<div class="thumb"><img src="${p.src}" alt="" draggable="false"><button type="button" aria-label="Move photo left" data-d="-1" style="left:5px;right:auto;${k===0?'visibility:hidden;':''}">‹</button><button type="button" aria-label="Move photo right" data-d="1" ${k===P.photos.length-1?'style="visibility:hidden"':''}>›</button><span class="i">${String(k+1).padStart(2,'0')}</span></div>`).join('');
-      $('ptag2').textContent=(P.photos.some(p=>p.sample)?'Sample photos · ':'')+P.photos.length+' photos'+(P.photos.length>1?' · drag or use ‹ › to reorder':'');
-      $('panalyze').disabled=P.photos.filter(p=>!p.sample).length<2;
-      makeSortable($('pthumbs'),P.photos,paint);
-      $('pthumbs').querySelectorAll('button').forEach(b=>{
-        b.addEventListener('pointerdown',e=>e.stopPropagation());
-        b.addEventListener('click',()=>{
-          const thumbs=[...$('pthumbs').querySelectorAll('.thumb')];
-          const i=thumbs.indexOf(b.closest('.thumb')),j=i+Number(b.dataset.d);
-          if(i<0||j<0||j>=P.photos.length)return;
-          const m=P.photos.splice(i,1)[0];P.photos.splice(j,0,m);paint();});});};
-    const add=files=>{const list=[...files].filter(f=>/image\/(jpe?g|png|webp)/.test(f.type)).slice(0,20);if(!list.length)return;if(P.photos.every(p=>p.sample))P.photos=[];let left=list.length;list.forEach(f=>{const r=new FileReader();r.onload=()=>{P.photos.push({src:r.result});if(--left===0)paint();};r.readAsDataURL(f);});
-      /* BACKEND: photos travel with the Create event now (see pcreate) — the host uploads them to each video project and starts production. No draft is created here. */};
-    drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();}};
-    file.onchange=()=>add(file.files);
-    ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
-    ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
-    drop.addEventListener('drop',e=>add(e.dataTransfer.files));
-    paint();$('pback').onclick=()=>{P.step=3;planRender();};$('panalyze').onclick=()=>{P.step=5;planRender();};
+    /* BACKEND: photos travel with the Create event (see pcreate) — the host uploads them to each video project and starts production. No draft is created here. */
+    $('pfile').addEventListener('change',e=>phAdd(e.target.files));
+    $('pover').onclick=e=>phStartOver(e.currentTarget);
+    phPaint();
+    $('pback').onclick=()=>{phDrop();P.step=3;planRender();};
+    $('panalyze').onclick=()=>{if(P.photos.some(p=>p.loading)||P.photos.filter(p=>!p.loading).length<2)return;phDrop();P.step=5;planRender();};
   } else if(P.step===5){
     const steps=[P.photos.length?('Reading your '+P.photos.length+' photos'):'Reading your brief','Putting your package together','Matching to your '+(LB[P.goal]||'listing')+' goal','Sizing for '+(P.channels.map(c=>CHL[c]).join(', ')||'every channel'),'Planning your content package'];
     planBody.innerHTML=`<div class="qhead"><div class="eyebrow">Step 6 of 7</div><h3>Building your package…</h3><p class="hint">This takes a few seconds.</p></div>
@@ -668,7 +931,7 @@ function planRender(){
     $('predo').onclick=()=>{P.step=0;P.goal=P.prop=P.vibe=null;P.channels=[];planRender();};
     $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is 15% off when the whole package is selected. Photos are the uploaded data URLs in display order (samples excluded); the host uploads them to each video project and starts production automatically. */
     const sel=items.filter(i=>i.sel),sum=sel.reduce((a,i)=>a+i.price,0),total=items.length&&items.every(i=>i.sel)?Math.round(sum*0.85):sum;
-    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,photos:P.photos.filter(p=>!p.sample).map(p=>p.src)});closePlan(true);};
+    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,photos:P.photos.filter(p=>!p.sample&&!p.loading&&p.src).map(p=>p.src)});closePlan(true);};
   }
 }
 function openPlan(){planModal.hidden=false;document.body.style.overflow='hidden';planRender();planModal.querySelector('.x').focus();}

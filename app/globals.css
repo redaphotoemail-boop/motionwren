@@ -1103,6 +1103,27 @@ p { text-wrap: pretty; }
   .mobile-generation-bar { top: 66px; }
 }
 
+/* --------------------------------------------------------------------------
+   Package pipeline toast (app/mw-package-listener.tsx): progress while the
+   photos upload after Create, and the retry notice if something fails.
+   -------------------------------------------------------------------------- */
+.mw-toast { position: fixed; z-index: 9999; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); width: min(420px, calc(100vw - 32px)); padding: 16px 18px; border-radius: var(--r); background: var(--surface); color: var(--ink); box-shadow: 0 2px 6px rgba(20, 22, 26, .06), 0 28px 60px -22px rgba(20, 22, 40, .38); font-size: 14px; transform: translateX(-50%); animation: mw-toast-in .35s var(--ease); }
+@keyframes mw-toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.mw-toast-row { display: flex; align-items: center; gap: 10px; }
+.mw-toast-row strong { flex: 1; min-width: 0; font: 600 15px/1.25 var(--display); letter-spacing: -.01em; }
+.mw-toast-count { font: 500 12px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.mw-toast-spin { flex: none; width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--line); border-top: 2px solid var(--amber); animation: mw-spin .9s linear infinite; }
+@keyframes mw-spin { to { transform: rotate(360deg); } }
+.mw-toast-bar { height: 4px; margin-top: 12px; border-radius: 99px; background: var(--paper); overflow: hidden; }
+.mw-toast-bar i { display: block; height: 100%; border-radius: 99px; background: var(--amber); transition: width .4s var(--ease); }
+.mw-toast-note { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.mw-toast-alert { display: flex; align-items: center; gap: 14px; }
+.mw-toast-msg { flex: 1; min-width: 0; margin: 0; line-height: 1.45; }
+.mw-toast-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.mw-toast-x { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.mw-toast-x:hover { background: var(--paper); color: var(--ink); }
+.mw-toast-x:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
