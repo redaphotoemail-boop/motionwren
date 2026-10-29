@@ -1,4 +1,5 @@
 import { audit, jsonError, requireAdmin } from "../../../_lib/account";
+import { uploadBody } from "../../../_lib/history-owners";
 
 const MAX_DELIVERY_BYTES = 100 * 1024 * 1024;
 const STATUSES = new Set(["submitted", "queued", "generating", "editing", "review", "completed", "failed", "cancelled"]);
@@ -50,15 +51,28 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const admin = await requireAdmin(env);
     const project = await projectById(env, id);
     if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
-    const form = await request.formData();
-    const video = form.get("video");
-    if (!(video instanceof File) || !video.type.startsWith("video/")) return Response.json({ error: "Upload the completed MP4 or WebM video." }, { status: 400 });
-    if (!video.size || video.size > MAX_DELIVERY_BYTES) return Response.json({ error: "The delivery file must be smaller than 100 MB." }, { status: 413 });
+    // The manager sends the finished video as the request body (a form upload
+    // over 21 MB is refused before it reaches this route); forms still work.
+    const requestType = request.headers.get("content-type") || "";
+    let video: { type: string; size: number; body: ArrayBuffer | ReadableStream };
+    if (requestType.startsWith("multipart/form-data")) {
+      const form = await request.formData();
+      const file = form.get("video");
+      if (!(file instanceof File) || !file.type.startsWith("video/")) return Response.json({ error: "Upload the completed MP4 or WebM video." }, { status: 400 });
+      if (!file.size || file.size > MAX_DELIVERY_BYTES) return Response.json({ error: "The delivery file must be smaller than 100 MB." }, { status: 413 });
+      video = { type: file.type, size: file.size, body: await file.arrayBuffer() };
+    } else {
+      const type = requestType.split(";")[0].trim();
+      if (!type.startsWith("video/")) return Response.json({ error: "Upload the completed MP4 or WebM video." }, { status: 400 });
+      const size = Number(request.headers.get("content-length")) || 0;
+      if (!size || size > MAX_DELIVERY_BYTES) return Response.json({ error: "The delivery file must be smaller than 100 MB." }, { status: 413 });
+      video = { type, size, body: await uploadBody(request, size) };
+    }
     const historyId = crypto.randomUUID();
     const extension = video.type.includes("webm") ? "webm" : "mp4";
     const r2Key = `generation-history/${project.ownerId}/${historyId}.${extension}`;
     const now = Date.now();
-    await env.BUCKET.put(r2Key, await video.arrayBuffer(), { httpMetadata: { contentType: video.type || "video/mp4" }, customMetadata: { projectId: id, deliveredBy: admin.id } });
+    await env.BUCKET.put(r2Key, video.body, { httpMetadata: { contentType: video.type || "video/mp4" }, customMetadata: { projectId: id, deliveredBy: admin.id } });
     try {
       await env.DB.batch([
         env.DB.prepare(`INSERT INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, created_at) VALUES (?, ?, ?, ?, 'delivered', 'real-estate', ?, ?, 0, 0, ?, ?)`).bind(historyId, project.ownerId, r2Key, `Final delivery for ${project.title}`, project.resolution, project.aspect, video.size, now),

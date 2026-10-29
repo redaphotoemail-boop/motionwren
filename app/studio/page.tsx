@@ -310,7 +310,7 @@ export default function Home() {
     try {
       let response: Response;
       const savedDuration = durationOverride || (frames === 121 ? 10 : 5); const savedCost = costCentsOverride ?? Math.round(price * 100);
-      if (finishedBlob) { const form = new FormData(); form.append("video", finishedBlob, finishedBlob.type.includes("mp4") ? "motionwren.mp4" : "motionwren.webm"); form.append("prompt", prompt); form.append("engine", engine); form.append("category", itemCategory); form.append("resolution", resolution); form.append("aspect", aspect); form.append("duration", String(savedDuration)); form.append("costCents", String(savedCost)); response = await fetch("/api/history", { method: "POST", body: form }); }
+      if (finishedBlob) { const meta = encodeURIComponent(JSON.stringify({ prompt: prompt.slice(0, 6000), engine, category: itemCategory, resolution, aspect, duration: savedDuration, costCents: savedCost })); response = await fetch("/api/history", { method: "POST", headers: { "Content-Type": finishedBlob.type || "video/webm", "X-MotionWren-Meta": meta }, body: finishedBlob }); }
       else response = await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceUrl, prompt, engine, category: itemCategory, resolution, aspect, duration: savedDuration, costCents: savedCost }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error);
       setHistory((current) => [data.item, ...current.filter((item) => item.id !== data.item.id)]); setHistoryMessage("Saved to history.");

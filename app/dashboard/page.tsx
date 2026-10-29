@@ -1,29 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../ui-icon";
 import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
+import { buildOrders, groupOf, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
+
+/* The client's workspace: every order in one place, each with all of its
+   deliverables — the videos MotionWren produces and the pieces our team
+   designs — with their status, a player and downloads. */
 
 type Account = { displayName: string; email: string; role: "admin" | "customer"; plan: string; creditBalance: number };
-type Project = { id: string; title: string; status: string; listingAddress?: string; assetCount: number; aspect: string; resolution: string; targetDuration?: number; updatedAt: number; finalHistoryId?: string | null };
 type Notification = { id: string; type: string; title: string; message: string; readAt?: number | null; createdAt: number };
-type Group = "all" | "production" | "completed" | "draft" | "failed";
+type Filter = "all" | StatusGroup;
+type Playing = { title: string; historyId: string; vertical: boolean };
 
-const activeStatuses = ["submitted", "queued", "generating", "stitching", "saving"];
-const statusCopy: Record<string, { label: string; detail: string }> = {
-  draft: { label: "Saved", detail: "This order is saved." },
-  submitted: { label: "Received", detail: "Your project is in the production queue." },
-  queued: { label: "Queued", detail: "Production will begin shortly." },
-  generating: { label: "Creating scenes", detail: "Your property photos are being animated." },
-  stitching: { label: "Finishing video", detail: "Scenes, transitions and audio are being assembled." },
-  saving: { label: "Preparing delivery", detail: "The final quality check is underway." },
-  completed: { label: "Ready", detail: "Your video is ready to download." },
-  failed: { label: "Needs attention", detail: "We could not finish this version." },
+const ACTIVE = ["submitted", "queued", "generating", "stitching", "saving", "editing", "review"];
+const videoStatus: Record<string, string> = {
+  draft: "Saved",
+  submitted: "Starting",
+  queued: "Queued",
+  generating: "Creating scenes",
+  stitching: "Finishing",
+  saving: "Preparing delivery",
+  editing: "In final edit",
+  review: "Final check",
+  completed: "Ready",
+  failed: "Needs attention",
+  cancelled: "Stopped",
 };
-const groupOf = (status: string): Exclude<Group, "all"> => status === "draft" ? "draft" : status === "failed" ? "failed" : status === "completed" ? "completed" : "production";
-const groupLabels: Record<Group, string> = { all: "All", production: "In production", completed: "Ready", draft: "Saved", failed: "Needs attention" };
+const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", draft: "Saved" };
 const discover = [
   { title: "Content package", text: "The full set: hero film, vertical reel, story teaser, feed posts and graphics, sized for every channel. $83 full package.", shape: "set" },
   { title: "Hero listing film", text: "One polished film from your listing photos. $39.", shape: "wide" },
@@ -34,18 +41,20 @@ function greetingFor(date: Date) {
   const hour = date.getHours();
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
+const shortDate = (time: number) => new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-function Cover({ project }: { project: Project }) {
-  const group = groupOf(project.status);
-  const vertical = project.aspect === "vertical" || project.aspect === "9:16";
-  return <div className={`cover cover-${group}`} aria-hidden="true">
-    <div className={`cover-frame ${vertical ? "tall" : "wide"}`}>
-      {group === "completed" && <span className="cover-play" />}
-      {group === "production" && <span className="cover-sheen" />}
-      {group === "failed" && <Icon name="alert" size={22} />}
-      {group === "draft" && <Icon name="projects" size={22} />}
-    </div>
-  </div>;
+function KindIcon({ kind }: { kind: DeliverableKind }) {
+  const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (kind === "film") return <svg {...common}><rect x="2.5" y="5.5" width="19" height="13" rx="2.5" /><path d="m10 9.5 4.5 2.5-4.5 2.5z" /></svg>;
+  if (kind === "reel") return <svg {...common}><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="m10.5 9.5 4 2.5-4 2.5z" /></svg>;
+  if (kind === "story") return <svg {...common}><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M9.5 5.5h5" /><circle cx="12" cy="13" r="2.5" /></svg>;
+  if (kind === "post") return <svg {...common}><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.5" /><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.5" /><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.5" /><rect x="13" y="13" width="7.5" height="7.5" rx="1.5" /></svg>;
+  if (kind === "cover") return <svg {...common}><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" /><path d="m4.5 17 5-5 4 4 2.5-2.5 3.5 3.5" /><circle cx="16" cy="9" r="1.5" /></svg>;
+  return <svg {...common}><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><path d="m12 7.5 1.2 3.3 3.3 1.2-3.3 1.2L12 16.5l-1.2-3.3L7.5 12l3.3-1.2z" /></svg>;
+}
+
+function aspectLabel(aspect: string) {
+  return aspect === "vertical" ? "9:16" : aspect === "horizontal" ? "16:9" : aspect;
 }
 
 export default function CustomerDashboard() {
@@ -55,12 +64,15 @@ export default function CustomerDashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
-  const [filter, setFilter] = useState<Group>("all");
+  const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
   const [greeting, setGreeting] = useState("Welcome");
-  const hasActiveProject = projects.some((project) => activeStatuses.includes(project.status));
+  const [playing, setPlaying] = useState<Playing | null>(null);
+  const [brokenCovers, setBrokenCovers] = useState<string[]>([]);
+  const hasActiveProject = projects.some((project) => ACTIVE.includes(project.status));
+  const orders = useMemo(() => buildOrders(projects), [projects]);
 
   async function load() {
     setLoading(true); setError("");
@@ -68,7 +80,7 @@ export default function CustomerDashboard() {
       const [accountResponse, projectResponse, notificationResponse] = await Promise.all([fetch("/api/account", { cache: "no-store" }), fetch("/api/projects", { cache: "no-store" }), fetch("/api/notifications", { cache: "no-store" })]);
       const accountData = await accountResponse.json(); const projectData = await projectResponse.json(); const notificationData = await notificationResponse.json();
       if (!accountResponse.ok) throw new Error(accountData.error || "Sign in is required.");
-      if (!projectResponse.ok) throw new Error(projectData.error || "Projects could not be loaded.");
+      if (!projectResponse.ok) throw new Error(projectData.error || "Your orders could not be loaded.");
       setAccount(accountData.account); setBillingEnabled(Boolean(accountData.billingEnabled)); setProjects(projectData.projects || []); if (notificationResponse.ok) setNotifications(notificationData.notifications || []);
     } catch (err) { setError(err instanceof Error ? err.message : "The workspace could not be loaded."); }
     finally { setLoading(false); }
@@ -86,6 +98,12 @@ export default function CustomerDashboard() {
     }, 10000);
     return () => window.clearInterval(interval);
   }, [hasActiveProject]);
+  useEffect(() => {
+    if (!playing) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPlaying(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playing]);
 
   async function startCheckout(plan: "single" | "five" | "pro") {
     setError("");
@@ -104,25 +122,32 @@ export default function CustomerDashboard() {
     await load();
   }
 
-  async function deleteProject(id: string) {
-    if (!window.confirm("Delete this project and all of its uploaded photos?")) return;
-    const response = await fetch(`/api/projects/${id}`, { method: "DELETE" });
-    if (!response.ok) return setError("The project could not be deleted.");
-    setSelectedIds((ids) => ids.filter((selected) => selected !== id));
+  async function removeOrders(list: Order[]) {
+    let failed = 0;
+    for (const order of list) {
+      for (const project of order.projects) {
+        const response = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
+        if (!response.ok) failed += 1;
+      }
+    }
+    if (failed) setError("Part of this could not be deleted. Please try again.");
+  }
+
+  async function deleteOrder(order: Order) {
+    if (!window.confirm("Delete this order, its videos and its photos? This cannot be undone.")) return;
+    setError("");
+    await removeOrders([order]);
+    setSelectedKeys((keys) => keys.filter((key) => key !== order.key));
     await load();
   }
 
   async function deleteSelected() {
-    if (!selectedIds.length) return;
-    if (!window.confirm(`Delete ${selectedIds.length} project${selectedIds.length === 1 ? "" : "s"} and all of their uploaded photos? This cannot be undone.`)) return;
+    const list = orders.filter((order) => selectedKeys.includes(order.key));
+    if (!list.length) return;
+    if (!window.confirm(`Delete ${list.length} order${list.length === 1 ? "" : "s"}, with their videos and photos? This cannot be undone.`)) return;
     setError("");
-    let failed = 0;
-    for (const id of selectedIds) {
-      const response = await fetch(`/api/projects/${id}`, { method: "DELETE" });
-      if (!response.ok) failed += 1;
-    }
-    if (failed) setError(`${failed} project${failed === 1 ? "" : "s"} could not be deleted.`);
-    setSelectedIds([]); setSelecting(false);
+    await removeOrders(list);
+    setSelectedKeys([]); setSelecting(false);
     await load();
   }
 
@@ -131,17 +156,51 @@ export default function CustomerDashboard() {
     setNotifications((items) => items.map((item) => item.id === id ? { ...item, readAt: Date.now() } : item));
   }
 
-  function toggleSelected(id: string) {
-    setSelectedIds((ids) => ids.includes(id) ? ids.filter((selected) => selected !== id) : [...ids, id]);
+  function toggleSelected(key: string) {
+    setSelectedKeys((keys) => keys.includes(key) ? keys.filter((selected) => selected !== key) : [...keys, key]);
   }
 
-  const counts: Record<Group, number> = { all: projects.length, production: 0, completed: 0, draft: 0, failed: 0 };
-  for (const project of projects) counts[groupOf(project.status)] += 1;
-  const visibleProjects = projects.filter((project) => filter === "all" || groupOf(project.status) === filter);
+  const counts: Record<Filter, number> = { all: orders.length, production: 0, completed: 0, failed: 0, draft: 0 };
+  for (const order of orders) counts[order.group] += 1;
+  const visibleOrders = orders.filter((order) => filter === "all" || order.group === filter);
+  const videoGroups = projects.filter((project) => project.title.trim().toLowerCase() !== "content package").map((project) => groupOf(project.status));
+  const readyVideos = videoGroups.filter((group) => group === "completed").length;
+  const makingVideos = videoGroups.filter((group) => group === "production").length;
+  const failedVideos = videoGroups.filter((group) => group === "failed").length;
+  const summary = [readyVideos && `${readyVideos} ${readyVideos === 1 ? "video" : "videos"} ready`, makingVideos && `${makingVideos} in production`, failedVideos && `${failedVideos} need${failedVideos === 1 ? "s" : ""} attention`].filter(Boolean).join(" · ");
   const firstUnread = notifications.find((item) => !item.readAt);
   const firstName = account?.displayName && !account.displayName.includes("@") ? account.displayName.trim().split(/\s+/)[0] : "";
-  const summary = [counts.production && `${counts.production} in production`, counts.completed && `${counts.completed} ready`, counts.failed && `${counts.failed} need${counts.failed === 1 ? "s" : ""} attention`].filter(Boolean).join(" · ");
   const initial = (account?.displayName || account?.email || "M").slice(0, 1).toUpperCase();
+
+  function renderDeliverable(item: Deliverable) {
+    if (item.type === "design") {
+      return <li className="dlv" key={item.key}>
+        <span className="dlv-icon"><KindIcon kind={item.kind} /></span>
+        <div className="dlv-text"><strong>{item.title}</strong><small>Designed by our team</small></div>
+        <span className="status status-design"><i />In design</span>
+      </li>;
+    }
+    const project = item.project;
+    const vertical = project.aspect === "vertical";
+    const expired = project.status === "completed" && !project.finalHistoryId;
+    const until = project.videoExpiresAt ? `Available until ${shortDate(project.videoExpiresAt)}` : "";
+    return <li className="dlv" key={item.key}>
+      <span className="dlv-icon"><KindIcon kind={item.kind} /></span>
+      <div className="dlv-text">
+        <strong>{item.title}</strong>
+        <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : ""].filter(Boolean).join(" · ")}</small>
+      </div>
+      <span className={`status status-${item.group}`}><i />{videoStatus[project.status] || project.status}</span>
+      {(project.finalHistoryId || project.status === "failed" || expired) && <div className="dlv-actions">
+        {project.finalHistoryId && <>
+          <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
+          <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></svg>Download</a>
+        </>}
+        {project.status === "failed" && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
+        {expired && <span className="dlv-note">Download expired — <a href="mailto:info@redaphoto.com">contact us</a></span>}
+      </div>}
+    </li>;
+  }
 
   return <main className="ws">
     <header className="ws-top">
@@ -166,7 +225,7 @@ export default function CustomerDashboard() {
     <div className="ws-wrap ws-body">
       <section className="ws-hello">
         <h1>{greeting}{firstName ? `, ${firstName}` : ""}.</h1>
-        <p>{loading ? "Loading your videos…" : summary || (projects.length ? "Everything is up to date." : "Your workspace is ready.")}</p>
+        <p>{loading ? "Loading your orders…" : summary || (orders.length ? "Everything is up to date." : "Your workspace is ready.")}</p>
       </section>
 
       {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
@@ -182,43 +241,47 @@ export default function CustomerDashboard() {
         </div>
       </section>}
 
-      <section id="projects" className="ws-videos" aria-labelledby="videos-title">
+      <section id="orders" className="ws-videos" aria-labelledby="orders-title">
         <div className="ws-bar">
-          <h2 id="videos-title" className="sr-only">Your videos</h2>
-          {projects.length > 0 ? <div className="tabs" role="tablist" aria-label="Filter videos">
-            {(["all", "production", "completed", "draft", "failed"] as Group[]).filter((group) => group === "all" || counts[group] > 0 || filter === group).map((group) => <button key={group} type="button" role="tab" aria-selected={filter === group} className={filter === group ? "active" : ""} onClick={() => setFilter(group)}>{groupLabels[group]}<span>{counts[group]}</span></button>)}
+          <h2 id="orders-title" className="sr-only">Your orders</h2>
+          {orders.length > 0 ? <div className="tabs" role="tablist" aria-label="Filter orders">
+            {(["all", "production", "completed", "failed", "draft"] as Filter[]).filter((group) => group === "all" || counts[group] > 0 || filter === group).map((group) => <button key={group} type="button" role="tab" aria-selected={filter === group} className={filter === group ? "active" : ""} onClick={() => setFilter(group)}>{filterLabels[group]}<span>{counts[group]}</span></button>)}
           </div> : <span />}
           <div className="ws-bar-tools">
-            {projects.length > 0 && <button type="button" className="text-btn" onClick={() => { setSelecting((value) => !value); setSelectedIds([]); }}>{selecting ? "Done" : "Select"}</button>}
-            {projects.length > 0 && <button type="button" className="text-btn" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}
+            {orders.length > 0 && <button type="button" className="text-btn" onClick={() => { setSelecting((value) => !value); setSelectedKeys([]); }}>{selecting ? "Done" : "Select"}</button>}
+            {orders.length > 0 && <button type="button" className="text-btn" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}
           </div>
         </div>
 
-        {loading && !projects.length ? <div className="video-grid">{[0, 1, 2].map((index) => <div key={index} className="video-card skeleton" />)}</div>
-          : projects.length ? (visibleProjects.length ? <div className={`video-grid${selecting ? " is-selecting" : ""}`}>
-            <button type="button" className="video-new" data-mw="plan"><span className="video-new-plus">+</span><strong>New video</strong><small>Upload listing photos</small></button>
-            {visibleProjects.map((project) => {
-              const status = statusCopy[project.status] || { label: project.status, detail: "Project status updated." };
-              const group = groupOf(project.status);
-              const selected = selectedIds.includes(project.id);
-              return <article className={`video-card${selected ? " selected" : ""}`} key={project.id}>
-                {selecting && <label className="video-check"><input type="checkbox" checked={selected} onChange={() => toggleSelected(project.id)} aria-label={`Select ${project.title}`} /><span /></label>}
-                <Cover project={project} />
-                <div className="video-info">
-                  <div className="video-status"><span className={`status status-${group}`}><i />{status.label}</span><time>{new Date(project.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</time></div>
-                  <h3>{project.title}</h3>
-                  <p>{project.listingAddress || status.detail}</p>
-                  {project.status === "completed" && !project.finalHistoryId && <p className="video-warn">Download expired — contact us to restore.</p>}
-                  <p className="video-meta">{project.assetCount} photos · {project.targetDuration || 20}s · {project.aspect === "vertical" ? "9:16" : project.aspect === "horizontal" ? "16:9" : project.aspect}</p>
-                  <div className="video-actions">
-                    {project.finalHistoryId && <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}><Icon name="finish" size={14} />Download</a>}
-                    {project.status === "failed" && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
-                    <button type="button" className="text-btn danger" onClick={() => deleteProject(project.id)}>Delete</button>
-                  </div>
+        {loading && !projects.length ? <div className="order-list">{[0, 1].map((index) => <div key={index} className="order order-skeleton skeleton" />)}</div>
+          : orders.length ? (visibleOrders.length ? <div className={`order-list${selecting ? " is-selecting" : ""}`}>
+            {visibleOrders.map((order) => {
+              const selected = selectedKeys.includes(order.key);
+              const coverKey = order.cover ? `${order.cover.projectId}/${order.cover.assetId}` : "";
+              const showCover = order.cover && !brokenCovers.includes(coverKey);
+              return <article className={`order${selected ? " selected" : ""}`} key={order.key}>
+                {selecting && <label className="video-check"><input type="checkbox" checked={selected} onChange={() => toggleSelected(order.key)} aria-label={`Select ${order.title}`} /><span /></label>}
+                <div className="order-cover">
+                  {showCover && order.cover
+                    // eslint-disable-next-line @next/next/no-img-element -- private, signed-in photo served by our own API
+                    ? <img src={`/api/projects/${order.cover.projectId}/assets/${order.cover.assetId}`} alt="" loading="lazy" decoding="async" onError={() => setBrokenCovers((list) => [...list, coverKey])} />
+                    : <span className="order-cover-art" aria-hidden="true"><WrenMark size={34} /></span>}
+                </div>
+                <div className="order-body">
+                  <header className="order-head">
+                    <div className="order-name">
+                      <h3>{order.title}</h3>
+                      <p>{[shortDate(order.createdAt), order.code ? `Order ${order.code}` : "", order.listingAddress || ""].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    <span className="order-count">{order.videos ? `${order.ready} of ${order.videos} ${order.videos === 1 ? "video" : "videos"} ready` : "In design"}</span>
+                  </header>
+                  <ul className="dlv-list">{order.deliverables.map(renderDeliverable)}</ul>
+                  <div className="order-foot"><button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button></div>
                 </div>
               </article>;
             })}
-          </div> : <div className="empty-soft"><strong>No videos match this filter</strong><span>Try a different status.</span></div>)
+            <button type="button" className="order-new" data-mw="plan"><span className="video-new-plus">+</span><strong>New order</strong><small>Upload listing photos</small></button>
+          </div> : <div className="empty-soft"><strong>No orders match this filter</strong><span>Try a different status.</span></div>)
           : <div className="ws-empty">
             <div className="ws-empty-film"><PropertyFilm hud="label" interval={4400} label="Sample property film" /></div>
             <h2>Your first film starts here.</h2>
@@ -244,10 +307,21 @@ export default function CustomerDashboard() {
     </div>
 
     {selecting && <div className="select-bar" role="region" aria-label="Selection">
-      <span>{selectedIds.length} selected</span>
-      <button type="button" className="text-btn" onClick={() => setSelectedIds(visibleProjects.map((project) => project.id))}>Select all</button>
-      {selectedIds.length > 0 && <button type="button" className="text-btn" onClick={() => setSelectedIds([])}>Clear selection</button>}
-      <button type="button" className="btn btn-danger btn-sm" onClick={deleteSelected} disabled={!selectedIds.length}>Delete selected</button>
+      <span>{selectedKeys.length} selected</span>
+      <button type="button" className="text-btn" onClick={() => setSelectedKeys(visibleOrders.map((order) => order.key))}>Select all</button>
+      {selectedKeys.length > 0 && <button type="button" className="text-btn" onClick={() => setSelectedKeys([])}>Clear selection</button>}
+      <button type="button" className="btn btn-danger btn-sm" onClick={deleteSelected} disabled={!selectedKeys.length}>Delete selected</button>
+    </div>}
+
+    {playing && <div className="player" role="dialog" aria-modal="true" aria-label={playing.title} onClick={(event) => { if (event.target === event.currentTarget) setPlaying(null); }}>
+      <div className={`player-sheet${playing.vertical ? " tall" : ""}`}>
+        <div className="player-bar">
+          <strong>{playing.title}</strong>
+          <button type="button" className="player-x" aria-label="Close" onClick={() => setPlaying(null)}><svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button>
+        </div>
+        <video className="player-video" src={`/api/history/${playing.historyId}/video`} controls autoPlay playsInline preload="metadata" />
+        <div className="player-actions"><a className="btn btn-ink btn-sm" href={`/api/history/${playing.historyId}/video?download=1`}>Download</a></div>
+      </div>
     </div>}
     <button type="button" className="fab" data-mw="plan" aria-label="Create video"><span aria-hidden="true">+</span>Create video</button>
   </main>;

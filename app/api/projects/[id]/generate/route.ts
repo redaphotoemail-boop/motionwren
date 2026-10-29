@@ -1,4 +1,4 @@
-import { engineCost, preferredDurationForEngine } from "../../../../engine-catalog";
+import { MAX_CUSTOMER_SCENES, engineCost, scenePlan } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../../../engine-providers";
 import { enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
 import { customerSafeError } from "../../../_lib/customer-errors";
@@ -30,7 +30,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
     if (project.renderJobId && ["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return Response.json({ jobId: project.renderJobId, status: project.status, resumed: true });
     if (!["submitted", "failed"].includes(project.status)) return Response.json({ error: "Submit the project before starting production." }, { status: 409 });
-    const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 12`).bind(projectId, account.id).all<{ id: string; sortOrder: number }>();
+    const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 20`).bind(projectId, account.id).all<{ id: string; sortOrder: number }>();
     if (assets.results.length < 2) return Response.json({ error: "At least two photographs are required." }, { status: 409 });
 
     // The manager's selected engine (platform_settings defaultEngine); Wan 3.0
@@ -46,16 +46,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const origin = new URL(request.url).origin;
     const webhook = `${origin}/api/webhooks/replicate/${jobId}?token=${webhookToken}`;
     const now = Date.now();
-    const requestedSceneSeconds = Math.max(3, Math.min(10, Math.round((project.targetDuration + assets.results.length - 1) / assets.results.length)));
-    const sceneSeconds = preferredDurationForEngine(engine, requestedSceneSeconds, resolution);
-    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * assets.results.length) * 100);
+    // The video's length decides how many of the customer's photos it uses,
+    // in their chosen order (see scenePlan): a 20-second reel uses the first 4.
+    const plan = scenePlan(engine, resolution, project.targetDuration, Math.min(assets.results.length, MAX_CUSTOMER_SCENES));
+    const scenes = assets.results.slice(0, plan.count);
+    const sceneSeconds = plan.sceneSeconds;
+    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'customer-series', 'starting', '[]', '[]', NULL, ?, 'real estate', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, account.id, STATIC_LOCK, resolution, project.aspect, project.targetDuration, costCents, webhookToken, now, now),
       env.DB.prepare(`UPDATE projects SET status = 'queued', generation_engine = ?, resolution = ?, render_job_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(engine, resolution, jobId, now, projectId, account.id),
     ]);
 
-    for (let index = 0; index < assets.results.length; index += 1) {
-      const asset = assets.results[index];
+    for (let index = 0; index < scenes.length; index += 1) {
+      const asset = scenes[index];
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, account.id).run();
       const imageUrl = `${origin}/api/provider-assets/${asset.id}?token=${assetToken}`;

@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 
 /* Seamless production: pressing Create in the plan flow starts everything.
    The plan sends its photos (data URLs, display order) with the event, and
-   this listener creates one project per VIDEO deliverable, uploads the same
-   photos to each, then submits and generates — no second click from the
-   customer. Graphic pieces (Feed post set, announcement graphics, cover
-   image) have no production endpoint, so they are listed in each video
-   project's summary as included pieces for manual delivery, never
-   auto-generated.
+   this listener creates one project per VIDEO deliverable, uploads the
+   photos, then submits and generates — no second click from the customer.
+   Every project of one order carries the same order code in its summary, so
+   the client dashboard shows the order as one group. Graphic pieces (Feed
+   post set, announcement graphics, cover image) have no production endpoint,
+   so they are listed in each video project's summary as included pieces for
+   the team to design, never auto-generated.
 
    Signed-out visitors: localStorage (~5MB) cannot hold photos, so the
    pending package lives in IndexedDB instead. It survives sign-in, and the
@@ -22,19 +23,27 @@ type SavedItem = { title: string; price: number; icon: string; kind: "video" | "
 type SavedAnswers = { goal?: string; prop?: string; channels?: string[]; vibe?: string };
 type VideoStage = "new" | "created" | "uploaded" | "submitted" | "generating";
 type VideoEntry = { title: string; price: number; icon: string; aspect: "horizontal" | "vertical"; targetDuration: number; projectId: string | null; stage: VideoStage; error?: string; uploaded?: number };
-type SavedPackage = { items: SavedItem[]; answers: SavedAnswers; total: number; photos: string[]; video: VideoEntry[]; graphics: string[]; attempted: boolean };
+type SavedPackage = { items: SavedItem[]; answers: SavedAnswers; total: number; photos: string[]; video: VideoEntry[]; graphics: string[]; attempted: boolean; orderCode?: string; draftId?: string | null; draftUploaded?: number };
 
 const PENDING_KEY = "mw:pending-package";
 const IDB_NAME = "motionwren";
 const IDB_STORE = "pendingPackages";
 const IDB_KEY = "current";
 const VIDEO_ICONS = new Set(["video", "reel", "story"]);
-/* Production uses the first 12 photos of a project (the generate route reads
-   them ORDER BY sort_order LIMIT 12), so each video project receives exactly
-   those, in the customer's order. Uploading all 20 to every video only spent
-   the 40-uploads-an-hour allowance: a three-video package with 14 or more
-   photos ran out of it before the last video could start. */
-const PRODUCTION_PHOTOS = 12;
+/* Photos per project. The first video of an order keeps every photo (up to
+   20) so the team has the full set for the designed pieces; each further
+   video gets only what its length uses — about one photo per five seconds
+   (see scenePlan in app/engine-catalog.ts), in the customer's order. */
+const MAX_PHOTOS = 20;
+function photosForVideo(index: number, targetDuration: number, available: number): number {
+  if (index === 0) return Math.min(available, MAX_PHOTOS);
+  return Math.min(available, Math.max(2, Math.ceil(targetDuration / 5)));
+}
+const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function newOrderCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(5));
+  return Array.from(bytes, (byte) => CODE_LETTERS[byte % CODE_LETTERS.length]).join("");
+}
 export type PipelineProgress = { done: number; total: number; stage: "upload" | "start" };
 
 function classify(item: PackageItem): "video" | "graphic" {
@@ -52,7 +61,9 @@ function normalize(detail: PackageDetail): SavedPackage {
     price: item.price,
     icon: item.icon,
     aspect: item.icon === "reel" || item.icon === "story" ? "vertical" : "horizontal",
-    targetDuration: item.icon === "reel" || item.icon === "story" ? 20 : answers.prop === "estate" ? 50 : 30,
+    // The lengths the package step shows: story 10 s, reel 20 s, hero film
+    // 30 s — 60 s for a luxury estate or showcase.
+    targetDuration: item.icon === "story" ? 10 : item.icon === "reel" ? 20 : answers.prop === "estate" || answers.goal === "luxury" ? 60 : 30,
     projectId: null,
     stage: "new" as VideoStage,
   }));
@@ -69,11 +80,14 @@ function normalize(detail: PackageDetail): SavedPackage {
     video,
     graphics: saved.filter((item) => item.kind === "graphic").map((item) => item.title).filter(Boolean),
     attempted: false,
+    orderCode: newOrderCode(),
+    draftId: null,
   };
 }
 
 function summarizeItem(pkg: SavedPackage, title: string): string {
   return [
+    pkg.orderCode ? `Order ${pkg.orderCode}` : "",
     title,
     pkg.graphics.length ? `Includes: ${pkg.graphics.join(", ")}` : "",
     pkg.answers.goal ? `Goal: ${pkg.answers.goal}` : "",
@@ -85,8 +99,11 @@ function summarizeItem(pkg: SavedPackage, title: string): string {
 }
 
 function summarize(pkg: SavedPackage): string {
+  const pieces = pkg.items.map((item) => item.title).filter(Boolean);
   return [
-    ...pkg.items.map((item) => item.title),
+    pkg.orderCode ? `Order ${pkg.orderCode}` : "",
+    "Content package",
+    pieces.length ? `Includes: ${pieces.join(", ")}` : "",
     pkg.answers.goal ? `Goal: ${pkg.answers.goal}` : "",
     pkg.answers.channels?.length ? `Channels: ${pkg.answers.channels.join(", ")}` : "",
   ]
@@ -209,12 +226,55 @@ type PipelineResult = { done: boolean; auth: boolean; errors: string[] };
 /* Runs the pipeline for one package, resuming from each entry's recorded
    stage. Stage is progress only; a failure records entry.error and keeps
    the stage, so a retry resumes instead of duplicating work. */
+type UploadResult = { auth: boolean; error: string | null };
+
+/* Uploads photos[0..count) to a project, resuming where the server left off:
+   photos already stored for this project are never sent twice (a retry used
+   to start again at photo 1). onEach reports each stored photo. */
+async function uploadPhotos(projectId: string, photos: string[], count: number, onEach: (stored: number) => void): Promise<UploadResult> {
+  let start = 0;
+  try {
+    const current = await fetch(`/api/projects/${projectId}`, { cache: "no-store" });
+    if (current.status === 401) return { auth: true, error: null };
+    if (current.ok) {
+      const data = (await current.json()) as { project?: { assets?: unknown[] } };
+      if (Array.isArray(data.project?.assets)) start = Math.min(data.project.assets.length, count);
+    }
+  } catch {
+    /* Start from the first photo; the upload below reports any network failure. */
+  }
+  onEach(start);
+  for (let i = start; i < count; i += 1) {
+    const file = dataUrlToFile(photos[i], `photo-${String(i + 1).padStart(2, "0")}`);
+    if (!file) return { auth: false, error: "A photo could not be read." };
+    const form = new FormData();
+    form.append("file", file);
+    const up = await fetch(`/api/projects/${projectId}/assets`, { method: "POST", body: form });
+    if (up.status === 401) return { auth: true, error: null };
+    if (!up.ok) return { auth: false, error: await errorText(up) };
+    onEach(i + 1);
+  }
+  return { auth: false, error: null };
+}
+
+/* Runs the pipeline for one package, resuming from each entry's recorded
+   stage. Stage is progress only; a failure records entry.error and keeps
+   the stage, so a retry resumes instead of duplicating work. */
 async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelineProgress) => void): Promise<PipelineResult> {
   const errors: string[] = [];
-  const photos = pkg.photos.slice(0, PRODUCTION_PHOTOS);
-  const total = pkg.video.length * photos.length;
+  // Packages saved before order codes existed get one now, kept for retries.
+  if (!pkg.orderCode) {
+    pkg.orderCode = newOrderCode();
+    await idbPut(pkg);
+  }
+  const photos = pkg.photos.slice(0, MAX_PHOTOS);
+  const draftOnly = !pkg.video.length || photos.length < 2;
+  const counts = pkg.video.map((entry, index) => photosForVideo(index, entry.targetDuration, photos.length));
+  const total = draftOnly ? photos.length : counts.reduce((sum, count) => sum + count, 0);
   const doneCount = () =>
-    pkg.video.reduce((sum, entry) => sum + (entry.stage === "new" ? 0 : entry.stage === "created" ? Math.min(entry.uploaded || 0, photos.length) : photos.length), 0);
+    draftOnly
+      ? Math.min(pkg.draftUploaded || 0, photos.length)
+      : pkg.video.reduce((sum, entry, index) => sum + (entry.stage === "new" ? 0 : entry.stage === "created" ? Math.min(entry.uploaded || 0, counts[index]) : counts[index]), 0);
   const report = (stage: PipelineProgress["stage"]) => {
     try {
       onProgress?.({ done: doneCount(), total, stage });
@@ -222,15 +282,35 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
       /* Progress display must never break production. */
     }
   };
-  if (!pkg.video.length || pkg.photos.length < 2) {
-    // No video pieces, or too few photos to render: keep today's behavior —
-    // one draft order the customer can see. Production needs two photos.
-    const res = await createDraftOrder(pkg);
-    if (res.status === 401) return { done: false, auth: true, errors: [] };
-    if (!res.ok) return { done: false, auth: false, errors: [await errorText(res)] };
-    return { done: true, auth: false, errors: [] };
+
+  if (draftOnly) {
+    // No video pieces, or too few photos to render: one saved order the
+    // client sees in their dashboard, with its photos kept for the team.
+    try {
+      if (!pkg.draftId) {
+        const res = await createDraftOrder(pkg);
+        if (res.status === 401) return { done: false, auth: true, errors: [] };
+        if (!res.ok) return { done: false, auth: false, errors: [await errorText(res)] };
+        const data = (await res.json()) as { project?: { id?: string } };
+        pkg.draftId = data.project?.id || null;
+        await idbPut(pkg);
+      }
+      if (pkg.draftId && photos.length) {
+        const result = await uploadPhotos(pkg.draftId, photos, photos.length, (stored) => {
+          pkg.draftUploaded = stored;
+          report("upload");
+        });
+        if (result.auth) return { done: false, auth: true, errors: [] };
+        if (result.error) return { done: false, auth: false, errors: [result.error] };
+      }
+      return { done: true, auth: false, errors: [] };
+    } catch {
+      return { done: false, auth: false, errors: ["Couldn't reach MotionWren. Check your connection and try again."] };
+    }
   }
-  for (const entry of pkg.video) {
+
+  for (let index = 0; index < pkg.video.length; index += 1) {
+    const entry = pkg.video[index];
     if (entry.stage === "generating") continue;
     if (entry.stage !== "new" && !entry.projectId) entry.stage = "new";
     entry.error = undefined;
@@ -254,42 +334,13 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
         await idbPut(pkg);
       }
       if (entry.stage === "created" && entry.projectId) {
-        // Resume where the server left off: photos already stored for this
-        // project are never sent twice (a retry used to start again at photo 1).
-        let start = Math.min(entry.uploaded || 0, photos.length);
-        try {
-          const current = await fetch(`/api/projects/${entry.projectId}`, { cache: "no-store" });
-          if (current.status === 401) return { done: false, auth: true, errors };
-          if (current.ok) {
-            const data = (await current.json()) as { project?: { assets?: unknown[] } };
-            if (Array.isArray(data.project?.assets)) start = Math.min(data.project.assets.length, photos.length);
-          }
-        } catch {
-          /* Keep the local count; the upload below reports any network failure. */
-        }
-        entry.uploaded = start;
-        report("upload");
-        let failed = false;
-        for (let i = start; i < photos.length; i += 1) {
-          const file = dataUrlToFile(photos[i], `photo-${String(i + 1).padStart(2, "0")}`);
-          if (!file) {
-            entry.error = "A photo could not be read.";
-            failed = true;
-            break;
-          }
-          const form = new FormData();
-          form.append("file", file);
-          const up = await fetch(`/api/projects/${entry.projectId}/assets`, { method: "POST", body: form });
-          if (up.status === 401) return { done: false, auth: true, errors };
-          if (!up.ok) {
-            entry.error = await errorText(up);
-            failed = true;
-            break;
-          }
-          entry.uploaded = i + 1;
+        const result = await uploadPhotos(entry.projectId, photos, counts[index], (stored) => {
+          entry.uploaded = stored;
           report("upload");
-        }
-        if (failed) {
+        });
+        if (result.auth) return { done: false, auth: true, errors };
+        if (result.error) {
+          entry.error = result.error;
           errors.push(`${entry.title}: ${entry.error}`);
           await idbPut(pkg);
           continue;

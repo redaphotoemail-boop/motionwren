@@ -37,7 +37,7 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
   async function deliver(event: FormEvent) {
     event.preventDefault(); if (!video) return setError("Choose the finished video first.");
     setWorking(true); setError(""); setMessage("Uploading final delivery…");
-    try { const body = new FormData(); body.append("video", video); const response = await fetch(`/api/admin/projects/${id}`, { method: "POST", body }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Final delivery could not be saved."); setVideo(null); setMessage("Delivery saved. The customer can now download it from project history."); await load(); }
+    try { const response = await fetch(`/api/admin/projects/${id}`, { method: "POST", headers: { "Content-Type": video.type || "video/mp4" }, body: video }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Final delivery could not be saved."); setVideo(null); setMessage("Delivery saved. The customer can now download it from project history."); await load(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Final delivery could not be saved."); }
     finally { setWorking(false); }
   }

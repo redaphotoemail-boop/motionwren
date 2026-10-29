@@ -6,7 +6,9 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id: projectId } = await context.params; const { env } = await import("cloudflare:workers"); const account = await requireAccount(env);
-    await enforceRateLimit(env, account.id, "asset-upload", 40, 60 * 60 * 1000);
+    // 120 an hour: a full package uploads up to 20 photos once plus a few per extra video,
+    // so several listings in one sitting still fit. Generation keeps its own, tighter limit.
+    await enforceRateLimit(env, account.id, "asset-upload", 120, 60 * 60 * 1000);
     const project = await env.DB.prepare(`SELECT id FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(projectId, account.id).first();
     if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
     const form = await request.formData(); const file = form.get("file");

@@ -9,7 +9,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string; a
     const { id, assetId } = await context.params; const { env } = await import("cloudflare:workers"); const account = await requireAccount(env); const asset = await assetForOwner(env, id, assetId, account.id);
     if (!asset) return Response.json({ error: "Asset not found." }, { status: 404 });
     const object = await env.BUCKET.get(asset.r2Key); if (!object?.body) return Response.json({ error: "Stored asset not found." }, { status: 404 });
-    return new Response(object.body, { headers: { "Content-Type": asset.contentType, "Cache-Control": "private, no-store", "Content-Disposition": `inline; filename="${asset.fileName.replace(/[^a-zA-Z0-9._-]/g, "-")}"` } });
+    return new Response(object.body, { headers: { "Content-Type": asset.contentType, "Cache-Control": "private, max-age=86400", "Content-Disposition": `inline; filename="${asset.fileName.replace(/[^a-zA-Z0-9._-]/g, "-")}"` } });
   } catch (error) { return jsonError(error); }
 }
 
