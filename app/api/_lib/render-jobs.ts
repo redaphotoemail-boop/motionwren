@@ -1,4 +1,5 @@
-import { cookies, headers } from "next/headers";
+import { getChatGPTUser } from "../../chatgpt-auth";
+import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 
 export const OWNER_COOKIE = "fm_history_id";
@@ -26,7 +27,8 @@ export type RenderJobRow = {
 };
 
 export async function currentOwner(create = false) {
-  const authenticatedId = (await headers()).get("oai-authenticated-user-id");
+  // Development identity only where trusted; see identityHeadersTrusted().
+  const authenticatedId = (await getChatGPTUser())?.id;
   if (authenticatedId) return authenticatedId;
   const store = await cookies();
   return store.get(OWNER_COOKIE)?.value || (create ? crypto.randomUUID() : null);

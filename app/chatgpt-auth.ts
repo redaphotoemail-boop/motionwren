@@ -18,7 +18,19 @@ const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
 
+/**
+ * These identity headers are set by the ChatGPT preview host. On
+ * motionwren.com nothing strips them, so any visitor could send them and be
+ * treated as any account — the owner included. They are trusted only where
+ * TRUST_IDENTITY_HEADERS=1 is set (local development); production never sets
+ * it, so there the only way in is a real sign-in session.
+ */
+export function identityHeadersTrusted(): boolean {
+  return process.env.TRUST_IDENTITY_HEADERS === "1";
+}
+
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
+  if (!identityHeadersTrusted()) return null;
   const requestHeaders = await headers();
   const id = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);

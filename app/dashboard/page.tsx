@@ -17,6 +17,11 @@ type Filter = "all" | StatusGroup;
 type Playing = { title: string; historyId: string; vertical: boolean };
 
 const ACTIVE = ["submitted", "queued", "generating", "stitching", "saving", "editing", "review"];
+/* Being made by the engines right now: these cannot be deleted mid-way. */
+const MAKING = ["queued", "generating", "stitching", "saving"];
+/* A video still "Starting" after a few minutes never reached the engines
+   (a dropped connection or the hourly limit); offer to start it again. */
+const STUCK_AFTER = 3 * 60 * 1000;
 const videoStatus: Record<string, string> = {
   draft: "Saved",
   submitted: "Starting",
@@ -71,6 +76,7 @@ export default function CustomerDashboard() {
   const [greeting, setGreeting] = useState("Welcome");
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [brokenCovers, setBrokenCovers] = useState<string[]>([]);
+  const [checkedAt, setCheckedAt] = useState(0); // when the list was last loaded
   const hasActiveProject = projects.some((project) => ACTIVE.includes(project.status));
   const orders = useMemo(() => buildOrders(projects), [projects]);
 
@@ -81,7 +87,7 @@ export default function CustomerDashboard() {
       const accountData = await accountResponse.json(); const projectData = await projectResponse.json(); const notificationData = await notificationResponse.json();
       if (!accountResponse.ok) throw new Error(accountData.error || "Sign in is required.");
       if (!projectResponse.ok) throw new Error(projectData.error || "Your orders could not be loaded.");
-      setAccount(accountData.account); setBillingEnabled(Boolean(accountData.billingEnabled)); setProjects(projectData.projects || []); if (notificationResponse.ok) setNotifications(notificationData.notifications || []);
+      setAccount(accountData.account); setBillingEnabled(Boolean(accountData.billingEnabled)); setProjects(projectData.projects || []); setCheckedAt(Date.now()); if (notificationResponse.ok) setNotifications(notificationData.notifications || []);
     } catch (err) { setError(err instanceof Error ? err.message : "The workspace could not be loaded."); }
     finally { setLoading(false); }
   }
@@ -93,7 +99,7 @@ export default function CustomerDashboard() {
       try {
         const response = await fetch("/api/projects", { cache: "no-store" });
         const data = await response.json();
-        if (response.ok) setProjects(data.projects || []);
+        if (response.ok) { setProjects(data.projects || []); setCheckedAt(Date.now()); }
       } catch { /* The next interval or manual refresh will retry. */ }
     }, 10000);
     return () => window.clearInterval(interval);
@@ -124,13 +130,16 @@ export default function CustomerDashboard() {
 
   async function removeOrders(list: Order[]) {
     let failed = 0;
+    let busy = false;
     for (const order of list) {
       for (const project of order.projects) {
         const response = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
-        if (!response.ok) failed += 1;
+        if (response.status === 409) busy = true;
+        else if (!response.ok) failed += 1;
       }
     }
-    if (failed) setError("Part of this could not be deleted. Please try again.");
+    if (busy) setError("Videos that are being made can be deleted once they finish.");
+    else if (failed) setError("Part of this could not be deleted. Please try again.");
   }
 
   async function deleteOrder(order: Order) {
@@ -149,6 +158,28 @@ export default function CustomerDashboard() {
     await removeOrders(list);
     setSelectedKeys([]); setSelecting(false);
     await load();
+  }
+
+  async function downloadData() {
+    setError("");
+    try {
+      const response = await fetch("/api/account/export", { cache: "no-store" });
+      if (!response.ok) throw new Error();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(await response.json(), null, 2)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = "motionwren-my-data.json"; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch { setError("Your data could not be downloaded. Please try again."); }
+  }
+
+  async function deleteAccount() {
+    const typed = window.prompt("This permanently deletes your account, orders, photos and videos. Type DELETE MY ACCOUNT to confirm.");
+    if (typed === null) return;
+    if (typed.trim() !== "DELETE MY ACCOUNT") { setError("Account not deleted. Type DELETE MY ACCOUNT exactly to confirm."); return; }
+    const response = await fetch("/api/account/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmation: "DELETE MY ACCOUNT" }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "Your account could not be deleted. Please contact us."); return; }
+    window.location.assign("/api/auth/logout");
   }
 
   async function dismissNotification(id: string) {
@@ -183,6 +214,8 @@ export default function CustomerDashboard() {
     const project = item.project;
     const vertical = project.aspect === "vertical";
     const expired = project.status === "completed" && !project.finalHistoryId;
+    const stuck = project.status === "submitted" && checkedAt > 0 && checkedAt - project.updatedAt > STUCK_AFTER;
+    const canRetry = project.status === "failed" || stuck;
     const until = project.videoExpiresAt ? `Available until ${shortDate(project.videoExpiresAt)}` : "";
     return <li className="dlv" key={item.key}>
       <span className="dlv-icon"><KindIcon kind={item.kind} /></span>
@@ -191,12 +224,12 @@ export default function CustomerDashboard() {
         <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : ""].filter(Boolean).join(" · ")}</small>
       </div>
       <span className={`status status-${item.group}`}><i />{videoStatus[project.status] || project.status}</span>
-      {(project.finalHistoryId || project.status === "failed" || expired) && <div className="dlv-actions">
+      {(project.finalHistoryId || canRetry || expired) && <div className="dlv-actions">
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
           <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></svg>Download</a>
         </>}
-        {project.status === "failed" && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
+        {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
         {expired && <span className="dlv-note">Download expired — <a href="mailto:info@redaphoto.com">contact us</a></span>}
       </div>}
     </li>;
@@ -215,6 +248,8 @@ export default function CustomerDashboard() {
               <strong>{account?.displayName || (loading ? "Loading…" : "Account")}</strong>
               <small>{account?.email}</small>
               {account && <small className="ws-menu-plan">{account.role === "admin" ? "Owner" : account.plan === "free" ? "Pay per video" : account.plan}{account.plan !== "internal" ? ` · ${account.creditBalance ?? 0} credits` : ""}</small>}
+              <button type="button" className="ws-menu-item" onClick={downloadData}>Download my data</button>
+              {account?.role !== "admin" && <button type="button" className="ws-menu-item danger" onClick={deleteAccount}>Delete account</button>}
               <a className="ws-menu-link" href="/api/auth/logout" target="_top">Sign out</a>
             </div>
           </details>
@@ -276,7 +311,7 @@ export default function CustomerDashboard() {
                     <span className="order-count">{order.videos ? `${order.ready} of ${order.videos} ${order.videos === 1 ? "video" : "videos"} ready` : "In design"}</span>
                   </header>
                   <ul className="dlv-list">{order.deliverables.map(renderDeliverable)}</ul>
-                  <div className="order-foot"><button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button></div>
+                  {!order.projects.some((project) => MAKING.includes(project.status)) && <div className="order-foot"><button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button></div>}
                 </div>
               </article>;
             })}

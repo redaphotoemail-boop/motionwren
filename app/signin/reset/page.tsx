@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import ResetForm from "./reset-form";
+
+export const metadata: Metadata = { title: "Reset password", robots: { index: false, follow: false } };
 
 export const dynamic = "force-dynamic";
 

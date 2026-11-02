@@ -92,12 +92,12 @@ export default function EnginesPage() {
 
     <section className="panel" id="timing">
       <div className="panel-head"><h2>Scene timing</h2><span className="muted small">Multi-shot default</span></div>
-      <p className="muted">Controls the duration of each scene in new multi-shot productions.</p>
+      <p className="muted">How long each photo stays on screen in new customer videos.</p>
       <div className="choice-row">
-        {([["auto", "Automatic", "5s for 1–4 images · 3s for 5+ images"], [3, "3 seconds", "Faster, tighter edits"], [5, "5 seconds", "More room for smooth movement"]] as Array<[3 | 5 | "auto", string, string]>).map(([value, label, note]) => <button key={String(value)} type="button" className={secondsPerImage === value ? "choice active" : "choice"} aria-pressed={secondsPerImage === value} onClick={() => saveTiming(value)} disabled={savingTiming}><strong>{label}</strong><small>{note}</small></button>)}
+        {([["auto", "Automatic", "5 seconds a photo"], [3, "3 seconds", "Faster, tighter edits"], [5, "5 seconds", "More room for smooth movement"]] as Array<[3 | 5 | "auto", string, string]>).map(([value, label, note]) => <button key={String(value)} type="button" className={secondsPerImage === value ? "choice active" : "choice"} aria-pressed={secondsPerImage === value} onClick={() => saveTiming(value)} disabled={savingTiming}><strong>{label}</strong><small>{note}</small></button>)}
       </div>
       {timingMessage && <p className="note" role="status">{timingMessage}</p>}
-      <p className="fine">Automatic keeps small sequences readable and makes larger sequences more efficient. The final video length is calculated from the number of scenes and crossfades.</p>
+      <p className="fine">The video length stays what the customer ordered; timing decides how many of their photos it uses. A 20-second reel uses 4 photos at 5 seconds, 7 at 3 seconds.</p>
     </section>
   </div>;
 }

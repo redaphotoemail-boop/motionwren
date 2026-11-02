@@ -26,18 +26,22 @@ type VideoEntry = { title: string; price: number; icon: string; aspect: "horizon
 type SavedPackage = { items: SavedItem[]; answers: SavedAnswers; total: number; photos: string[]; video: VideoEntry[]; graphics: string[]; attempted: boolean; orderCode?: string; draftId?: string | null; draftUploaded?: number };
 
 const PENDING_KEY = "mw:pending-package";
+/* Signed-out visitors land on "Create account" (most are new), told their
+   order is saved and starts as soon as they are in. */
+const SAVED_ORDER_SIGNIN = "/signin?mode=signup&saved=1";
 const IDB_NAME = "motionwren";
 const IDB_STORE = "pendingPackages";
 const IDB_KEY = "current";
 const VIDEO_ICONS = new Set(["video", "reel", "story"]);
 /* Photos per project. The first video of an order keeps every photo (up to
    20) so the team has the full set for the designed pieces; each further
-   video gets only what its length uses — about one photo per five seconds
-   (see scenePlan in app/engine-catalog.ts), in the customer's order. */
+   video gets what its length can use — one photo per 3 to 5 seconds,
+   depending on the manager's Scene timing (see scenePlan in
+   app/engine-catalog.ts) — in the customer's order. */
 const MAX_PHOTOS = 20;
 function photosForVideo(index: number, targetDuration: number, available: number): number {
   if (index === 0) return Math.min(available, MAX_PHOTOS);
-  return Math.min(available, Math.max(2, Math.ceil(targetDuration / 5)));
+  return Math.min(available, Math.max(2, Math.ceil(targetDuration / 3)));
 }
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function newOrderCode(): string {
@@ -497,7 +501,7 @@ export default function MwPackageListener() {
       try {
         const account = await fetch("/api/account", { cache: "no-store" });
         if (!account.ok) {
-          if (account.status === 401) window.location.assign("/signin");
+          if (account.status === 401) window.location.assign(SAVED_ORDER_SIGNIN);
           else setBanner({ message: "Couldn't reach MotionWren. Check your connection and try again.", retryPackage: true });
           return;
         }
@@ -507,7 +511,7 @@ export default function MwPackageListener() {
       }
       const result = await run(pkg);
       if (result.auth) {
-        window.location.assign("/signin");
+        window.location.assign(SAVED_ORDER_SIGNIN);
         return;
       }
       if (result.done) {
@@ -530,7 +534,7 @@ export default function MwPackageListener() {
       await idbPut(pending);
       const result = await run(pending);
       if (result.auth) {
-        window.location.assign("/signin");
+        window.location.assign(SAVED_ORDER_SIGNIN);
         return;
       }
       if (result.done) {

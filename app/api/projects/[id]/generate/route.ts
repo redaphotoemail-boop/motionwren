@@ -48,7 +48,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const now = Date.now();
     // The video's length decides how many of the customer's photos it uses,
     // in their chosen order (see scenePlan): a 20-second reel uses the first 4.
-    const plan = scenePlan(engine, resolution, project.targetDuration, Math.min(assets.results.length, MAX_CUSTOMER_SCENES));
+    const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
+    const secondsPerPhoto = timingRow?.value === "3" ? 3 : 5; // "auto" and unset mean 5
+    const plan = scenePlan(engine, resolution, project.targetDuration, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), secondsPerPhoto);
     const scenes = assets.results.slice(0, plan.count);
     const sceneSeconds = plan.sceneSeconds;
     const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);

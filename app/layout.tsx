@@ -3,7 +3,8 @@ import "./globals.css";
 import MwPackageListener from "./mw-package-listener";
 
 export const metadata: Metadata = {
-  title: "MotionWren | Property videos from listing photos",
+  metadataBase: new URL("https://motionwren.com"),
+  title: { default: "MotionWren | Property videos from listing photos", template: "%s · MotionWren" },
   description: "Professional real-estate videos created from listing photographs, with accurate motion, polished assembly and reliable delivery.",
   openGraph: {
     title: "MotionWren",

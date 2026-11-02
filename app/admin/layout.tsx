@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { HttpError, requireAdmin } from "../api/_lib/account";
 import ManagerShell from "./manager-shell";
+
+export const metadata: Metadata = { title: "Manager", robots: { index: false, follow: false } };
 
 /* Manager pages: /admin, /admin/orders, /admin/customers, /admin/engines,
    /admin/replicates and /admin/projects/*. /studio shares the same shell. */

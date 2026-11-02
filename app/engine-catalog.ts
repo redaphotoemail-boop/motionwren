@@ -184,14 +184,16 @@ export function preferredDurationForEngine(key: StudioEngineKey, requested: numb
 /**
  * How many photos a customer video uses and how long each scene runs.
  * About five seconds a scene suits slow real-estate camera moves, so the video
- * length sets the photo count — 10 s → 2, 20 s → 4, 30 s → 6, 60 s → 12 —
+ * length sets the photo count — 10 s → 2, 20 s → 4, 30 s → 6, 60 s → 12 (at
+ * 3 seconds a scene: 4, 7, 10, 12) —
  * and the film comes out at the length the customer ordered (cost follows the
  * length, not the number of photos uploaded). With fewer photos than that,
  * each scene runs longer, up to 10 seconds. Never more than 12 scenes.
  */
 export const MAX_CUSTOMER_SCENES = 12;
-export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number) {
-  const ideal = preferredDurationForEngine(key, 5, resolution);
+export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto: 3 | 5 = 5) {
+  // secondsPerPhoto is the manager's "Scene timing" (Engines page): 5 by default.
+  const ideal = preferredDurationForEngine(key, secondsPerPhoto, resolution);
   const wanted = Math.max(2, Math.round(targetSeconds / ideal));
   const count = Math.max(Math.min(wanted, available, MAX_CUSTOMER_SCENES), Math.min(2, available));
   if (count * ideal >= targetSeconds * 0.8) return { count, sceneSeconds: ideal };

@@ -1,5 +1,18 @@
 import { NextResponse } from "next/server";
+import { configuredAdmins, getGoogleSession } from "../../../_lib/account";
+import { getChatGPTUser } from "../../../../chatgpt-auth";
 import { historyOwnerIds } from "../../../_lib/history-owners";
+
+/* The owner may open any customer's video (the manager's "Download current
+   delivery" link); customers only their own. */
+async function viewerIsOwner(env: { DB: D1Database; [key: string]: unknown }) {
+  try {
+    const identity = (await getGoogleSession(env)) || (await getChatGPTUser());
+    return Boolean(identity && configuredAdmins(env).has(identity.email.toLowerCase()));
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(request: Request) {
   const { env } = await import("cloudflare:workers");
@@ -8,7 +21,8 @@ export async function GET(request: Request) {
   const ownerIds = await historyOwnerIds(env);
   if (!ownerIds.length) return NextResponse.json({ error: "Video not found." }, { status: 404 });
   const placeholders = ownerIds.map(() => "?").join(",");
-  const row = await env.DB.prepare(`SELECT r2_key AS r2Key FROM generation_history WHERE id = ? AND owner_id IN (${placeholders}) LIMIT 1`).bind(id, ...ownerIds).first<{ r2Key: string }>();
+  let row = await env.DB.prepare(`SELECT r2_key AS r2Key FROM generation_history WHERE id = ? AND owner_id IN (${placeholders}) LIMIT 1`).bind(id, ...ownerIds).first<{ r2Key: string }>();
+  if (!row && await viewerIsOwner(env)) row = await env.DB.prepare(`SELECT r2_key AS r2Key FROM generation_history WHERE id = ? LIMIT 1`).bind(id).first<{ r2Key: string }>();
   if (!row) return NextResponse.json({ error: "Video not found." }, { status: 404 });
   // Byte ranges let the dashboard player stream and seek; iPhone Safari will
   // not play an MP4 without them.

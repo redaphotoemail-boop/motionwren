@@ -1,14 +1,14 @@
-import { cookies, headers } from "next/headers";
+import { getChatGPTUser } from "../../chatgpt-auth";
 import { getGoogleSession, type AccountEnv } from "./account";
 
 export const HISTORY_COOKIE = "fm_history_id";
 
 /**
  * Account ids whose saved videos the current visitor may list, play and
- * download: the signed-in session (Google or email) plus the two older
- * identities these routes always accepted. The session was missing, so a
- * customer signed in on motionwren.com got "Video not found" when pressing
- * Download, and the owner's Studio history came back empty.
+ * download: the signed-in session (Google or email), plus the development
+ * identity headers where they are trusted. The old fm_history_id cookie is no
+ * longer accepted: it was unsigned, so anyone could set it to another
+ * account's id (email accounts have guessable ids) and download their videos.
  */
 export async function historyOwnerIds(env: AccountEnv): Promise<string[]> {
   let sessionId: string | null = null;
@@ -17,9 +17,8 @@ export async function historyOwnerIds(env: AccountEnv): Promise<string[]> {
   } catch {
     sessionId = null;
   }
-  const authenticatedId = (await headers()).get("oai-authenticated-user-id");
-  const legacyId = (await cookies()).get(HISTORY_COOKIE)?.value;
-  return [...new Set([sessionId, authenticatedId, legacyId].filter((value): value is string => Boolean(value)))];
+  const headerId = (await getChatGPTUser())?.id || null;
+  return [...new Set([sessionId, headerId].filter((value): value is string => Boolean(value)))];
 }
 
 /**

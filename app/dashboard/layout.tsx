@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { HttpError, requireAccount } from "../api/_lib/account";
+
+export const metadata: Metadata = { title: "Your orders", robots: { index: false, follow: false } };
 
 export const dynamic = "force-dynamic";
 

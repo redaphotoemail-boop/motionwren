@@ -16,10 +16,19 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params; const { env } = await import("cloudflare:workers"); const account = await requireAccount(env);
-    const project = await ownedProject(env, id, account.id); if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
+    const project = await ownedProject(env, id, account.id) as { status?: string; finalHistoryId?: string | null } | null; if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
+    // While a video is being made the engines are still reading its photos and
+    // the finished film would land nowhere; deleting then only wasted the spend.
+    if (["queued", "generating", "stitching", "saving"].includes(String(project.status))) return Response.json({ error: "This video is being made right now. You can delete it once it is finished." }, { status: 409 });
     const assets = await env.DB.prepare(`SELECT r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id).all<{ r2Key: string }>();
-    await Promise.all(assets.results.map((asset) => env.BUCKET.delete(asset.r2Key)));
-    await env.DB.batch([env.DB.prepare(`DELETE FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id), env.DB.prepare(`DELETE FROM projects WHERE id = ? AND owner_id = ?`).bind(id, account.id)]);
+    // "Delete" removes the finished video too, not only the photos.
+    const video = project.finalHistoryId ? await env.DB.prepare(`SELECT r2_key AS r2Key FROM generation_history WHERE id = ? AND owner_id = ?`).bind(project.finalHistoryId, account.id).first<{ r2Key: string }>() : null;
+    await Promise.all([...assets.results.map((asset) => env.BUCKET.delete(asset.r2Key)), ...(video ? [env.BUCKET.delete(video.r2Key)] : [])]);
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id),
+      ...(project.finalHistoryId ? [env.DB.prepare(`DELETE FROM generation_history WHERE id = ? AND owner_id = ?`).bind(project.finalHistoryId, account.id)] : []),
+      env.DB.prepare(`DELETE FROM projects WHERE id = ? AND owner_id = ?`).bind(id, account.id),
+    ]);
     await audit(env, account.id, "project.deleted", "project", id);
     return Response.json({ ok: true });
   } catch (error) { return jsonError(error); }

@@ -75,7 +75,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await env.BUCKET.put(r2Key, video.body, { httpMetadata: { contentType: video.type || "video/mp4" }, customMetadata: { projectId: id, deliveredBy: admin.id } });
     try {
       await env.DB.batch([
-        env.DB.prepare(`INSERT INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, created_at) VALUES (?, ?, ?, ?, 'delivered', 'real-estate', ?, ?, 0, 0, ?, ?)`).bind(historyId, project.ownerId, r2Key, `Final delivery for ${project.title}`, project.resolution, project.aspect, video.size, now),
+        // Kept 90 days, like automatic deliveries (the client sees "Available until").
+        env.DB.prepare(`INSERT INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, expires_at, created_at) VALUES (?, ?, ?, ?, 'delivered', 'real-estate', ?, ?, 0, 0, ?, ?, ?)`).bind(historyId, project.ownerId, r2Key, `Final delivery for ${project.title}`, project.resolution, project.aspect, video.size, now + 90 * 24 * 60 * 60 * 1000, now),
         env.DB.prepare(`UPDATE projects SET status = 'completed', final_history_id = ?, updated_at = ? WHERE id = ?`).bind(historyId, now, id),
         env.DB.prepare(`INSERT INTO notifications (id, owner_id, type, title, message, created_at) VALUES (?, ?, 'delivery.ready', ?, ?, ?)`).bind(crypto.randomUUID(), project.ownerId, "Your video is ready", `${project.title} is ready to preview and download.`, now),
       ]);

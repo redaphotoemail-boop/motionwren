@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { HttpError, requireAdmin } from "../api/_lib/account";
 import ManagerShell from "../admin/manager-shell";
+
+export const metadata: Metadata = { title: "Studio", robots: { index: false, follow: false } };
 
 export const dynamic = "force-dynamic";
 

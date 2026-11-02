@@ -108,7 +108,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <h2 id="pricing-title">Start with one property.<br />Scale when you need to.</h2>
       </div>
       <div className="plans">
-        <article className="plan reveal"><span className="plan-name">Single</span><p className="plan-price">$29</p><small className="plan-per">$29 per video</small><strong>One complete property video</strong><p>Up to 20 seconds in 1080p, with project history and delivery.</p><a className="btn btn-soft" href={accountPath} target="_top">Start one project</a></article>
+        <article className="plan reveal"><span className="plan-name">Single</span><p className="plan-price">$29</p><small className="plan-per">$29 per video</small><strong>One complete property video</strong><p>Up to 20 seconds in 1080p, with project history and delivery.</p><a className="btn btn-soft" href={accountPath} target="_top" data-mw="plan">Start one project</a></article>
         <article className="plan plan-featured reveal"><span className="plan-name">Five-pack</span><p className="plan-price">$125</p><small className="plan-per">$25 per video</small><strong>Five video credits</strong><p>For active agents and photographers managing several listings.</p><a className="btn btn-amber" href={accountPath} target="_top">Open your workspace</a></article>
         <article className="plan reveal"><span className="plan-name">Pro</span><p className="plan-price">$199<small>/month</small></p><small className="plan-per">$19.90 per video</small><strong>Ten credits each month</strong><p>Centralized production tracking and a lower per-video cost.</p><a className="btn btn-soft" href={accountPath} target="_top">View your account</a></article>
       </div>

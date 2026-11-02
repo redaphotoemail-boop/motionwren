@@ -1,10 +1,17 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { jsonError, requireAdmin } from "../_lib/account";
 
 const CAPTION_MODEL = "https://api.replicate.com/v1/models/lucataco/moondream2";
 const WRITER_ENDPOINT = "https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions";
 
 export async function POST(request: Request) {
+  // Owner-only, like the rest of the Studio: it spends the platform's
+  // Replicate balance, and was open to anyone on the internet.
+  try {
+    const { env } = await import("cloudflare:workers");
+    await requireAdmin(env);
+  } catch (error) { return jsonError(error); }
   const cookieStore = await cookies();
   const token = process.env.REPLICATE_API_TOKEN || cookieStore.get("wan_replicate_token")?.value;
   if (!token) return NextResponse.json({ error: "Connect Replicate before using automatic image direction." }, { status: 503 });

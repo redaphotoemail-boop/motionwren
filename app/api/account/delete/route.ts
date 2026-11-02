@@ -23,8 +23,12 @@ export async function POST(request: Request) {
       env.DB.prepare(`DELETE FROM payments WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM notifications WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM rate_limits WHERE key LIKE ?`).bind(`${account.id}:%`),
+      env.DB.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(account.id),
     ]);
+    // Separate from the batch: this table is created by hand in the D1
+    // console, and a missing table must not undo the deletion above.
+    try { await env.DB.prepare(`DELETE FROM password_reset_tokens WHERE user_id = ?`).bind(account.id).run(); } catch { /* table not created yet */ }
     return Response.json({ ok: true });
   } catch (error) { return jsonError(error); }
 }
