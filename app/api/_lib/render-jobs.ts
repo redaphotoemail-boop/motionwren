@@ -129,6 +129,9 @@ export async function startStitch(token: string, videos: string[], resolution: s
   // output for audio-requested series rather than exposing mismatched music
   // from individual provider clips.
   if (crossfadeSeconds > 0) {
+    // This version's schema requires both "task" and "input_file" (a URI),
+    // even for composeVideosSeamlessly, which reads its clips from urls_csv.
+    // Without input_file every join was refused ("input_file is required").
     const response = await fetch(providerUrl("https://api.replicate.com/v1/predictions"), {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -136,6 +139,7 @@ export async function startStitch(token: string, videos: string[], resolution: s
         version: CROSSFADE_VERSION,
         input: {
           task: "composeVideosSeamlessly",
+          input_file: videos[0],
           urls_csv: videos.join(","),
           crossfade_duration: Math.max(0.25, Math.min(2, crossfadeSeconds)),
           fps: 24,

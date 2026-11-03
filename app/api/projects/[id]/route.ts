@@ -1,4 +1,5 @@
 import { audit, jsonError, requireAccount } from "../../_lib/account";
+import { deleteJobFiles } from "../../_lib/production";
 
 async function ownedProject(env: { DB: D1Database }, id: string, ownerId: string) {
   return env.DB.prepare(`SELECT id, title, status, listing_url AS listingUrl, listing_address AS listingAddress, beds, baths, square_feet AS squareFeet, price, short_message AS shortMessage, aspect, resolution, generation_engine AS generationEngine, target_duration AS targetDuration, final_history_id AS finalHistoryId, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(id, ownerId).first();
@@ -17,16 +18,21 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   try {
     const { id } = await context.params; const { env } = await import("cloudflare:workers"); const account = await requireAccount(env);
     const project = await ownedProject(env, id, account.id) as { status?: string; finalHistoryId?: string | null } | null; if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
+    const job = await env.DB.prepare(`SELECT render_job_id AS jobId FROM projects WHERE id = ? AND owner_id = ?`).bind(id, account.id).first<{ jobId: string | null }>();
     // While a video is being made the engines are still reading its photos and
     // the finished film would land nowhere; deleting then only wasted the spend.
     if (["queued", "generating", "stitching", "saving"].includes(String(project.status))) return Response.json({ error: "This video is being made right now. You can delete it once it is finished." }, { status: 409 });
     const assets = await env.DB.prepare(`SELECT r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id).all<{ r2Key: string }>();
     // "Delete" removes the finished video too, not only the photos.
     const video = project.finalHistoryId ? await env.DB.prepare(`SELECT r2_key AS r2Key FROM generation_history WHERE id = ? AND owner_id = ?`).bind(project.finalHistoryId, account.id).first<{ r2Key: string }>() : null;
-    await Promise.all([...assets.results.map((asset) => env.BUCKET.delete(asset.r2Key)), ...(video ? [env.BUCKET.delete(video.r2Key)] : [])]);
+    // Earlier versions of the film (a re-made scene) and the job's working files go too.
+    const versions = job?.jobId ? await env.DB.prepare(`SELECT id, r2_key AS r2Key FROM generation_history WHERE id = ? AND owner_id = ?`).bind(job.jobId, account.id).all<{ id: string; r2Key: string }>() : { results: [] as { id: string; r2Key: string }[] };
+    await Promise.all([...assets.results.map((asset) => env.BUCKET.delete(asset.r2Key)), ...(video ? [env.BUCKET.delete(video.r2Key)] : []), ...versions.results.map((version) => env.BUCKET.delete(version.r2Key))]);
+    if (job?.jobId) await deleteJobFiles(env, job.jobId).catch(() => undefined);
     await env.DB.batch([
       env.DB.prepare(`DELETE FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id),
       ...(project.finalHistoryId ? [env.DB.prepare(`DELETE FROM generation_history WHERE id = ? AND owner_id = ?`).bind(project.finalHistoryId, account.id)] : []),
+      ...(job?.jobId ? [env.DB.prepare(`DELETE FROM generation_history WHERE id = ? AND owner_id = ?`).bind(job.jobId, account.id), env.DB.prepare(`DELETE FROM render_jobs WHERE id = ? AND owner_id = ?`).bind(job.jobId, account.id)] : []),
       env.DB.prepare(`DELETE FROM projects WHERE id = ? AND owner_id = ?`).bind(id, account.id),
     ]);
     await audit(env, account.id, "project.deleted", "project", id);

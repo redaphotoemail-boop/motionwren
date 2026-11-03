@@ -177,6 +177,13 @@ async function legacyInput(env: R2Env, jobId: string, index: number, input: Reco
   return inline ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, typeof value === "string" && value.includes(marker) ? inline : value])) : input;
 }
 
+/* Every working file of a job (scene photos, kept scene copies, manifest). */
+export async function deleteJobFiles(env: R2Env, jobId: string) {
+  const listed = await env.BUCKET.list({ prefix: `render-jobs/${jobId}/` });
+  const keys = listed.objects.map((object: { key: string }) => object.key);
+  if (keys.length) await env.BUCKET.delete(keys);
+}
+
 export async function deleteFrames(env: R2Env, jobId: string, count: number) {
   await Promise.allSettled(Array.from({ length: count }, (_, index) => env.BUCKET.delete(frameKey(jobId, index))));
 }

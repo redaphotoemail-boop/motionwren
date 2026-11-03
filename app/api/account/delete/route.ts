@@ -1,4 +1,5 @@
 import { audit, jsonError, requireAccount } from "../../_lib/account";
+import { deleteJobFiles } from "../../_lib/production";
 
 export async function POST(request: Request) {
   try {
@@ -12,6 +13,9 @@ export async function POST(request: Request) {
       env.DB.prepare(`SELECT r2_key AS r2Key FROM generation_history WHERE owner_id = ?`).bind(account.id).all<{ r2Key: string }>(),
     ]);
     await Promise.allSettled([...assets.results, ...history.results].map((item) => env.BUCKET.delete(item.r2Key)));
+    // Production working files too (scene photos and finished scene copies).
+    const jobs = await env.DB.prepare(`SELECT id FROM render_jobs WHERE owner_id = ?`).bind(account.id).all<{ id: string }>();
+    await Promise.allSettled(jobs.results.map((job) => deleteJobFiles(env, job.id)));
     await audit(env, account.id, "account.deletion_requested", "account", account.id);
     await env.DB.batch([
       env.DB.prepare(`DELETE FROM project_assets WHERE owner_id = ?`).bind(account.id),

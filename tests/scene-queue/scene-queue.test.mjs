@@ -66,6 +66,9 @@ globalThis.fetch = async (url, init = {}) => {
     const body = JSON.parse(init.body);
     const id = `p${++P.n}`;
     if (url === "https://api.replicate.com/v1/predictions") {
+      // The crossfade model's published schema: "task" and "input_file" (a URI) are required.
+      if (!body.input?.task) return json({ detail: "- input: task is required\n" }, 422);
+      if (!/^https?:\/\//.test(String(body.input?.input_file || ""))) return json({ detail: "- input: input_file is required\n" }, 422);
       P.stitchInputs.push(body.input.urls_csv);
       P.preds.set(id, { stitch: true, status: "processing", doneAt: clock + 30_000, fail: P.stitchFails-- > 0 });
     } else {
