@@ -188,15 +188,18 @@ export function preferredDurationForEngine(key: StudioEngineKey, requested: numb
 export const VIDEO_LENGTHS = [15, 30, 60] as const;
 export type VideoLength = (typeof VIDEO_LENGTHS)[number];
 
-/** Scenes overlap by this much where they cross-dissolve into each other. */
-export const CROSSFADE_SECONDS = 1;
+/** How much neighbouring scenes overlap in the joined film. Measured on a
+    real joined film (Nov 3, 2026): the joiner plays every scene in full and
+    adds a short dissolve (about a quarter second per join), so scenes do not
+    overlap. Planning with a one-second overlap made a 15-second film 18.6 s. */
+export const CROSSFADE_SECONDS = 0;
 
 /**
  * How many photos a video uses and how long each scene runs, so the finished
- * film (scenes minus their one-second cross-dissolves) lands on the length
+ * film (every scene in full, joined with short dissolves) lands on the length
  * that was ordered. About five seconds a scene suits slow real-estate camera
- * moves (the manager's "Scene timing" can make it three): 15 s uses about 4
- * photos, 30 s about 7, 60 s 12. With fewer photos, each scene runs longer,
+ * moves (the manager's "Scene timing" can make it three): 15 s uses 3
+ * photos, 30 s 6, 60 s 12. With fewer photos, each scene runs longer,
  * using only scene lengths the engine accepts. Never more than 12 scenes.
  */
 export const MAX_CUSTOMER_SCENES = 12;
