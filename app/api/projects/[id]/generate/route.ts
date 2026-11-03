@@ -30,7 +30,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
     if (project.renderJobId && ["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return Response.json({ jobId: project.renderJobId, status: project.status, resumed: true });
     if (!["submitted", "failed"].includes(project.status)) return Response.json({ error: "Submit the project before starting production." }, { status: 409 });
-    const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 20`).bind(projectId, account.id).all<{ id: string; sortOrder: number }>();
+    const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder, r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 20`).bind(projectId, account.id).all<{ id: string; sortOrder: number; r2Key: string }>();
     if (assets.results.length < 2) return Response.json({ error: "At least two photographs are required." }, { status: 409 });
 
     // The manager's selected engine (platform_settings defaultEngine); Wan 3.0
@@ -62,15 +62,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // Every scene's exact request is kept in the job's manifest so a scene
     // that fails or hangs restarts on its own (see production.ts).
     const inputs: Record<string, unknown>[] = [];
+    const photos: { key: string; link: string }[] = [];
     for (let index = 0; index < scenes.length; index += 1) {
       const asset = scenes[index];
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, account.id).run();
       const imageUrl = `${origin}/api/provider-assets/${asset.id}?token=${assetToken}`;
+      photos.push({ key: asset.r2Key, link: imageUrl });
       inputs.push(buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
     }
     try {
-      await startProductionScenes(env, providerToken, jobId, newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs), webhook);
+      await startProductionScenes(env, providerToken, jobId, newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos), webhook);
     } catch (error) {
       throw new Error(customerSafeError(error instanceof Error ? error.message : "A scene could not start."));
     }

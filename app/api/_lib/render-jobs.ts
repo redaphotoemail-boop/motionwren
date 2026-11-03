@@ -173,7 +173,10 @@ export async function saveFinishedJob(env: { DB: D1Database; BUCKET: R2Bucket },
   const manifest = await loadManifest(env, row.id);
   const engine = manifest?.engine || KIND_ENGINE[row.kind] || "studio";
   const r2Key = `generation-history/${row.ownerId}/${historyId}.mp4`;
-  await env.BUCKET.put(r2Key, upstream.body, { httpMetadata: { contentType: contentType === "application/octet-stream" ? "video/mp4" : contentType } });
+  // A response with a known size streams straight into storage; one without
+  // (chunked) is read in full first, since storage needs the size up front.
+  const body = sizeBytes ? upstream.body : await upstream.arrayBuffer();
+  await env.BUCKET.put(r2Key, body, { httpMetadata: { contentType: contentType === "application/octet-stream" ? "video/mp4" : contentType } });
   try {
     const now = Date.now();
     const expiresAt = now + 90 * 24 * 60 * 60 * 1000;
@@ -287,7 +290,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
             manifest.attempts[index] += 1;
             manifest.startedAt[index] = Date.now();
             manifest.states[index] = "retrying";
-            try { next[index] = await startScene(token, manifest.endpoint, await engineInputFor(env, row.id, index, manifest.inputs[index], manifest.attempts[index]), webhookUrl); }
+            try { next[index] = await startScene(token, manifest.endpoint, await engineInputFor(env, token, row.id, manifest, index, manifest.attempts[index]), webhookUrl); }
             catch (error) { next[index] = ids[index]; manifest.lastErrors[index] = (error instanceof Error ? error.message : "The scene could not restart.").slice(0, 300); }
           }
           await saveManifest(env, row.id, manifest);
@@ -324,10 +327,10 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
       try { stitch = await replicatePrediction(token, row.stitchPredictionId); }
       catch { return getRenderJob(env, row.id); } // lookup hiccup: check again on the next update
       if (stitch.status === "failed" || stitch.status === "canceled") {
-        // Joining is retried once with the same finished scenes before giving up.
+        // Joining is retried twice with the same finished scenes before giving up.
         const manifest = await loadManifest(env, row.id);
         const urls = JSON.parse(row.segmentUrls || "[]") as string[];
-        if (manifest && (manifest.stitchAttempts || 0) < 1 && urls.length > 1 && Date.now() - row.createdAt < 50 * 60 * 1000) {
+        if (manifest && (manifest.stitchAttempts || 0) < 2 && urls.length > 1 && Date.now() - row.createdAt < 50 * 60 * 1000) {
           manifest.stitchAttempts = (manifest.stitchAttempts || 0) + 1;
           await saveManifest(env, row.id, manifest);
           const stitchId = await startStitch(token, urls, row.resolution, row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest.audio);
@@ -394,7 +397,7 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
    lost webhook can never leave a video stuck. */
 export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }, origin: string, ownerId: string | null, limit = 3) {
   const token = process.env.REPLICATE_API_TOKEN;
-  if (!token) return;
+  if (!token) return 0;
   const query = `SELECT id FROM render_jobs WHERE status IN ('starting','generating','stitching','saving') AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} ORDER BY updated_at ASC LIMIT ?`;
   const cutoff = Date.now() - 45 * 1000;
   const stale = ownerId
@@ -405,6 +408,7 @@ export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }
     if (!row || !row.webhookToken) continue;
     await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${row.id}?token=${row.webhookToken}`).catch(() => undefined);
   }
+  return stale.results.length;
 }
 
 /* Picks a stopped video back up. Scenes the engine already finished are kept

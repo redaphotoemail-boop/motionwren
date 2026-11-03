@@ -1,10 +1,13 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { heartbeatKey } from "../app/api/_lib/heartbeat";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  REPLICATE_API_TOKEN?: string;
+  PUBLIC_ORIGIN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -41,6 +44,17 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+
+  /* Once a minute (triggers.crons in vite.config.ts): move along every video
+     in production, so none depends on a provider callback arriving or on a
+     page being open. Runs inside this Worker; nothing is exposed. */
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+    const secret = env.REPLICATE_API_TOKEN || process.env.REPLICATE_API_TOKEN;
+    if (!secret) return;
+    const origin = env.PUBLIC_ORIGIN || process.env.PUBLIC_ORIGIN || "https://motionwren.com";
+    const request = new Request(`${origin}/api/heartbeat`, { method: "POST", headers: { "x-motionwren-heartbeat": await heartbeatKey(secret) } });
+    ctx.waitUntil(Promise.resolve(handler.fetch(request, env, ctx)).then(() => undefined, () => undefined));
   },
 };
 

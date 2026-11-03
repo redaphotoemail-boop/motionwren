@@ -3,7 +3,7 @@ import { jsonError, requireAdmin } from "../../_lib/account";
 import { engineCost, engineDurationOptions, preferredDurationForEngine, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, isEngineKey } from "../../../engine-providers";
 import { getRenderJob, publicJob } from "../../_lib/render-jobs";
-import { newManifest, saveManifest, startProductionScenes, storeFrame } from "../../_lib/production";
+import { frameKey, newManifest, saveManifest, startProductionScenes, storeFrame } from "../../_lib/production";
 import { studioToken } from "../../_lib/studio-token";
 
 /* Studio production on the server — the same path client videos take.
@@ -67,14 +67,15 @@ export async function POST(request: Request) {
   // The job exists before anything starts, so early callbacks find it.
   await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, ?, 'starting', '[]', '[]', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`)
     .bind(id, ownerId, kind, String(scenes[0].prompt).slice(0, 6000), `Studio · ${label}`, resolution, aspect, duration, costCents, webhookToken, now, now).run();
+  const links = scenes.map((_, index) => `${origin}/api/job-frames/${id}/scene-${String(index + 1).padStart(2, "0")}.jpg?token=${webhookToken}`);
   const inputs = scenes.map((scene, index) => buildEngineInput(engine, {
-    imageUrl: `${origin}/api/job-frames/${id}/scene-${String(index + 1).padStart(2, "0")}.jpg?token=${webhookToken}`,
+    imageUrl: links[index],
     prompt: String(scene.prompt), duration: sceneSeconds, resolution, aspectRatio: aspect === "vertical" ? "9:16" : "16:9",
     audio: scene.audio === true, seed: seed === undefined ? undefined : seed + index,
   }));
   // One soundtrack across the joined film (when the scenes have sound), never a different track per scene.
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;
-  const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio);
+  const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio, links.map((link, index) => ({ key: frameKey(id, index), link })));
   try {
     if (inline) {
       for (let index = 0; index < scenes.length; index += 1) await storeFrame(env, id, index, String(scenes[index].image));

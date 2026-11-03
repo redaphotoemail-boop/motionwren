@@ -25,6 +25,10 @@ export type ProductionManifest = {
   lastErrors: string[];
   audio?: { mode: "silent" | "single_master"; direction?: string; voiceoverScript?: string }; // how the joined film's sound is made
   stitchAttempts?: number;
+  /* Each scene's photo: where it is stored (R2), the private link to it that
+     is written in the scene's input, and its copy in the engine's own file
+     storage once uploaded. */
+  photos?: { key: string; link: string; file?: string }[];
 };
 
 type R2Env = { BUCKET: R2Bucket };
@@ -84,21 +88,63 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/* What the engine actually receives for a Studio scene. Tries 1 and 3 hand
-   over the photo itself (inline, the way the Studio has always worked with
-   every engine); try 2 hands over a private link to the stored copy instead,
-   so a scene the engine rejected one way gets the other. Client orders (no
-   stored Studio photo) are sent unchanged. */
-export async function engineInputFor(env: R2Env, jobId: string, index: number, input: Record<string, unknown>, attempt: number): Promise<Record<string, unknown>> {
+/* Uploads a stored photo to the engine's own file storage and returns the
+   address the engine reads it from. This is how Replicate's official tools
+   hand files to every model, at any size, without the engine having to reach
+   our site. */
+async function engineFile(env: R2Env, token: string, key: string): Promise<string> {
+  const object = await env.BUCKET.get(key);
+  if (!object) throw new Error("The scene's photo is no longer stored.");
+  const type = object.httpMetadata?.contentType || "image/jpeg";
+  const form = new FormData();
+  form.append("content", new Blob([await new Response(object.body).arrayBuffer()], { type }), `scene.${type.split("/")[1] === "png" ? "png" : type.split("/")[1] === "webp" ? "webp" : "jpg"}`);
+  const response = await fetch("https://api.replicate.com/v1/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+  const data = await response.json().catch(() => ({})) as { urls?: { get?: unknown } };
+  if (!response.ok || typeof data.urls?.get !== "string") throw new Error(`The photo could not be handed to the engine (${response.status}).`);
+  return data.urls.get;
+}
+
+async function inlinePhoto(env: R2Env, key: string, limit: number): Promise<string | null> {
+  const object = await env.BUCKET.get(key);
+  if (!object) return null;
+  const bytes = new Uint8Array(await new Response(object.body).arrayBuffer());
+  return bytes.byteLength <= limit ? `data:${object.httpMetadata?.contentType || "image/jpeg"};base64,${toBase64(bytes)}` : null;
+}
+
+/* What the engine actually receives for a scene, by try:
+   1 — the photo from the engine's own file storage (works for every engine);
+   2 — the private link to our stored copy;
+   3 — the photo inline when it is small, otherwise a fresh upload.
+   Each way fails over to the next, so one way of handing over the photo
+   failing can never sink a scene. The manifest remembers the uploaded copy
+   (the caller saves it). */
+export async function engineInputFor(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
+  const input = manifest.inputs[index];
+  const photo = manifest.photos?.[index];
+  if (!photo) return legacyInput(env, jobId, index, input, attempt);
+  const swap = (value: string) => Object.fromEntries(Object.entries(input).map(([key, current]) => [key, current === photo.link ? value : current]));
+  if (attempt === 2) return input;
+  if (attempt >= 3) {
+    const inline = await inlinePhoto(env, photo.key, 1_000_000).catch(() => null);
+    if (inline) return swap(inline);
+    photo.file = undefined;
+  }
+  try {
+    photo.file = photo.file || await engineFile(env, token, photo.key);
+    return swap(photo.file);
+  } catch {
+    const inline = await inlinePhoto(env, photo.key, 1_000_000).catch(() => null);
+    return inline ? swap(inline) : input;
+  }
+}
+
+/* Studio videos started before photos were recorded in the manifest. */
+async function legacyInput(env: R2Env, jobId: string, index: number, input: Record<string, unknown>, attempt: number) {
   if (attempt === 2) return input;
   const marker = `/api/job-frames/${jobId}/`;
   if (!Object.values(input).some((value) => typeof value === "string" && value.includes(marker))) return input;
-  const object = await env.BUCKET.get(frameKey(jobId, index));
-  if (!object) return input;
-  const bytes = new Uint8Array(await new Response(object.body).arrayBuffer());
-  if (bytes.byteLength > 1_400_000) return input;
-  const dataUrl = `data:${object.httpMetadata?.contentType || "image/jpeg"};base64,${toBase64(bytes)}`;
-  return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, typeof value === "string" && value.includes(marker) ? dataUrl : value]));
+  const inline = await inlinePhoto(env, frameKey(jobId, index), 1_400_000).catch(() => null);
+  return inline ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, typeof value === "string" && value.includes(marker) ? inline : value])) : input;
 }
 
 export async function deleteFrames(env: R2Env, jobId: string, count: number) {
@@ -143,7 +189,7 @@ export async function startProductionScenes(env: JobEnv, token: string, jobId: s
   await saveManifest(env, jobId, manifest);
   try {
     for (let index = ids.length; index < manifest.inputs.length; index += 1) {
-      try { ids.push(await startScene(token, manifest.endpoint, await engineInputFor(env, jobId, index, manifest.inputs[index], 1), webhook)); }
+      try { ids.push(await startScene(token, manifest.endpoint, await engineInputFor(env, token, jobId, manifest, index, 1), webhook)); }
       catch (error) { throw new Error(`Scene ${index + 1} could not be started: ${error instanceof Error ? error.message : "the engine refused it"}`); }
       manifest.attempts[index] = 1;
       manifest.startedAt[index] = Date.now();
@@ -160,9 +206,10 @@ export async function startProductionScenes(env: JobEnv, token: string, jobId: s
   return ids;
 }
 
-export function newManifest(engine: StudioEngineKey, endpoint: string, sceneSeconds: number, inputs: Record<string, unknown>[], audio?: ProductionManifest["audio"]): ProductionManifest {
+export function newManifest(engine: StudioEngineKey, endpoint: string, sceneSeconds: number, inputs: Record<string, unknown>[], audio?: ProductionManifest["audio"], photos?: ProductionManifest["photos"]): ProductionManifest {
   return {
     ...(audio ? { audio } : {}),
+    ...(photos ? { photos } : {}),
     version: 1,
     engine,
     endpoint,
