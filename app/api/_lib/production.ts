@@ -42,6 +42,21 @@ export type ProductionManifest = {
   readyAt?: number[];     // when the scene finished (engine copies expire after ~1 hour)
   saved?: string[];       // our durable copy of the finished scene (R2 key)
   finalUrl?: string;      // the joined film, while it is being saved to History
+  /* The final edit by our composer (composer.ts): each scene's share of the
+     film on screen, the crossfade, and the film's ONE music track — its
+     prompt, and once made, our stored copy (so a re-edit keeps the same
+     music). key/attempt/startedAt describe the edit in progress. */
+  edit?: {
+    shareSeconds?: number;
+    crossfade?: number;
+    music?: { prompt: string; saved?: string; source?: string };
+    key?: string;
+    attempt?: number;  // every edit ever started for this film (keys are never reused)
+    tries?: number;    // edits tried for the current version of the film
+    startedAt?: number;
+    lastError?: string;
+    usedBackupJoiner?: boolean;
+  };
 };
 
 type R2Env = { BUCKET: R2Bucket };
@@ -49,6 +64,7 @@ type R2Env = { BUCKET: R2Bucket };
 const manifestKey = (jobId: string) => `render-jobs/${jobId}/manifest.json`;
 export const frameKey = (jobId: string, index: number) => `render-jobs/${jobId}/scene-${String(index + 1).padStart(2, "0")}.jpg`;
 export const outputKey = (jobId: string, index: number) => `render-jobs/${jobId}/out-${String(index + 1).padStart(2, "0")}.mp4`;
+export const musicKey = (jobId: string) => `render-jobs/${jobId}/music.mp3`;
 
 /* Fills fields older manifests do not have, so every job runs on the queue. */
 export function normalizeManifest(manifest: ProductionManifest) {

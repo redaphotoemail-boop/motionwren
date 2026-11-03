@@ -14,7 +14,8 @@ export async function POST(request: Request) {
   const supplied = request.headers.get("x-motionwren-heartbeat") || "";
   if (!secret || supplied.length !== 64 || supplied !== await heartbeatKey(secret)) return Response.json({ error: "Not found." }, { status: 404 });
   const { env } = await import("cloudflare:workers");
-  const moved = await advanceStaleJobs(env, new URL(request.url).origin, null, 10);
+  // Every waiting video, oldest first, four at a time, within 40 seconds.
+  const moved = await advanceStaleJobs(env, new URL(request.url).origin, null, 100, { parallel: 4, budgetMs: 40 * 1000 });
   const cleaned = await cleanUp(env).catch(() => 0);
   return Response.json({ ok: true, moved, cleaned });
 }

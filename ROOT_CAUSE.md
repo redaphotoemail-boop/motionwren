@@ -58,3 +58,24 @@ Earlier versions failed the same way for the same reason. The browser-driven Stu
 - **Payments** (Stripe) are not connected; when they are, orders are reserved when submitted and restored once on final failure (already wired).
 - **Email** (Resend) is not connected; clients see in-app notifications.
 - A manager **Resume** of a client order that already had its credit restored delivers that video as goodwill (no second charge).
+
+## One music track per film: our own editor (Nov 3, evening)
+
+**Why the music changed every scene:** Wan 3.0 always generates its own sound for each scene (its Replicate schema has no switch to turn it off), and the outside joiner kept each scene's sound.
+
+**Fix: the composer**, our own ffmpeg editing step (`composer/server.mjs`), running in a Cloudflare Container next to the site (`worker/composer.ts`, bound as `COMPOSER`; one instance per film, up to 20 at once). For every multi-scene film it:
+1. trims each scene to its share of the film and joins them with true 0.5 s crossfades, so the film lands on the exact ordered length;
+2. drops every scene's own sound;
+3. lays **one** music track over the whole film (fade in, fade out, even loudness). The music is made once per film by **ElevenLabs Music** (instrumental, matched to the film: elegant for listing films, luxury for long or cinematic films, modern for vertical reels). If ElevenLabs is unavailable, **Stable Audio 2.5** on Replicate makes it instead. The track is stored with the film, so a re-edit (re-made scene, re-join) keeps the same music;
+4. checks the result (length, size, one sound track) before it is saved to History.
+
+If the editing service can't take a film three times, the film still finishes with the old joiner, and the manager gets an alert and can use "Re-join scenes" later. The Production page shows **Editing** and **Music** status.
+
+**Scene timing is automatic:** quicker cuts for short videos, calmer shots for long films (10 s → 4 photos, 15 s → 6, 20 s → 6, 30 s → 9, 60 s → 12, when there are enough photos). Each scene is made at the shortest engine length that covers its share.
+
+**Proof (local, real ffmpeg):**
+- `npm run test:composer`: **26/26**. The scenes' own sound is gone (−59 dB) and the music is there (−19 dB). The middle of each join is a true blend of both scenes. Lengths are exact. Also covered: ElevenLabs down → backup music; a refused key is not retried; a re-edit reuses the music; a missing scene; a short scene; a vertical film; a single scene.
+- `npm run test:queue`: **54/54**, adding the composer path, a failed edit retried, the editing service down (backup joiner + manager alert), a lost edit redone and saved once, and **25 films from 25 accounts at once**: with one engine slot every scene was made exactly once and every film finished from the heartbeat alone; with 6 slots they all finished in 19 simulated minutes, never over the limit.
+- Local end-to-end with the real composer: a client 20 s vertical reel and a Studio 15 s film came out at exactly 20.00 s (1080×1920) and 15.00 s (1920×1080), each with one music track and no scene sound.
+
+**To turn on in production:** the Cloudflare account must be on **Workers Paid** ($5/month; containers need it). Add the Worker secret **`ELEVENLABS_API_KEY`**. Until it is added, the backup music (Stable Audio, ~$0.20 per film) is used.

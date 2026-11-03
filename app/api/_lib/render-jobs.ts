@@ -1,9 +1,11 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
-import { frameKey, framesPresent, loadManifest, newManifest, normalizeManifest, saveManifest } from "./production";
-import { classify, ProviderError, providerUrl, readProviderState, writeProviderState } from "./provider";
-import { QUEUE_KINDS, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
+import { frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
+import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
+import { CROSSFADE_SECONDS } from "../../engine-catalog";
+import { acquireLease, classify, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
+import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
 /* Kinds whose scenes are joined with one-second cross-dissolves. */
 const CROSSFADE_KINDS = new Set(["customer-series", "studio-series"]);
@@ -175,6 +177,13 @@ export async function saveFinishedJob(env: { DB: D1Database; BUCKET: R2Bucket },
   if (!source) throw new Error("The finished video URL is invalid.");
   const upstream = await fetch(source);
   if (!upstream.ok || !upstream.body) throw new Error("The finished video could not be stored.");
+  return storeFinishedFilm(env, row, upstream, source);
+}
+
+/* Stores a finished film (from the engine or our composer) in History and
+   marks the job, its order and the client's notification done. */
+async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, upstream: Response, source: string) {
+  if (row.historyId) return row.historyId;
   const contentType = upstream.headers.get("content-type") || "application/octet-stream";
   const sizeBytes = Number(upstream.headers.get("content-length")) || null;
   if (!contentType.startsWith("video/") && contentType !== "application/octet-stream") throw new Error("The compositor returned a non-video file.");
@@ -187,8 +196,7 @@ export async function saveFinishedJob(env: { DB: D1Database; BUCKET: R2Bucket },
   const r2Key = `generation-history/${row.ownerId}/${historyId}.mp4`;
   // A response with a known size streams straight into storage; one without
   // (chunked) is read in full first, since storage needs the size up front.
-  const body = sizeBytes ? upstream.body : await upstream.arrayBuffer();
-  await env.BUCKET.put(r2Key, body, { httpMetadata: { contentType: contentType === "application/octet-stream" ? "video/mp4" : contentType } });
+  await storeResponse(env.BUCKET, r2Key, upstream, contentType === "application/octet-stream" ? "video/mp4" : contentType);
   try {
     const now = Date.now();
     const expiresAt = now + 90 * 24 * 60 * 60 * 1000;
@@ -283,11 +291,17 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
   };
 }
 
-/* Joins the finished scenes. A provider "slow down" here is a wait, not a
-   failure: the job stays "joining" and the next step tries again. */
+/* Joins the finished scenes. Multi-scene films go to our composer (one music
+   track, true crossfades, exact length); the engine-side joiner is the
+   backup. A provider "slow down" here is a wait, not a failure: the job
+   stays "joining" and the next step tries again. */
 async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
   const loaded = await loadManifest(env, row.id);
   const manifest = loaded ? normalizeManifest(loaded) : null;
+  const origin = webhookUrl ? new URL(webhookUrl).origin : "";
+  if (manifest && QUEUE_KINDS.has(row.kind) && CROSSFADE_KINDS.has(row.kind) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
+    if (await startComposerEdit(env, row, manifest, origin)) return;
+  }
   const provider = await readProviderState(env);
   if (provider.throttledUntil > Date.now() || provider.pausedUntil > Date.now()) return;
   let segments = JSON.parse(row.segmentUrls || "[]") as (string | null)[];
@@ -309,6 +323,115 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     }
     throw error;
   }
+}
+
+const EDIT_TRIES = 3;
+const EDIT_TIME_LIMIT_MS = 30 * 60 * 1000;
+const jobFileLink = (origin: string, row: RenderJobRow, file: string) => `${origin}/api/job-frames/${row.id}/${file}?token=${row.webhookToken}`;
+
+/* Sends the film to our composer. Returns false when the editing service
+   could not take it three times running, so the backup joiner takes over. */
+async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, origin: string) {
+  const count = manifest.inputs.length;
+  const { segments } = alignedScenes(row, count);
+  const clips = segments.map((url, index) => manifest.saved[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
+  if (count < 2 || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  const edit = manifest.edit || {};
+  const tries = (edit.tries || 0) + 1;
+  const attempt = (edit.attempt || 0) + 1;
+  const key = editKey(row.id, attempt);
+  const crossfade = edit.crossfade ?? CROSSFADE_SECONDS;
+  // Each scene's share on screen; older films (planned without overlap) fit what was made.
+  const share = Math.min(manifest.sceneSeconds, edit.shareSeconds || (row.duration + (count - 1) * crossfade) / count);
+  const duration = Math.round((count * share - (count - 1) * crossfade) * 1000) / 1000;
+  const height = row.resolution === "1080p" ? 1080 : row.resolution === "480p" ? 480 : 720;
+  const wide = Math.round(height * 16 / 9 / 2) * 2;
+  const [width, tall] = row.aspect === "vertical" ? [height, wide] : [wide, height];
+  const music = edit.music?.saved
+    ? { url: jobFileLink(origin, row, "music.mp3") }
+    : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
+  manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
+  try {
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music });
+  } catch (error) {
+    manifest.edit.key = undefined;
+    manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
+    await recordEditorState(env, { lastError: manifest.edit.lastError, lastErrorAt: Date.now() });
+    if (tries >= EDIT_TRIES) manifest.edit.usedBackupJoiner = true;
+    await saveManifest(env, row.id, manifest);
+    if (tries >= EDIT_TRIES) { await alertManagers(env, "Film edited with the backup joiner", `The editing service could not take a film (${manifest.edit.lastError}). It was joined with the backup joiner, so its music changes between scenes. Use "Re-join scenes" once the editing service is back.`); return false; }
+    return true; // tried again on the next step (the job stays "joining")
+  }
+  await saveManifest(env, row.id, manifest);
+  await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(`composer:${key}`, Date.now(), row.id).run();
+  return true;
+}
+
+/* Checks an edit in progress; when done, keeps the film's music and saves the film. */
+async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
+  const key = String(row.stitchPredictionId).slice("composer:".length);
+  const loaded = await loadManifest(env, row.id);
+  if (!loaded) throw new Error("This video's settings were not saved.");
+  const manifest = normalizeManifest(loaded);
+  const edit = manifest.edit || {};
+  let state: Awaited<ReturnType<typeof editState>> | null = null;
+  try { state = await editState(env, row.id, key); }
+  catch (error) { if (Date.now() - (edit.startedAt || 0) < EDIT_TIME_LIMIT_MS) return; state = { key, status: "failed", error: error instanceof Error ? error.message : "The editing service did not answer." }; }
+  if (state.status === "running") {
+    if (Date.now() - (edit.startedAt || 0) < EDIT_TIME_LIMIT_MS) return;
+    state = { key, status: "failed", error: "The edit took too long." };
+  }
+  if (state.status === "unknown") state = { key, status: "failed", error: "The editing service restarted during the edit." };
+  if (state.status === "failed") {
+    manifest.edit = { ...edit, key: undefined, lastError: String(state.error || "The edit failed.").slice(0, 300) };
+    await recordEditorState(env, { lastError: manifest.edit.lastError, lastErrorAt: Date.now() });
+    if ((edit.tries || 0) >= EDIT_TRIES) manifest.edit.usedBackupJoiner = true;
+    await saveManifest(env, row.id, manifest);
+    const claim = await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = NULL, updated_at = ? WHERE id = ? AND stitch_prediction_id = ?`).bind(Date.now(), row.id, row.stitchPredictionId).run();
+    if (manifest.edit.usedBackupJoiner) await alertManagers(env, "Film edited with the backup joiner", `A film's edit failed ${EDIT_TRIES} times (${manifest.edit.lastError}). It is being joined with the backup joiner, so its music changes between scenes. Use "Re-join scenes" to edit it again.`);
+    if (claim.meta.changes) await startJoin(env, { ...row, stitchPredictionId: null }, token, webhookUrl);
+    return;
+  }
+  // Done: claim it once, keep the music for later re-edits, then save the film.
+  const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'stitching' AND stitch_prediction_id = ?`).bind(Date.now(), row.id, row.stitchPredictionId).run();
+  if (!claim.meta.changes) return;
+  await recordEditorState(env, { lastOkAt: Date.now(), musicSource: state.musicSource || "" });
+  if (state.music && !edit.music?.saved) {
+    try {
+      await storeResponse(env.BUCKET, musicKey(row.id), await editFile(env, row.id, key, "music"), "audio/mpeg");
+      manifest.edit = { ...manifest.edit, music: { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), saved: musicKey(row.id), source: state.musicSource } };
+    } catch { /* the next edit simply makes music again */ }
+  }
+  manifest.finalUrl = `composer:${key}`;
+  await saveManifest(env, row.id, manifest);
+  await saveComposedFilm(env, { ...row, status: "saving" }, key).catch(() => undefined); // stays "saving"; retried on the next step
+}
+
+async function saveComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string) {
+  // One save at a time (a callback and the heartbeat can arrive together).
+  const lease = await acquireLease(env, `save-lock:${row.id}`, 3 * 60 * 1000);
+  if (!lease) return null;
+  try { return await collectComposedFilm(env, row, key); }
+  finally { await releaseLease(env, `save-lock:${row.id}`, lease); }
+}
+
+async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string) {
+  const fresh = await getRenderJob(env, row.id);
+  if (!fresh || fresh.historyId || fresh.status !== "saving") return fresh?.historyId || null;
+  let film: Response;
+  try { film = await editFile(env, row.id, key, "output"); }
+  catch (error) {
+    // The container no longer has the film (restarted or asleep): edit it again.
+    const state = await editState(env, row.id, key).catch(() => null);
+    if (!state || state.status !== "done") {
+      await env.DB.prepare(`UPDATE render_jobs SET status = 'stitching', stitch_prediction_id = NULL, updated_at = ? WHERE id = ? AND status = 'saving'`).bind(Date.now(), row.id).run();
+      return null;
+    }
+    throw error;
+  }
+  const historyId = await storeFinishedFilm(env, fresh, film, `composer:${key}`);
+  await dropEdit(env, row.id, key);
+  return historyId;
 }
 
 export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
@@ -358,6 +481,8 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
       // Joining did not start (provider wait or a cut-off step): start it now.
       const claim = await env.DB.prepare(`UPDATE render_jobs SET updated_at = ? WHERE id = ? AND status = 'stitching' AND stitch_prediction_id IS NULL AND updated_at = ?`).bind(Date.now(), row.id, row.updatedAt).run();
       if (claim.meta.changes) await startJoin(env, row, token, webhookUrl);
+    } else if (row.status === "stitching" && row.stitchPredictionId?.startsWith("composer:")) {
+      await checkComposerEdit(env, row, token, webhookUrl);
     } else if (row.status === "stitching" && row.stitchPredictionId) {
       let stitch: Record<string, unknown>;
       try { stitch = await replicatePrediction(token, row.stitchPredictionId); }
@@ -386,6 +511,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
       const manifest = QUEUE_KINDS.has(row.kind) ? await loadManifest(env, row.id) : null;
       const finalUrl = manifest?.finalUrl || (JSON.parse(row.segmentUrls || "[]") as string[])[0];
       if (!finalUrl) throw new Error("The finished video could not be recovered for storage.");
+      if (finalUrl.startsWith("composer:")) { if (Date.now() - row.updatedAt > 20 * 1000) await saveComposedFilm(env, row, finalUrl.slice("composer:".length)); return getRenderJob(env, row.id); }
       try { await saveFinishedJob(env, row, finalUrl); }
       catch (error) {
         // The engine keeps finished files for about an hour: keep trying to
@@ -443,6 +569,8 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
     error: manifest.lastErrors[index] || "",
     predictionId: ids[index] && !ids[index].startsWith("pending-") && !ids[index].startsWith("resume-") ? ids[index] : "",
     saved: Boolean(manifest.saved[index]),
+    // A stopped video's finished scene whose engine copy has expired and was never kept: Resume makes it again.
+    expired: row.status === "failed" && (finishing ? false : state === "ready") && !manifest.saved[index] && Date.now() - (manifest.readyAt[index] || 0) > 45 * 60 * 1000,
   }));
 }
 
@@ -460,20 +588,30 @@ export async function providerNote(env: { DB: D1Database }) {
 /* Moves along jobs whose provider callbacks may have been missed. Called by
    pages that show production (customer dashboard, manager, Studio) so a
    lost webhook can never leave a video stuck. */
-export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }, origin: string, ownerId: string | null, limit = 3) {
+/* Moves along videos nothing has touched for 45 s, oldest first (so the
+   earliest orders finish first). The heartbeat passes a larger limit and a
+   time budget so every waiting video is reached each minute, a few at a time. */
+export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }, origin: string, ownerId: string | null, limit = 3, { parallel = 1, budgetMs = 0 } = {}) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return 0;
-  const query = `SELECT id FROM render_jobs WHERE status IN ('starting','generating','stitching','saving') AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} ORDER BY updated_at ASC LIMIT ?`;
+  const query = `SELECT id FROM render_jobs WHERE status IN ('starting','generating','stitching','saving') AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} ORDER BY created_at ASC LIMIT ?`;
   const cutoff = Date.now() - 45 * 1000;
   const stale = ownerId
     ? await env.DB.prepare(query).bind(cutoff, ownerId, limit).all<{ id: string }>()
     : await env.DB.prepare(query).bind(cutoff, limit).all<{ id: string }>();
-  for (const item of stale.results) {
-    const row = await getRenderJob(env, item.id);
-    if (!row || !row.webhookToken) continue;
-    await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${row.id}?token=${row.webhookToken}`).catch(() => undefined);
-  }
-  return stale.results.length;
+  const startedAt = Date.now();
+  const waiting = [...stale.results];
+  let moved = 0;
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, waiting.length)) }, async () => {
+    while (waiting.length && (!budgetMs || Date.now() - startedAt < budgetMs)) {
+      const item = waiting.shift()!;
+      const row = await getRenderJob(env, item.id);
+      if (!row || !row.webhookToken) continue;
+      await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${row.id}?token=${row.webhookToken}`).catch(() => undefined);
+      moved += 1;
+    }
+  }));
+  return moved;
 }
 
 /* Manager/owner actions on a video (resume, retry or regenerate a scene,
@@ -515,6 +653,8 @@ export async function startOverJob(env: { DB: D1Database; BUCKET: R2Bucket }, ro
     return before && after ? Object.fromEntries(Object.entries(input).map(([key, value]) => [key, value === before ? after : value])) : input;
   });
   const fresh = newManifest(manifest.engine, manifest.endpoint, manifest.sceneSeconds, inputs, manifest.audio, photos.length ? photos : undefined);
+  // Same plan and music style; the new run gets its own edit and music.
+  if (manifest.edit) fresh.edit = { shareSeconds: manifest.edit.shareSeconds, crossfade: manifest.edit.crossfade, ...(manifest.edit.music ? { music: { prompt: manifest.edit.music.prompt } } : {}) };
   await saveManifest(env, id, fresh);
   await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, ?, 'generating', ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`)
     .bind(id, row.ownerId, row.kind, JSON.stringify(Array.from({ length: count }, () => "")), JSON.stringify(Array.from({ length: count }, () => null)), row.prompt, row.category, row.resolution, row.aspect, row.duration, row.costCents, webhookToken, now, now).run();

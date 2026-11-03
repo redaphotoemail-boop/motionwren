@@ -39,7 +39,9 @@ test("keeps the professional multi-shot crossfade workflow visible", async () =>
     readFile(new URL("../app/api/studio/production/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/_lib/render-jobs.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(source, /true one-second crossfades/i);
+  // Multi-scene films are edited by our composer: crossfades and one music track.
+  assert.match(source, /edited with crossfades and one music track/i);
+  assert.match(jobs, /startComposerEdit/);
   assert.match(jobs, /CROSSFADE_KINDS = new Set\(\["customer-series", "studio-series"\]\)/);
   assert.match(jobs, /CROSSFADE_KINDS\.has\(row\.kind\) \? 1 : 0/);
   assert.match(source, /secondsPerImage/);

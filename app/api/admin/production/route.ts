@@ -1,6 +1,7 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { ACTIVE_STATUSES, advanceStaleJobs, jobScenes, providerNote, publicJob, type RenderJobRow } from "../../_lib/render-jobs";
 import { maxActive, readProviderState } from "../../_lib/provider";
+import { composerBinding, readEditorState } from "../../_lib/composer";
 import { studioEngine } from "../../../engine-catalog";
 import { isEngineKey } from "../../../engine-providers";
 
@@ -17,8 +18,9 @@ export async function GET(request: Request) {
     await requireAdmin(env);
     await advanceStaleJobs(env, new URL(request.url).origin, null, 4).catch(() => 0);
     const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
-    const [state, limit, engineRow, rows] = await Promise.all([
+    const [state, editor, limit, engineRow, rows] = await Promise.all([
       readProviderState(env),
+      readEditorState(env),
       maxActive(env),
       env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'defaultEngine'`).first<{ value?: string }>(),
       env.DB.prepare(`SELECT ${COLUMNS} FROM render_jobs WHERE status IN (${placeholders}) OR updated_at > ? ORDER BY created_at DESC LIMIT 30`).bind(...ACTIVE_STATUSES, Date.now() - 24 * 60 * 60 * 1000).all<RenderJobRow>(),
@@ -40,6 +42,11 @@ export async function GET(request: Request) {
         lastError: state.lastError,
         lastErrorAt: state.lastErrorAt,
         tokenConfigured: Boolean(process.env.REPLICATE_API_TOKEN),
+        // The final edit and its music.
+        editor: composerBinding(env) ? (editor.lastErrorAt > editor.lastOkAt ? "trouble" : "ready") : "backup",
+        editorOkAt: editor.lastOkAt,
+        editorError: editor.lastErrorAt > editor.lastOkAt ? editor.lastError : "",
+        music: process.env.ELEVENLABS_API_KEY ? "ElevenLabs" : process.env.REPLICATE_API_TOKEN ? "Stable Audio (backup)" : "None",
       },
       jobs,
     });

@@ -336,5 +336,138 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
   check("14a tries: engine file storage → private link → inline photo", vias.join(",") === "file,link,inline" && end.status === "succeeded", vias.join(","));
 }
 
+/* ---------- the composer (our own final edit) ---------- */
+/* A stand-in for the Composer container: the same HTTP protocol as
+   composer/server.mjs, finishing an edit 60 s (simulated) after it starts. */
+function makeComposer() {
+  const C = { jobs: new Map(), starts: [], specs: [], failNext: 0, down: 0, loseOutput: false, outputs: 0 };
+  const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const stubFor = (name) => ({
+    fetch: async (url, init = {}) => {
+      if (C.down > 0) { C.down -= 1; throw new Error("Container failed to start"); }
+      const u = new URL(url); const m = /^\/jobs\/([^/]+)(\/output|\/music)?$/.exec(u.pathname); const key = m[1]; const method = (init.method || "GET").toUpperCase();
+      if (method === "POST") {
+        const spec = JSON.parse(init.body); C.specs.push({ name, key, spec });
+        const existing = C.jobs.get(key); if (existing && existing.status !== "failed") return json(existing);
+        C.starts.push(key);
+        C.jobs.set(key, { key, status: "running", startedAt: clock, doneAt: clock + 60_000, fail: C.failNext-- > 0, music: Boolean(spec.music), musicSource: spec.music?.url ? "kept" : "elevenlabs" });
+        return json(C.jobs.get(key), 202);
+      }
+      const job = C.jobs.get(key);
+      if (method === "DELETE") { C.jobs.delete(key); return json({ ok: true }); }
+      if (!job) return json({ key, status: "unknown" }, 404);
+      if (job.status === "running" && clock >= job.doneAt) { job.status = job.fail ? "failed" : "done"; if (job.fail) job.error = "ffmpeg failed (1): test"; }
+      if (!m[2]) return json(job);
+      if (m[2] === "/output") { if (C.loseOutput) { C.loseOutput = false; C.jobs.delete(key); return json({ error: "Not found." }, 404); } C.outputs += 1; return new Response(new Uint8Array(60_000), { headers: { "content-type": "video/mp4", "content-length": "60000" } }); }
+      return new Response(new Uint8Array(4000), { headers: { "content-type": "audio/mpeg", "content-length": "4000" } });
+    },
+  });
+  return { C, binding: { idFromName: (n) => n, get: (id) => stubFor(id), getByName: (n) => stubFor(n) } };
+}
+const withEdit = async (env, id, share = 3.875) => { const m = await lib.loadManifest(env, id); m.edit = { shareSeconds: share, crossfade: 0.5, music: { prompt: "Warm piano" } }; await lib.saveManifest(env, id, m); };
+const stitchCreates = () => P.stitchInputs.length;
+
+/* 15. A 4-scene film is edited by the composer: one music track, saved, no backup joiner */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 4, { tag: "s15" }); await withEdit(env, id);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const m = await lib.loadManifest(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("15a the film is edited by our composer and saved to History", end.status === "succeeded" && C.starts.length === 1 && stitchCreates() === 0, `${end.status} edits=${C.starts.length} backupJoins=${stitchCreates()} ${end.error || ""}`);
+  check("15b the edit gets every scene, its share, the exact length and a music prompt", spec?.clips.length === 4 && spec.sceneSeconds === 3.875 && Math.abs(spec.duration - (4 * 3.875 - 3 * 0.5)) < 1e-6 && spec.music?.prompt === "Warm piano" && spec.width === 1280 && spec.height === 720, JSON.stringify(spec).slice(0, 200));
+  check("15c the film's music is kept for later re-edits", m.edit?.music?.saved === `render-jobs/${id}/music.mp3` && env.BUCKET.store.has(`render-jobs/${id}/music.mp3`), JSON.stringify(m.edit?.music));
+  const hist = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE id = ?").get(id).n;
+  check("15d exactly one History entry; the edit's files are dropped from the container", hist === 1 && C.jobs.size === 0, `history=${hist} containerJobs=${C.jobs.size}`);
+
+  /* 16. Regenerate a scene: a new edit with a new key and the SAME music */
+  const r = await lib.runJobAction(env, end, "regenerate-scene", 1, "r8_test", `https://x.test/api/webhooks/replicate/${id}?token=t`);
+  const end2 = await runToEnd(env, id);
+  const spec2 = C.specs.at(-1)?.spec; const key2 = C.specs.at(-1)?.key;
+  const versions = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE owner_id='owner-1'").get().n;
+  check("16a a re-made scene gives a new film version, edited again", !("error" in r) && end2.status === "succeeded" && versions === 2 && C.starts.length === 2, `${end2.status} versions=${versions} edits=${C.starts.length}`);
+  check("16b the re-edit reuses the film's music (no new music)", Boolean(spec2?.music?.url?.includes(`/api/job-frames/${id}/music.mp3?token=`)) && !spec2.music.prompt && key2 !== C.starts[0], JSON.stringify(spec2?.music));
+}
+
+/* 17. One failed edit is tried again with a new key */
+{
+  resetProvider();
+  const { C, binding } = makeComposer(); C.failNext = 1;
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s17" }); await withEdit(env, id, 7.75);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  check("17a a failed edit is tried again and the film finishes", end.status === "succeeded" && C.starts.length === 2 && new Set(C.starts).size === 2 && stitchCreates() === 0, `${end.status} edits=${C.starts.join(",")}`);
+}
+
+/* 18. Editing service down: after 3 tries the backup joiner finishes the film, the manager is told */
+{
+  resetProvider();
+  const { C, binding } = makeComposer(); C.down = 100;
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 3, { tag: "s18" }); await withEdit(env, id, 5);
+  env.DB.raw.prepare("INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('admin-1','a@x.test','A','admin','active','internal',0,0,0)").run();
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const m = await lib.loadManifest(env, id);
+  const alert = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM notifications WHERE owner_id='admin-1' AND type='provider_alert'").get().n;
+  check("18a the film still finishes (backup joiner) when the editing service is down", end.status === "succeeded" && stitchCreates() === 1 && m.edit?.usedBackupJoiner === true, `${end.status} backup=${stitchCreates()} ${end.error || ""}`);
+  check("18b the manager is told", alert >= 1, `alerts=${alert}`);
+}
+
+/* 19. The container loses the finished film before it is saved: edited again, saved once */
+{
+  resetProvider();
+  const { C, binding } = makeComposer(); C.loseOutput = true;
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s19" }); await withEdit(env, id, 7.75);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const hist = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE owner_id='owner-1'").get().n;
+  check("19a a lost edit is redone and the film is saved exactly once", end.status === "succeeded" && C.starts.length === 2 && hist === 1, `${end.status} edits=${C.starts.length} history=${hist}`);
+}
+
+/* 20. Many users at once: 25 films (25 different accounts), one engine slot, driven only by the heartbeat */
+{
+  resetProvider(); maxRunning = 0;
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const ids = [];
+  for (let i = 0; i < 25; i += 1) { const id = await newJob(env, 3, { tag: `m${i}`, owner: `user-${i}` }); await withEdit(env, id, 5); ids.push(id); await lib.beginQueue(env, id); }
+  const until = clock + 12 * 60 * 60 * 1000;
+  while (clock < until) {
+    const left = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM render_jobs WHERE status NOT IN ('succeeded','failed')").get().n;
+    if (!left) break;
+    tick(20_000); await lib.advanceStaleJobs(env, "https://x.test", null, 100, { parallel: 4 });
+  }
+  const done = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM render_jobs WHERE status = 'succeeded'").get().n;
+  const perScene = new Map(); P.creates.forEach((c) => perScene.set(`${c.job}:${c.scene}`, (perScene.get(`${c.job}:${c.scene}`) || 0) + 1));
+  const hist = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history").get().n;
+  check("20a all 25 films from 25 accounts finish, heartbeat only", done === 25, `succeeded=${done}`);
+  check("20b every scene made exactly once (75 engine jobs), never more than 1 at a time", P.creates.length === 75 && [...perScene.values()].every((n) => n === 1) && maxRunning <= 1, `creates=${P.creates.length} maxRunning=${maxRunning} throttled=${P.throttled}`);
+  check("20c one edit and one History entry per film", C.starts.length === 25 && hist === 25, `edits=${C.starts.length} history=${hist}`);
+  const owners = env.DB.raw.prepare("SELECT COUNT(DISTINCT owner_id) AS n FROM generation_history").get().n;
+  check("20d each film went to its own account", owners === 25, `owners=${owners}`);
+}
+
+/* 21. Same 25 films once credit is added (no burst limit, 6 at a time) */
+{
+  resetProvider({ burstMs: 0 }); maxRunning = 0;
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  for (let i = 0; i < 25; i += 1) { const id = await newJob(env, 3, { tag: `n${i}`, owner: `user-${i}` }); await withEdit(env, id, 5); await lib.beginQueue(env, id); }
+  const t0 = clock;
+  while (clock < t0 + 12 * 60 * 60 * 1000) {
+    const left = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM render_jobs WHERE status NOT IN ('succeeded','failed')").get().n;
+    if (!left) break;
+    tick(20_000); await lib.advanceStaleJobs(env, "https://x.test", null, 100, { parallel: 4 });
+  }
+  const done = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM render_jobs WHERE status = 'succeeded'").get().n;
+  check("21a with credit, 6 scenes at a time: all 25 finish, never over the limit, no duplicates", done === 25 && maxRunning <= 6 && maxRunning >= 4 && P.creates.length === 75 && C.starts.length === 25, `succeeded=${done} maxRunning=${maxRunning} creates=${P.creates.length} minutes=${Math.round((clock - t0) / 60000)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

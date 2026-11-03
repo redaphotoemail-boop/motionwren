@@ -188,41 +188,65 @@ export function preferredDurationForEngine(key: StudioEngineKey, requested: numb
 export const VIDEO_LENGTHS = [15, 30, 60] as const;
 export type VideoLength = (typeof VIDEO_LENGTHS)[number];
 
-/** How much neighbouring scenes overlap in the joined film. Measured on a
-    real joined film (Nov 3, 2026): the joiner plays every scene in full and
-    adds a short dissolve (about a quarter second per join), so scenes do not
-    overlap. Planning with a one-second overlap made a 15-second film 18.6 s. */
-export const CROSSFADE_SECONDS = 0;
+/** Scenes overlap by this much where our editor (the composer) cross-dissolves
+    one into the next. Every scene is trimmed to its share of the film, so the
+    finished film lands exactly on the ordered length. */
+export const CROSSFADE_SECONDS = 0.5;
+
+/** Scene lengths an engine can make for a film. Wan 3.0 takes any whole
+    number of seconds (2–30 per its published schema); others use their
+    Studio options. */
+export function filmSceneDurations(key: StudioEngineKey, resolution: StudioResolution): number[] {
+  if (key === "wan3") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
+  return [...engineDurationOptions(key, resolution)].sort((a, b) => a - b);
+}
+
+/** How long each photo stays on screen, chosen by film length (automatic
+    "Scene timing"): quick cuts for short social videos, calmer shots for
+    longer listing films. Short AI scenes also stay truer to the photo. */
+export function idealShotSeconds(targetSeconds: number) {
+  return targetSeconds <= 15 ? 3 : targetSeconds <= 20 ? 3.5 : targetSeconds <= 30 ? 4 : 5;
+}
 
 /**
- * How many photos a video uses and how long each scene runs, so the finished
- * film (every scene in full, joined with short dissolves) lands on the length
- * that was ordered. About five seconds a scene suits slow real-estate camera
- * moves (the manager's "Scene timing" can make it three): 15 s uses 3
- * photos, 30 s 6, 60 s 12. With fewer photos, each scene runs longer,
- * using only scene lengths the engine accepts. Never more than 12 scenes.
+ * How many photos a video uses and how long each scene is made, so the
+ * finished film lands exactly on the ordered length. Scene timing is
+ * automatic (idealShotSeconds) unless the manager fixed it at 3 or 5 s.
+ * Each scene is made at the shortest engine length that covers its share
+ * (shareSeconds) and trimmed to it. Picks the number of photos whose share is
+ * closest to the ideal pace while wasting the least engine time.
+ * Typical: 10 s → 4 photos, 15 s → 6, 20 s → 6, 30 s → 9, 60 s → 12.
+ * Never more than 12 scenes; with fewer photos each scene simply runs longer.
  */
 export const MAX_CUSTOMER_SCENES = 12;
-export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto: 3 | 5 = 5) {
-  const allowed = engineDurationOptions(key, resolution);
-  const ideal = preferredDurationForEngine(key, secondsPerPhoto, resolution);
+export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto?: 3 | 5) {
+  const allowed = filmSceneDurations(key, resolution);
+  const longest = allowed[allowed.length - 1];
+  const ideal = secondsPerPhoto || idealShotSeconds(targetSeconds);
   const most = Math.max(1, Math.min(available, MAX_CUSTOMER_SCENES));
-  const snap = (seconds: number) => allowed.reduce((closest, option) => Math.abs(option - seconds) < Math.abs(closest - seconds) ? option : closest, allowed[0]);
-  if (most === 1) { const only = snap(targetSeconds); return { count: 1, sceneSeconds: only, totalSeconds: only }; }
-  const planFor = (count: number) => {
-    const sceneSeconds = snap((targetSeconds + (count - 1) * CROSSFADE_SECONDS) / count);
-    return { count, sceneSeconds, totalSeconds: count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS };
-  };
-  // The natural count at the ideal timing (rounding a half down: fewer, longer scenes)...
-  const natural = Math.max(2, Math.min(most, Math.floor((targetSeconds - CROSSFADE_SECONDS) / Math.max(1, ideal - CROSSFADE_SECONDS) + 0.4)));
-  const first = planFor(natural);
-  if (Math.abs(first.totalSeconds - targetSeconds) <= 2) return first;
-  // ...unless the engine's scene lengths can't reach the ordered length that way.
-  let best = first;
-  for (let count = 2; count <= most; count += 1) {
-    const plan = planFor(count);
-    const off = Math.abs(plan.totalSeconds - targetSeconds), bestOff = Math.abs(best.totalSeconds - targetSeconds);
-    if (off < bestOff || (off === bestOff && Math.abs(plan.sceneSeconds - ideal) < Math.abs(best.sceneSeconds - ideal))) best = plan;
+  const X = CROSSFADE_SECONDS;
+  if (most === 1) {
+    const sceneSeconds = allowed.find((option) => option >= targetSeconds) || longest;
+    const totalSeconds = Math.min(targetSeconds, sceneSeconds);
+    return { count: 1, sceneSeconds, shareSeconds: totalSeconds, totalSeconds };
   }
-  return best;
+  let best: { count: number; share: number; sceneSeconds: number; score: number } | null = null;
+  for (let count = 2; count <= most; count += 1) {
+    const share = (targetSeconds + (count - 1) * X) / count;
+    if (share < 2.5) break; // faster than this reads as flicker
+    const sceneSeconds = allowed.find((option) => option >= share - 1e-9);
+    if (!sceneSeconds) continue; // a scene can't be that long: more photos needed
+    const score = Math.abs(share - ideal) / ideal + 0.6 * (sceneSeconds - share) / sceneSeconds;
+    if (!best || score < best.score - 1e-9) best = { count, share, sceneSeconds, score };
+  }
+  if (!best) {
+    // Too few photos for the length even at the longest scenes: the film is as long as they allow.
+    return { count: most, sceneSeconds: longest, shareSeconds: longest, totalSeconds: most * longest - (most - 1) * X };
+  }
+  return { count: best.count, sceneSeconds: best.sceneSeconds, shareSeconds: Math.round(best.share * 1000) / 1000, totalSeconds: targetSeconds };
+}
+
+/** Manager's "Scene timing" setting: "3" or "5" fixes it; anything else is automatic. */
+export function sceneTimingSetting(value: string | null | undefined): 3 | 5 | undefined {
+  return value === "3" ? 3 : value === "5" ? 5 : undefined;
 }

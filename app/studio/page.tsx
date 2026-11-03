@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../ui-icon";
 import { engineCost, scenePlan, studioEngine, studioEngines, VIDEO_LENGTHS, type StudioEngineKey, type StudioResolution, type VideoLength } from "../engine-catalog";
-import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startOverStudioJob, startStudioProduction, stopStudioJob, useStudioJobs, type Sending, type StudioJob } from "./production";
+import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startOverStudioJob, startStudioProduction, stopStudioJob, stoppedMessage, useStudioJobs, type Sending, type StudioJob } from "./production";
 
 type MotionKey = "push" | "orbit" | "slide" | "focus" | "pull" | "mixed" | "custom";
 type SpeedKey = "slow" | "medium" | "fast";
@@ -300,7 +300,7 @@ export default function Home() {
   const audioPrompt = selectedEngine.audio ? [soundEnabled ? `Generate synchronized music, ambience and sound effects: ${soundDirection}` : "", voiceoverEnabled && voiceoverText.trim() ? `Include a clear professional voiceover that says exactly: "${voiceoverText.trim()}". Keep narration intelligible above the music and effects.` : ""].filter(Boolean).join(" ") : "";
   const seriesAudioRequested = soundEnabled || voiceoverEnabled; const finalPrompt = buildPrompt(motion, details, category, "", speed, aspect, audioPrompt); const extensionPrompt = buildPrompt(motion, `Continue the scene naturally from this exact final frame. ${details}`, category, "Preserve seamless continuity with the preceding clip: same subject, lighting, color grade, lens, environment and direction of action.", speed, aspect, audioPrompt); const price = estimateCost(engine, resolution, frames);
   // The film length decides how many scenes are used and how long each runs (same plan the server uses).
-  const plan = scenePlan(engine, resolution, seriesLength, Math.max(2, shots.length), secondsPerImage === 3 ? 3 : 5); const planScenes = Math.min(plan.count, shots.length); const stitchedDuration = plan.totalSeconds; const seriesCost = engineCost(engine, resolution, plan.sceneSeconds * Math.max(planScenes, 2)); const shortOfLength = shots.length >= 2 && stitchedDuration < seriesLength - 3;
+  const plan = scenePlan(engine, resolution, seriesLength, Math.max(2, shots.length), secondsPerImage === "auto" ? undefined : secondsPerImage); const planScenes = Math.min(plan.count, shots.length); const stitchedDuration = plan.totalSeconds; const seriesCost = engineCost(engine, resolution, plan.sceneSeconds * Math.max(planScenes, 2)); const shortOfLength = shots.length >= 2 && stitchedDuration < seriesLength - 3;
   const branding: RealEstateBranding = { listingEnabled, listingTitle, listingBeds, listingBaths, listingSquareFeet, listingPrice, listingMessage, agentEnabled, agentName, agentEmail, agentPhone, agentLogo, agentLogoName };
   const brandingProps: RealEstateBrandingProps = { ...branding, setListingEnabled, setListingTitle, setListingBeds, setListingBaths, setListingSquareFeet, setListingPrice, setListingMessage, setAgentEnabled, setAgentName, setAgentEmail, setAgentPhone, acceptAgentLogo, removeAgentLogo: () => { setAgentLogo(""); setAgentLogoName(""); } };
   // A link such as /studio?mode=series opens that tab.
@@ -577,7 +577,7 @@ export default function Home() {
         {(preparing || starting === tab) && <div className="processing"><span className="spinner"/><strong>{preparing ? "Preparing" : "Sending to the studio"}</strong><small>One moment — then you can follow every step.</small></div>}
         {overlay?.busy && <div className="processing"><span className="spinner"/><strong>Adding the listing cards</strong><small>{overlay.message}</small></div>}
       </div>
-      {job?.status === "failed" && <div className="error">This video stopped: {job.error || "please try again."}</div>}
+      {job?.status === "failed" && <div className="error">{stoppedMessage(job)}</div>}
       {overlay && !overlay.busy && <div className="error">{overlay.message}</div>}
     </>;
   }
@@ -650,8 +650,8 @@ export default function Home() {
           {error && <div className="error">{error}</div>}
           <div className="series-actions"><button className="generate" onClick={generateSeries} disabled={!connected || shots.length < 2 || seriesGenerating || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" ? "Sending your scenes…" : isActive(seriesJob) ? "Making your film…" : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button></div>
           {historyMessage && <p className="history-message">{historyMessage}</p>}
-          <p className="queue-note">All scenes are made at once on our server. A scene that fails is redone automatically, up to three tries. Scenes are joined with true one-second crossfades and the film is saved to History — you can close or refresh this page.</p>
-          <div className="stitched-result"><span className="label">FINAL VIDEO</span>{stitchedOutput ? <><video src={stitchedOutput} controls playsInline/>{downloadLink(stitchedOutput, seriesJob, stitchedFormat, "motionwren-film")}</> : <><strong>Your film will appear here</strong><small>Scenes stay in your order and blend with a smooth one-second overlap.</small></>}{overlayWork && seriesJob && overlayWork.id === seriesJob.id && <p className={overlayWork.busy ? "history-message" : "error"}>{overlayWork.busy ? `Adding the listing cards… ${overlayWork.message}` : overlayWork.message}</p>}</div>
+          <p className="queue-note">Scenes are made on our server, in turn. A scene that fails is redone automatically, up to three tries. The film is edited with crossfades and one music track, then saved to History — you can close or refresh this page.</p>
+          <div className="stitched-result"><span className="label">FINAL VIDEO</span>{stitchedOutput ? <><video src={stitchedOutput} controls playsInline/>{downloadLink(stitchedOutput, seriesJob, stitchedFormat, "motionwren-film")}</> : <><strong>Your film will appear here</strong><small>Scenes stay in your order, cross-dissolve, and share one music track.</small></>}{overlayWork && seriesJob && overlayWork.id === seriesJob.id && <p className={overlayWork.busy ? "history-message" : "error"}>{overlayWork.busy ? `Adding the listing cards… ${overlayWork.message}` : overlayWork.message}</p>}</div>
         </div>
       </div>
     </section> : mode === "extend" ? <section className="workspace extension-workspace">

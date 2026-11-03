@@ -15,6 +15,20 @@ const localBindingConfig = {
   compatibility_flags: ["nodejs_compat"],
   // Server heartbeat: moves along videos in production once a minute.
   triggers: { crons: ["* * * * *"] },
+  // The composer: our own ffmpeg final edit (one music track, true
+  // crossfades, exact length), one container per film. See composer/.
+  containers: [
+    {
+      class_name: "Composer",
+      image: "./composer/Dockerfile",
+      instance_type: "standard-3",
+      max_instances: 20,
+    },
+  ],
+  durable_objects: { bindings: [{ name: "COMPOSER", class_name: "Composer" }] },
+  migrations: [{ tag: "composer-v1", new_sqlite_classes: ["Composer"] }],
+  // Local development runs without Docker; films there use the backup joiner.
+  dev: { enable_containers: false },
   d1_databases: d1
     ? [
         {

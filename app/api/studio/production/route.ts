@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
-import { engineCost, engineDurationOptions, preferredDurationForEngine, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
+import { CROSSFADE_SECONDS, engineCost, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, isEngineKey } from "../../../engine-providers";
 import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_lib/render-jobs";
 import { frameKey, newManifest, saveManifest, storeFrame } from "../../_lib/production";
 import { studioToken } from "../../_lib/studio-token";
+import { musicPrompt } from "../../_lib/composer";
 
 /* Studio production on the server — the same path client videos take.
    1. POST here with the settings and each scene's prompt: the job is created
@@ -43,17 +44,18 @@ export async function POST(request: Request) {
   if (mode === "series" && valid.length < 2) return NextResponse.json({ error: "Add at least two scenes." }, { status: 400 });
 
   // How many scenes and how long each, so the film lands on the chosen length.
-  let count = 1, sceneSeconds: number, duration: number;
+  let count = 1, sceneSeconds: number, duration: number, shareSeconds = 0;
   if (mode === "single") {
     sceneSeconds = preferredDurationForEngine(engine, Math.max(3, Math.min(15, Math.round(Number(body.clipSeconds) || 5))), resolution);
     duration = sceneSeconds;
   } else {
     const length = VIDEO_LENGTHS.includes(Number(body.length) as (typeof VIDEO_LENGTHS)[number]) ? Number(body.length) : 30;
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
-    const plan = scenePlan(engine, resolution, length, valid.length, timingRow?.value === "3" ? 3 : 5);
-    count = plan.count; sceneSeconds = plan.sceneSeconds; duration = plan.totalSeconds;
+    const plan = scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value));
+    count = plan.count; sceneSeconds = plan.sceneSeconds; duration = plan.totalSeconds; shareSeconds = plan.shareSeconds;
   }
-  if (!engineDurationOptions(engine, resolution).includes(sceneSeconds as never)) return NextResponse.json({ error: "This engine cannot make scenes of that length." }, { status: 400 });
+  const lengths: number[] = mode === "single" ? engineDurationOptions(engine, resolution) : filmSceneDurations(engine, resolution);
+  if (!lengths.includes(sceneSeconds)) return NextResponse.json({ error: "This engine cannot make scenes of that length." }, { status: 400 });
   const scenes = valid.slice(0, count);
   const seed = Number.isInteger(body.seed) && Number(body.seed) >= 0 ? Number(body.seed) : undefined;
   const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
@@ -76,6 +78,8 @@ export async function POST(request: Request) {
   // One soundtrack across the joined film (when the scenes have sound), never a different track per scene.
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;
   const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio, links.map((link, index) => ({ key: frameKey(id, index), link })));
+  // The final edit: each scene's share on screen and the film's one music track.
+  if (mode === "series") manifest.edit = { shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect, duration }) } };
   try {
     await saveManifest(env, id, manifest);
     if (inline) {

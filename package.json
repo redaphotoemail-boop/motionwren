@@ -13,9 +13,11 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
-    "test:queue": "node --no-warnings tests/scene-queue/scene-queue.test.mjs"
+    "test:queue": "node --no-warnings tests/scene-queue/scene-queue.test.mjs",
+    "test:composer": "node --no-warnings tests/composer/composer.test.mjs"
   },
   "dependencies": {
+    "@cloudflare/containers": "0.3.7",
     "drizzle-orm": "0.45.2",
     "next": "^16.4.2",
     "react": "19.2.6",

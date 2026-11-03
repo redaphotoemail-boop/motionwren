@@ -77,7 +77,7 @@ async function keepScene(env: QueueEnv, jobId: string, index: number, url: strin
   return outputKey(jobId, index);
 }
 
-async function alertManagers(env: QueueEnv, title: string, message: string) {
+export async function alertManagers(env: QueueEnv, title: string, message: string) {
   const admins = await env.DB.prepare(`SELECT id FROM users WHERE role = 'admin'`).all<{ id: string }>().catch(() => ({ results: [] as { id: string }[] }));
   const day = new Date().toISOString().slice(0, 10);
   for (const admin of admins.results) {
@@ -290,6 +290,8 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
     }
     if (["stitching", "saving"].includes(row.status)) return { error: "This video is being finished right now." };
     manifest.stitchAttempts = 0;
+    // A fresh edit (the film's music is kept, so a re-made film sounds the same).
+    if (manifest.edit) manifest.edit = { ...manifest.edit, key: undefined, tries: 0, startedAt: 0, lastError: "", usedBackupJoiner: false };
     await saveManifest(env, row.id, manifest);
     // Back into production (a finished film gets a new version in History).
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(JSON.stringify(ids), JSON.stringify(segments), now, row.id).run();

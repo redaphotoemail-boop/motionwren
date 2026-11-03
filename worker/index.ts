@@ -3,6 +3,9 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { heartbeatKey } from "../app/api/_lib/heartbeat";
 
+// The final-edit container class (bound as COMPOSER in vite.config.ts).
+export { Composer } from "./composer";
+
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;

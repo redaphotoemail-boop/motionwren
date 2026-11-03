@@ -1,7 +1,8 @@
-import { MAX_CUSTOMER_SCENES, engineCost, scenePlan } from "../../../../engine-catalog";
+import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, sceneTimingSetting, scenePlan } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../../../engine-providers";
 import { HttpError, enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
 import { customerSafeError } from "../../../_lib/customer-errors";
+import { musicPrompt } from "../../../_lib/composer";
 import { newManifest, saveManifest } from "../../../_lib/production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "../../../_lib/render-jobs";
 
@@ -50,8 +51,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // The video's length decides how many of the customer's photos it uses,
     // in their chosen order (see scenePlan): a 20-second reel uses the first 4.
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
-    const secondsPerPhoto = timingRow?.value === "3" ? 3 : 5; // "auto" and unset mean 5
-    const plan = scenePlan(engine, resolution, project.targetDuration, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), secondsPerPhoto);
+    // "3"/"5" fix the scene timing; "auto" and unset choose it by the video's length.
+    const plan = scenePlan(engine, resolution, project.targetDuration, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), sceneTimingSetting(timingRow?.value));
     const scenes = assets.results.slice(0, plan.count);
     const sceneSeconds = plan.sceneSeconds;
     const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
@@ -74,7 +75,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     // Into the scene queue: scenes are made one after another as the engine
     // allows (waits and retries are automatic); the customer can leave.
-    await saveManifest(env, jobId, newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos));
+    const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos);
+    // The final edit: each scene's share on screen and the film's one music track.
+    manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: project.targetDuration }) } };
+    await saveManifest(env, jobId, manifest);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
       env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(Date.now(), projectId, account.id),

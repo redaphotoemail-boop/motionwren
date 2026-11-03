@@ -5,12 +5,21 @@ import { Icon } from "../../ui-icon";
 import { Metric, PageHead } from "../ui";
 import { ProductionView, isActive, sceneLabel, type StudioJob } from "../../studio/production";
 
+/* A scene's last engine message in plain words (the exact text stays in the tooltip). */
+function sceneNote(error: string) {
+  if (/throttl|rate limit|burst|429/i.test(error)) return "Engine was busy · waited and retried";
+  if (/credit/i.test(error)) return "Engine account needs credit";
+  if (/could not be reached|network|timeout|5\d\d/i.test(error)) return "Engine didn't answer · retried";
+  if (/picked up again/i.test(error)) return "Stopped before it finished";
+  return "Engine couldn't make this scene";
+}
+
 /* Manager only: production health and every video being made — clients'
    orders and Studio videos — with each scene's detail and the actions that
    fix a stuck video. Every action goes through the same queue, so a double
    click cannot create duplicate engine jobs. */
 
-type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean };
+type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string };
 type Job = StudioJob & { owner?: string };
 
 const time = (value: number) => value ? new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
@@ -74,7 +83,9 @@ export default function ProductionPage() {
       <Metric label="Status" value={status} tone={health?.paused || !health?.tokenConfigured ? "bad" : health && health.waitingUntil > now ? "warn" : "ok"} />
       <Metric label="Engine" value={health?.engine || "…"} />
       <Metric label="With the engine" value={health ? `${health.activeScenes} of ${health.maxActive}` : "…"} note={health ? `${health.queuedScenes} in line · ${health.activeVideos} video${health.activeVideos === 1 ? "" : "s"}` : undefined} />
-      <Metric label="Last provider message" value={health?.lastErrorAt ? ago(health.lastErrorAt, now) : "None"} note={health?.lastError ? health.lastError.slice(0, 140) : undefined} />
+      <Metric label="Last provider message" value={health?.lastErrorAt ? ago(health.lastErrorAt, now) : "None"} note={health?.lastError ? sceneNote(health.lastError) : undefined} />
+      <Metric label="Editing" value={!health ? "…" : health.editor === "ready" ? "Ready" : health.editor === "trouble" ? "Retrying" : "Backup joiner"} tone={health?.editor === "ready" ? "ok" : health?.editor === "trouble" ? "warn" : "bad"} note={health?.editor === "backup" ? "Editing service not set up: music changes between scenes" : health?.editorOkAt ? `Last film edited ${ago(health.editorOkAt, now)}` : "One music track, true crossfades"} />
+      <Metric label="Music" value={health?.music || "…"} tone={health?.music === "ElevenLabs" ? "ok" : "warn"} note={health?.music === "ElevenLabs" ? "Backup: Stable Audio" : "Add the ElevenLabs key to use ElevenLabs"} />
     </section>
 
     <section className="prodm-setting">
@@ -101,7 +112,7 @@ export default function ProductionPage() {
               <span className="prodm-n">{index + 1}</span>
               <span className={`prodm-state is-${scene.state}`}>{sceneLabel(scene, now)}</span>
               <span className="prodm-meta">{[scene.attempt ? `try ${scene.attempt}/3` : "", scene.nextAt && scene.nextAt > now ? `next ${time(scene.nextAt)}` : "", scene.saved ? "kept" : ""].filter(Boolean).join(" · ")}</span>
-              <span className="prodm-detail">{scene.state !== "ready" && scene.error ? scene.error : scene.predictionId ? `Engine job ${scene.predictionId}` : ""}</span>
+              <span className="prodm-detail" title={scene.error || undefined}>{scene.state !== "ready" && scene.error ? sceneNote(scene.error) : scene.predictionId ? `Engine job ${scene.predictionId}` : ""}</span>
               <span className="prodm-btns">
                 {["failed", "retry"].includes(scene.state) && <button type="button" className="text-btn" disabled={Boolean(busy)} onClick={() => act(job, "retry-scene", index)}>Retry now</button>}
                 {scene.state === "ready" && !isActive(job) && <button type="button" className="text-btn" disabled={Boolean(busy)} onClick={() => act(job, "regenerate-scene", index, `Make scene ${index + 1} again (~$${(perScene(job) / 100).toFixed(2)}) and re-join the film?`)}>Regenerate</button>}
