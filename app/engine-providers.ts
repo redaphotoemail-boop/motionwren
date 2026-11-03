@@ -41,12 +41,20 @@ export function engineResolution(engine: StudioEngineKey): StudioResolution {
   return supported.includes("1080p") ? "1080p" : supported[supported.length - 1];
 }
 
-export type EngineInputOptions = { imageUrl: string; prompt: string; duration: number; resolution: StudioResolution; aspectRatio: "16:9" | "9:16" };
+/* audio: engines that can make sound (the Studio's music/voiceover option);
+   customer videos are always silent. seed: the Studio's fixed seed. */
+export type EngineInputOptions = { imageUrl: string; prompt: string; duration: number; resolution: StudioResolution; aspectRatio: "16:9" | "9:16"; audio?: boolean; seed?: number };
 
 export function buildEngineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
+  const input = engineInput(engine, options);
+  if (Number.isInteger(options.seed) && Number(options.seed) >= 0) input.seed = options.seed;
+  return input;
+}
+
+function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
   const prompt = options.prompt.slice(0, 4000);
-  const noAudio = "No dialogue, no music, and no sound effects.";
-  if (engine === "kling3") return { start_image: options.imageUrl, prompt, duration: options.duration, mode: options.resolution === "1080p" ? "pro" : "standard", aspect_ratio: options.aspectRatio, generate_audio: false, negative_prompt: KLING_NEGATIVE };
+  const noAudio = options.audio ? "Generate restrained synchronized ambience." : "No dialogue, no music, and no sound effects.";
+  if (engine === "kling3") return { start_image: options.imageUrl, prompt, duration: options.duration, mode: options.resolution === "1080p" ? "pro" : "standard", aspect_ratio: options.aspectRatio, generate_audio: options.audio === true, negative_prompt: KLING_NEGATIVE };
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };

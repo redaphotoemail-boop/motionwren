@@ -2,6 +2,7 @@ import { MAX_CUSTOMER_SCENES, engineCost, scenePlan } from "../../../../engine-c
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../../../engine-providers";
 import { enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
 import { customerSafeError } from "../../../_lib/customer-errors";
+import { newManifest, startProductionScenes } from "../../../_lib/production";
 
 const MOVEMENTS = [
   "a slow stabilized push-in",
@@ -14,7 +15,6 @@ const MOVEMENTS = [
 const STATIC_LOCK = "Create an extremely realistic professional real-estate shot. Only the camera moves. Every wall, floor, ceiling, window, door, piece of furniture, decoration, plant, reflection, exterior element and light source remains completely motionless and geometrically identical. Preserve the exact architecture, materials, proportions, perspective and lighting from the source image. Buttery-smooth motorized movement, constant speed, locked horizon, no handheld shake, no walking bounce, no jitter, no flicker, no morphing, no warping, no invented objects, no people entering, no object interaction.";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const started: string[] = [];
   let jobId: string | null = null;
   let ownerId: string | null = null;
   let projectId: string | null = null;
@@ -59,29 +59,28 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       env.DB.prepare(`UPDATE projects SET status = 'queued', generation_engine = ?, resolution = ?, render_job_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(engine, resolution, jobId, now, projectId, account.id),
     ]);
 
+    // Every scene's exact request is kept in the job's manifest so a scene
+    // that fails or hangs restarts on its own (see production.ts).
+    const inputs: Record<string, unknown>[] = [];
     for (let index = 0; index < scenes.length; index += 1) {
       const asset = scenes[index];
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, account.id).run();
       const imageUrl = `${origin}/api/provider-assets/${asset.id}?token=${assetToken}`;
-      const response = await fetch(ENGINE_ENDPOINTS[engine], {
-        method: "POST",
-        headers: { Authorization: `Bearer ${providerToken}`, "Content-Type": "application/json", Prefer: "respond-async" },
-        body: JSON.stringify({ input: buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }), webhook, webhook_events_filter: ["completed"] }),
-      });
-      const data = await response.json() as Record<string, unknown>;
-      if (!response.ok || typeof data.id !== "string") throw new Error(customerSafeError((data.detail as string) || (data.error as string) || `Scene ${index + 1} could not start.`));
-      started.push(data.id);
+      inputs.push(buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
+    }
+    try {
+      await startProductionScenes(env, providerToken, jobId, newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs), webhook);
+    } catch (error) {
+      throw new Error(customerSafeError(error instanceof Error ? error.message : "A scene could not start."));
     }
     await env.DB.batch([
-      env.DB.prepare(`UPDATE render_jobs SET status = 'generating', prediction_ids = ?, updated_at = ? WHERE id = ?`).bind(JSON.stringify(started), Date.now(), jobId),
       env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(Date.now(), projectId, account.id),
       env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'production_started', 'Production started', 'Your photographs are generating now. You can close this page; processing will continue.', NULL, ?)`).bind(`${jobId}:started`, account.id, Date.now()),
     ]);
     return Response.json({ jobId, status: "generating" }, { status: 202 });
   } catch (error) {
-    const token = process.env.REPLICATE_API_TOKEN;
-    if (token) await Promise.allSettled(started.map((id) => fetch(`https://api.replicate.com/v1/predictions/${id}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })));
+    // startProductionScenes already cancelled any scene it had started.
     if (jobId && ownerId && projectId) {
       const { env } = await import("cloudflare:workers");
       const message = error instanceof Error ? error.message : "Production could not start.";

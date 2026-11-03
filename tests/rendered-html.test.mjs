@@ -34,13 +34,21 @@ test("renders the customer-facing business site", async () => {
 
 test("keeps the professional multi-shot crossfade workflow visible", async () => {
   const source = await readFile(new URL("../app/studio/page.tsx", import.meta.url), "utf8");
+  // Studio films are made, joined and saved on the server (it survives a refresh).
+  const [route, jobs] = await Promise.all([
+    readFile(new URL("../app/api/studio/production/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/_lib/render-jobs.ts", import.meta.url), "utf8"),
+  ]);
   assert.match(source, /true one-second crossfades/i);
-  assert.match(source, /crossfadeSeconds: 1/);
+  assert.match(jobs, /CROSSFADE_KINDS = new Set\(\["customer-series", "studio-series"\]\)/);
+  assert.match(jobs, /CROSSFADE_KINDS\.has\(row\.kind\) \? 1 : 0/);
   assert.match(source, /secondsPerImage/);
   assert.match(source, /multiShotSecondsPerImage/);
+  assert.match(source, /VIDEO_LENGTHS/);
   assert.match(source, /audioMode: seriesAudioRequested \? "single_master" : "silent"/);
   assert.match(source, /const sceneAudio = soundEnabled && !voiceoverEnabled && shotIndex === 0/);
-  assert.match(source, /sceneDuration, sceneAudio\)/);
+  assert.match(source, /startStudioProduction\(\{ mode: "series"/);
+  assert.match(route, /scenePlan\(engine, resolution, length/);
 });
 
 test("keeps the client journey short and the owner dashboard organized", async () => {

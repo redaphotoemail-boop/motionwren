@@ -10,11 +10,16 @@ function validFrame(value: unknown) {
   return typeof value === "string" && value.startsWith("data:image/") && value.length <= 1_500_000;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const { env } = await import("cloudflare:workers");
   let ownerId: string;
   try { ownerId = (await requireAdmin(env)).id; } catch (error) { return jsonError(error); }
   const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
+  // ?all=1: every video still being made (the Studio's History shows them).
+  if (new URL(request.url).searchParams.get("all") === "1") {
+    const rows = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND status IN (${placeholders}) ORDER BY created_at DESC LIMIT 10`).bind(ownerId, ...ACTIVE_STATUSES).all<RenderJobRow>();
+    return NextResponse.json({ jobs: rows.results.map(publicJob) });
+  }
   const row = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND status IN (${placeholders}) ORDER BY created_at DESC LIMIT 1`).bind(ownerId, ...ACTIVE_STATUSES).first<RenderJobRow>();
   return NextResponse.json({ job: row ? publicJob(row) : null });
 }
@@ -27,6 +32,7 @@ export async function POST(request: Request) {
   const token = process.env.REPLICATE_API_TOKEN || store.get("wan_replicate_token")?.value;
   if (!token) return NextResponse.json({ error: "Connect Replicate before generating." }, { status: 503 });
   const startedIds: string[] = [];
+  let jobId = "";
   try {
     const id = crypto.randomUUID();
     const webhookToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
@@ -41,6 +47,14 @@ export async function POST(request: Request) {
     if (mode === "ai" && prompt.length < 20) return NextResponse.json({ error: "A clear movement direction is required." }, { status: 400 });
     const seed = Number.isInteger(body.seed) && Number(body.seed) >= 0 ? Number(body.seed) : undefined;
     const negativePrompt = "people entering, hands touching objects, object interaction, independent object movement, subject movement, morphing, warping, melting, duplication, replacement, invented objects, new elements, disappearing objects, geometry changes, material changes, text changes, lighting changes, flicker, shake, jitter, handheld motion, walking bounce, cuts, surreal action";
+
+    const pairCount = images.length - 1;
+    const duration = mode === "clean" ? images.length * durationPerTransition : pairCount * durationPerTransition;
+    const costCents = mode === "clean" ? 1 : Math.round(duration * 15);
+    const created = Date.now();
+    // The job exists before anything starts, so early callbacks find it.
+    await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, ?, 'starting', '[]', '[]', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(id, ownerId, mode === "clean" ? "clean-transition" : "ai-transition", prompt, `${images.length}-frame ${mode === "clean" ? "clean dissolve" : "controlled transition"}`, requestedResolution, typeof body.aspect === "string" ? body.aspect.slice(0, 20) : "horizontal", duration, costCents, webhookToken, created, created).run();
+    jobId = id;
 
     if (mode === "clean") {
       const response = await fetch(CLEAN_ENDPOINT, {
@@ -64,15 +78,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const now = Date.now();
-    const pairCount = images.length - 1;
-    const duration = mode === "clean" ? images.length * durationPerTransition : pairCount * durationPerTransition;
-    const costCents = mode === "clean" ? 1 : Math.round(duration * 15);
-    await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(id, ownerId, mode === "clean" ? "clean-transition" : "ai-transition", "generating", JSON.stringify(startedIds), "[]", prompt, `${images.length}-frame ${mode === "clean" ? "clean dissolve" : "controlled transition"}`, requestedResolution, typeof body.aspect === "string" ? body.aspect.slice(0, 20) : "horizontal", duration, costCents, webhookToken, now, now).run();
+    await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', prediction_ids = ?, updated_at = ? WHERE id = ? AND status = 'starting'`).bind(JSON.stringify(startedIds), Date.now(), id).run();
     const row = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, webhook_token AS webhookToken, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE id = ?`).bind(id).first<RenderJobRow>();
     return NextResponse.json({ job: row ? publicJob(row) : { id, status: "generating" } });
   } catch (error) {
     await Promise.allSettled(startedIds.map((id) => fetch(`https://api.replicate.com/v1/predictions/${id}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })));
+    if (jobId) await env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind((error instanceof Error ? error.message : "The job could not start.").slice(0, 1000), Date.now(), jobId).run();
     return NextResponse.json({ error: error instanceof Error ? error.message : "The transition job could not be started." }, { status: 500 });
   }
 }

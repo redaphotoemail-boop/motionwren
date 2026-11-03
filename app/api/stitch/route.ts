@@ -25,10 +25,17 @@ export async function POST(request: Request) {
     const audioMode = body.audioMode === "single_master" ? "single_master" : "silent";
     const audioDirection = typeof body.audioDirection === "string" ? body.audioDirection : "";
     const voiceoverScript = typeof body.voiceoverScript === "string" ? body.voiceoverScript : "";
-    const stitchId = await startStitch(token, videos, resolution, aspect, crossfadeSeconds, webhook, duration, { mode: audioMode, direction: audioDirection, voiceoverScript });
     const prompt = typeof body.prompt === "string" ? `${body.prompt.slice(0, 5600)} True visual crossfades: ${crossfadeSeconds.toFixed(2)} seconds. Audio policy: ${audioMode === "single_master" ? "one continuous master track across the complete series; never preserve separate scene music" : "silent scene mix"}.` : `Complete stabilized multi-shot series with ${crossfadeSeconds.toFixed(2)}-second visual crossfades. Audio policy: ${audioMode}.`;
     const category = typeof body.category === "string" ? body.category.slice(0, 60) : "stitched series";
-    await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'series-stitch', 'stitching', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(id, ownerId, JSON.stringify([]), JSON.stringify(videos), stitchId, prompt, category, resolution, aspect, duration, costCents, webhookToken, now, now).run();
+    // The job exists before the join starts, so an early callback finds it.
+    await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'series-stitch', 'stitching', ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(id, ownerId, JSON.stringify([]), JSON.stringify(videos), prompt, category, resolution, aspect, duration, costCents, webhookToken, now, now).run();
+    try {
+      const stitchId = await startStitch(token, videos, resolution, aspect, crossfadeSeconds, webhook, duration, { mode: audioMode, direction: audioDirection, voiceoverScript });
+      await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ?`).bind(stitchId, Date.now(), id).run();
+    } catch (error) {
+      await env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind((error instanceof Error ? error.message : "Joining could not start.").slice(0, 1000), Date.now(), id).run();
+      throw error;
+    }
     const row = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, webhook_token AS webhookToken, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE id = ?`).bind(id).first<RenderJobRow>();
     return NextResponse.json({ job: row ? publicJob(row) : { id, status: "stitching" } });
   } catch (error) {

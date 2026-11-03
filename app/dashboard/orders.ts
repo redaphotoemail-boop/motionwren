@@ -21,7 +21,23 @@ export type Project = {
   finalHistoryId?: string | null;
   coverAssetId?: string | null;
   videoExpiresAt?: number | null;
+  jobStatus?: string | null; // the render job behind a video in production
+  scenesReady?: number | null;
+  scenesTotal?: number | null;
 };
+
+/* Where a video in production stands, for the progress bar: scenes fill
+   most of the bar, then joining and saving. Null when it is not being made. */
+export function productionProgress(project: Project): { stage: string; detail: string; percent: number } | null {
+  if (!["submitted", "queued", "generating", "stitching", "saving"].includes(project.status)) return null;
+  const job = project.jobStatus || "";
+  if (job === "saving") return { stage: "Saving", detail: "Almost ready", percent: 96 };
+  if (job === "stitching") return { stage: "Joining scenes", detail: "All scenes ready", percent: 88 };
+  const total = Number(project.scenesTotal) || 0;
+  const ready = Math.min(total, Number(project.scenesReady) || 0);
+  if (job === "generating" && total) return { stage: "Creating scenes", detail: `${ready} of ${total} scenes ready`, percent: Math.round(8 + (ready / total) * 76) };
+  return { stage: "Starting", detail: "", percent: 4 };
+}
 
 export type DeliverableKind = "film" | "reel" | "story" | "post" | "graphic" | "cover";
 export type StatusGroup = "production" | "completed" | "draft" | "failed";

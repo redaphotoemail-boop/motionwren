@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { advanceRenderJob, cancelProviderJob, getRenderJob, publicJob } from "../../_lib/render-jobs";
+import { advanceRenderJob, cancelProviderJob, getRenderJob, jobScenes, publicJob } from "../../_lib/render-jobs";
 import { jsonError, requireAdmin } from "../../_lib/account";
 
 function validId(id: string) { return /^[0-9a-f-]{36}$/i.test(id); }
@@ -17,8 +17,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   let row = await getRenderJob(env, id, ownerId);
   if (!row) return NextResponse.json({ error: "Job not found." }, { status: 404 });
   const webhook = row.webhookToken ? `${new URL(request.url).origin}/api/webhooks/replicate/${id}?token=${row.webhookToken}` : undefined;
-  row = await advanceRenderJob(env, row, token, webhook) || row;
-  return NextResponse.json({ job: publicJob(row) });
+  // Webhooks normally move the job; checking also moves it, so a missed
+  // callback never leaves it stuck (at most every few seconds).
+  if (Date.now() - row.updatedAt > 6000) row = await advanceRenderJob(env, row, token, webhook) || row;
+  return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row) } });
 }
 
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {

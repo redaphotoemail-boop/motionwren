@@ -1,9 +1,12 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
+import { advanceStaleJobs } from "../../_lib/render-jobs";
 
 export async function GET(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     await requireAdmin(env);
+    // The manager's overview also moves along any video whose engine callback was missed.
+    await advanceStaleJobs(env, new URL(request.url).origin, null, 4).catch(() => undefined);
     const params = new URL(request.url).searchParams;
     const offset = Math.max(0, parseInt(params.get("offset") || "0", 10) || 0);
     const customer = (params.get("customer") || "").trim().slice(0, 320);

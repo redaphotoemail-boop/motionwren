@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../ui-icon";
 import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
-import { buildOrders, groupOf, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
+import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
 
 /* The client's workspace: every order in one place, each with all of its
    deliverables — the videos MotionWren produces and the pieces our team
@@ -13,7 +13,7 @@ import { buildOrders, groupOf, type Deliverable, type DeliverableKind, type Orde
 
 type Account = { displayName: string; email: string; role: "admin" | "customer"; plan: string; creditBalance: number };
 type Notification = { id: string; type: string; title: string; message: string; readAt?: number | null; createdAt: number };
-type Filter = "all" | StatusGroup;
+type Filter = "all" | StatusGroup | "history";
 type Playing = { title: string; historyId: string; vertical: boolean };
 
 const ACTIVE = ["submitted", "queued", "generating", "stitching", "saving", "editing", "review"];
@@ -35,7 +35,7 @@ const videoStatus: Record<string, string> = {
   failed: "Needs attention",
   cancelled: "Stopped",
 };
-const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", draft: "Saved" };
+const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", draft: "Saved", history: "History" };
 const discover = [
   { title: "Content package", text: "The full set: hero film, vertical reel, story teaser, feed posts and graphics, sized for every channel. $83 full package.", shape: "set" },
   { title: "Hero listing film", text: "One polished film from your listing photos. $39.", shape: "wide" },
@@ -47,6 +47,7 @@ function greetingFor(date: Date) {
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 const shortDate = (time: number) => new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const dateTime = (time: number) => new Date(time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 function KindIcon({ kind }: { kind: DeliverableKind }) {
   const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -56,6 +57,11 @@ function KindIcon({ kind }: { kind: DeliverableKind }) {
   if (kind === "post") return <svg {...common}><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.5" /><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.5" /><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.5" /><rect x="13" y="13" width="7.5" height="7.5" rx="1.5" /></svg>;
   if (kind === "cover") return <svg {...common}><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" /><path d="m4.5 17 5-5 4 4 2.5-2.5 3.5 3.5" /><circle cx="16" cy="9" r="1.5" /></svg>;
   return <svg {...common}><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><path d="m12 7.5 1.2 3.3 3.3 1.2-3.3 1.2L12 16.5l-1.2-3.3L7.5 12l3.3-1.2z" /></svg>;
+}
+
+/* A calm, determinate bar for a video being made; it moves as scenes finish. */
+function ProgressBar({ percent, label }: { percent: number; label: string }) {
+  return <span className="mw-progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i style={{ width: `${percent}%` }} /></span>;
 }
 
 function aspectLabel(aspect: string) {
@@ -191,9 +197,14 @@ export default function CustomerDashboard() {
     setSelectedKeys((keys) => keys.includes(key) ? keys.filter((selected) => selected !== key) : [...keys, key]);
   }
 
-  const counts: Record<Filter, number> = { all: orders.length, production: 0, completed: 0, failed: 0, draft: 0 };
+  const counts: Record<Filter, number> = { all: orders.length, production: 0, completed: 0, failed: 0, draft: 0, history: 0 };
   for (const order of orders) counts[order.group] += 1;
   const visibleOrders = orders.filter((order) => filter === "all" || order.group === filter);
+  // History: every video ever ordered, newest first, one row each.
+  const orderTitle = new Map<string, string>();
+  for (const order of orders) for (const project of order.projects) orderTitle.set(project.id, order.title);
+  const historyItems = projects.filter((project) => project.status !== "draft" && project.title.trim().toLowerCase() !== "content package").sort((a, b) => b.createdAt - a.createdAt);
+  counts.history = historyItems.length;
   const videoGroups = projects.filter((project) => project.title.trim().toLowerCase() !== "content package").map((project) => groupOf(project.status));
   const readyVideos = videoGroups.filter((group) => group === "completed").length;
   const makingVideos = videoGroups.filter((group) => group === "production").length;
@@ -217,13 +228,15 @@ export default function CustomerDashboard() {
     const stuck = project.status === "submitted" && checkedAt > 0 && checkedAt - project.updatedAt > STUCK_AFTER;
     const canRetry = project.status === "failed" || stuck;
     const until = project.videoExpiresAt ? `Available until ${shortDate(project.videoExpiresAt)}` : "";
+    const progress = productionProgress(project);
     return <li className="dlv" key={item.key}>
       <span className="dlv-icon"><KindIcon kind={item.kind} /></span>
       <div className="dlv-text">
         <strong>{item.title}</strong>
-        <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : ""].filter(Boolean).join(" · ")}</small>
+        <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : "", progress?.detail || ""].filter(Boolean).join(" · ")}</small>
+        {progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
       </div>
-      <span className={`status status-${item.group}`}><i />{videoStatus[project.status] || project.status}</span>
+      <span className={`status status-${item.group}`}><i />{progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
       {(project.finalHistoryId || canRetry || expired) && <div className="dlv-actions">
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
@@ -280,15 +293,46 @@ export default function CustomerDashboard() {
         <div className="ws-bar">
           <h2 id="orders-title" className="sr-only">Your orders</h2>
           {orders.length > 0 ? <div className="tabs" role="tablist" aria-label="Filter orders">
-            {(["all", "production", "completed", "failed", "draft"] as Filter[]).filter((group) => group === "all" || counts[group] > 0 || filter === group).map((group) => <button key={group} type="button" role="tab" aria-selected={filter === group} className={filter === group ? "active" : ""} onClick={() => setFilter(group)}>{filterLabels[group]}<span>{counts[group]}</span></button>)}
+            {(["all", "production", "completed", "failed", "draft", "history"] as Filter[]).filter((group) => group === "all" || counts[group] > 0 || filter === group).map((group) => <button key={group} type="button" role="tab" aria-selected={filter === group} className={filter === group ? "active" : ""} onClick={() => { setFilter(group); if (group === "history") { setSelecting(false); setSelectedKeys([]); } }}>{filterLabels[group]}<span>{counts[group]}</span></button>)}
           </div> : <span />}
           <div className="ws-bar-tools">
-            {orders.length > 0 && <button type="button" className="text-btn" onClick={() => { setSelecting((value) => !value); setSelectedKeys([]); }}>{selecting ? "Done" : "Select"}</button>}
+            {orders.length > 0 && filter !== "history" && <button type="button" className="text-btn" onClick={() => { setSelecting((value) => !value); setSelectedKeys([]); }}>{selecting ? "Done" : "Select"}</button>}
             {orders.length > 0 && <button type="button" className="text-btn" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>}
           </div>
         </div>
 
-        {loading && !projects.length ? <div className="order-list">{[0, 1].map((index) => <div key={index} className="order order-skeleton skeleton" />)}</div>
+        {filter === "history" ? (historyItems.length ? <ol className="hist-list">
+          {historyItems.map((project) => {
+            const progress = productionProgress(project);
+            const group = groupOf(project.status);
+            const vertical = project.aspect === "vertical";
+            const stuck = project.status === "submitted" && checkedAt > 0 && checkedAt - project.updatedAt > STUCK_AFTER;
+            const canRetry = project.status === "failed" || stuck;
+            const coverKey = project.coverAssetId ? `${project.id}/${project.coverAssetId}` : "";
+            return <li className="hist-row" key={project.id}>
+              <span className={`hist-thumb${vertical ? " tall" : ""}`}>
+                {coverKey && !brokenCovers.includes(coverKey)
+                  // eslint-disable-next-line @next/next/no-img-element -- private, signed-in photo served by our own API
+                  ? <img src={`/api/projects/${project.id}/assets/${project.coverAssetId}`} alt="" loading="lazy" decoding="async" onError={() => setBrokenCovers((list) => [...list, coverKey])} />
+                  : <KindIcon kind={kindOf(project.title, project.aspect)} />}
+              </span>
+              <div className="hist-text">
+                <strong>{project.title}</strong>
+                <small>{[orderTitle.get(project.id) || "", dateTime(project.createdAt), project.targetDuration ? `${project.targetDuration} sec` : "", aspectLabel(project.aspect)].filter(Boolean).join(" · ")}</small>
+                {progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
+              </div>
+              <span className={`status status-${group}`}><i />{progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
+              <div className="hist-actions">
+                {project.finalHistoryId && <>
+                  <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: project.title, historyId: project.finalHistoryId as string, vertical })}>Watch</button>
+                  <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}>Download</a>
+                </>}
+                {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
+              </div>
+            </li>;
+          })}
+        </ol> : <div className="empty-soft"><strong>No videos yet</strong><span>Every video you order will be listed here.</span></div>)
+        : loading && !projects.length ? <div className="order-list">{[0, 1].map((index) => <div key={index} className="order order-skeleton skeleton" />)}</div>
           : orders.length ? (visibleOrders.length ? <div className={`order-list${selecting ? " is-selecting" : ""}`}>
             {visibleOrders.map((order) => {
               const selected = selectedKeys.includes(order.key);

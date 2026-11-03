@@ -182,21 +182,44 @@ export function preferredDurationForEngine(key: StudioEngineKey, requested: numb
 }
 
 /**
- * How many photos a customer video uses and how long each scene runs.
- * About five seconds a scene suits slow real-estate camera moves, so the video
- * length sets the photo count — 10 s → 2, 20 s → 4, 30 s → 6, 60 s → 12 (at
- * 3 seconds a scene: 4, 7, 10, 12) —
- * and the film comes out at the length the customer ordered (cost follows the
- * length, not the number of photos uploaded). With fewer photos than that,
- * each scene runs longer, up to 10 seconds. Never more than 12 scenes.
+ * The video lengths offered when making a video: 15 s for social reels and
+ * stories, 30 s for the standard listing film, 60 s for a full home tour.
+ */
+export const VIDEO_LENGTHS = [15, 30, 60] as const;
+export type VideoLength = (typeof VIDEO_LENGTHS)[number];
+
+/** Scenes overlap by this much where they cross-dissolve into each other. */
+export const CROSSFADE_SECONDS = 1;
+
+/**
+ * How many photos a video uses and how long each scene runs, so the finished
+ * film (scenes minus their one-second cross-dissolves) lands on the length
+ * that was ordered. About five seconds a scene suits slow real-estate camera
+ * moves (the manager's "Scene timing" can make it three): 15 s uses about 4
+ * photos, 30 s about 7, 60 s 12. With fewer photos, each scene runs longer,
+ * using only scene lengths the engine accepts. Never more than 12 scenes.
  */
 export const MAX_CUSTOMER_SCENES = 12;
 export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto: 3 | 5 = 5) {
-  // secondsPerPhoto is the manager's "Scene timing" (Engines page): 5 by default.
+  const allowed = engineDurationOptions(key, resolution);
   const ideal = preferredDurationForEngine(key, secondsPerPhoto, resolution);
-  const wanted = Math.max(2, Math.round(targetSeconds / ideal));
-  const count = Math.max(Math.min(wanted, available, MAX_CUSTOMER_SCENES), Math.min(2, available));
-  if (count * ideal >= targetSeconds * 0.8) return { count, sceneSeconds: ideal };
-  const requested = Math.max(3, Math.min(10, Math.round(targetSeconds / Math.max(1, count))));
-  return { count, sceneSeconds: preferredDurationForEngine(key, requested, resolution) };
+  const most = Math.max(1, Math.min(available, MAX_CUSTOMER_SCENES));
+  const snap = (seconds: number) => allowed.reduce((closest, option) => Math.abs(option - seconds) < Math.abs(closest - seconds) ? option : closest, allowed[0]);
+  if (most === 1) { const only = snap(targetSeconds); return { count: 1, sceneSeconds: only, totalSeconds: only }; }
+  const planFor = (count: number) => {
+    const sceneSeconds = snap((targetSeconds + (count - 1) * CROSSFADE_SECONDS) / count);
+    return { count, sceneSeconds, totalSeconds: count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS };
+  };
+  // The natural count at the ideal timing (rounding a half down: fewer, longer scenes)...
+  const natural = Math.max(2, Math.min(most, Math.floor((targetSeconds - CROSSFADE_SECONDS) / Math.max(1, ideal - CROSSFADE_SECONDS) + 0.4)));
+  const first = planFor(natural);
+  if (Math.abs(first.totalSeconds - targetSeconds) <= 2) return first;
+  // ...unless the engine's scene lengths can't reach the ordered length that way.
+  let best = first;
+  for (let count = 2; count <= most; count += 1) {
+    const plan = planFor(count);
+    const off = Math.abs(plan.totalSeconds - targetSeconds), bestOff = Math.abs(best.totalSeconds - targetSeconds);
+    if (off < bestOff || (off === bestOff && Math.abs(plan.sceneSeconds - ideal) < Math.abs(best.sceneSeconds - ideal))) best = plan;
+  }
+  return best;
 }
