@@ -3,6 +3,13 @@ import { audit, enforceRateLimit, jsonError, requireAccount } from "../../../_li
 const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
+function isImage(head: Uint8Array, type: string) {
+  const ascii = (from: number, to: number) => String.fromCharCode(...head.slice(from, to));
+  if (type === "image/jpeg") return head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  if (type === "image/png") return head[0] === 0x89 && ascii(1, 4) === "PNG";
+  return ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP";
+}
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id: projectId } = await context.params; const { env } = await import("cloudflare:workers"); const account = await requireAccount(env);
@@ -16,9 +23,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!file.size || file.size > MAX_ASSET_BYTES) return Response.json({ error: "Each image must be smaller than 20 MB." }, { status: 413 });
     const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(projectId, account.id).first<{ count: number }>();
     if ((count?.count || 0) >= 20) return Response.json({ error: "A project can contain up to 20 uploaded assets." }, { status: 409 });
+    const bytes = await file.arrayBuffer();
+    // The declared type comes from the browser; check the file really is that image.
+    if (!isImage(new Uint8Array(bytes.slice(0, 12)), file.type)) return Response.json({ error: "Upload a JPG, PNG or WebP image." }, { status: 400 });
     const assetId = crypto.randomUUID(); const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
     const r2Key = `project-assets/${account.id}/${projectId}/${assetId}.${extension}`; const now = Date.now(); const sortOrder = count?.count || 0;
-    await env.BUCKET.put(r2Key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type }, customMetadata: { ownerId: account.id, projectId, originalName: file.name.slice(0, 120) } });
+    await env.BUCKET.put(r2Key, bytes, { httpMetadata: { contentType: file.type }, customMetadata: { ownerId: account.id, projectId, originalName: file.name.slice(0, 120) } });
     try {
       await env.DB.batch([
         env.DB.prepare(`INSERT INTO project_assets (id, project_id, owner_id, kind, r2_key, file_name, content_type, size_bytes, sort_order, expires_at, created_at) VALUES (?, ?, ?, 'source_image', ?, ?, ?, ?, ?, ?, ?)`).bind(assetId, projectId, account.id, r2Key, file.name.slice(0, 180), file.type, file.size, sortOrder, now + 30 * 24 * 60 * 60 * 1000, now),
