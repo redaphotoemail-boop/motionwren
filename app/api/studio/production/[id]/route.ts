@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
-import { getRenderJob, jobScenes, publicJob, resumeRenderJob } from "../../../_lib/render-jobs";
-import { MAX_FRAME_BYTES, framesPresent, loadManifest, startProductionScenes, storeFrameBytes } from "../../../_lib/production";
+import { advanceRenderJob, beginQueue, getRenderJob, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
+import { MAX_FRAME_BYTES, framesPresent, loadManifest, storeFrameBytes } from "../../../_lib/production";
+import type { JobAction } from "../../../_lib/scene-queue";
 import { studioToken } from "../../../_lib/studio-token";
 
 /* Steps 2 and 3 of a Studio video (see ../route.ts), and picking a stopped
    one back up:
    PUT  ?scene=N  — one scene's prepared photo (raw JPEG body).
-   POST           — start: every photo is in, so the scenes are started.
-   POST {"action":"resume"} — pick a stopped video back up. */
+   POST           — start: every photo is in, so the video joins the queue.
+   POST {"action": "resume" | "retry-scene" | "regenerate-scene" | "reassemble", "scene"?: n}
+                  — act on a video through the same queue (never duplicates engine jobs).
+   POST {"action": "start-over"} — a new run with the same photos and settings. */
 
 const validId = (id: string) => /^[0-9a-f-]{36}$/i.test(id);
 
@@ -49,8 +52,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const webhook = row.webhookToken ? `${new URL(request.url).origin}/api/webhooks/replicate/${id}?token=${row.webhookToken}` : undefined;
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
 
-    if (body.action === "resume") {
-      const result = await resumeRenderJob(env, row, token, webhook);
+    if (body.action === "start-over") {
+      const result = await startOverJob(env, row, token, new URL(request.url).origin);
+      if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
+      const fresh = result.id ? await getRenderJob(env, result.id) : null;
+      return NextResponse.json({ replaced: id, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
+    }
+    if (["resume", "retry-scene", "regenerate-scene", "reassemble"].includes(String(body.action))) {
+      const scene = Number.isInteger(body.scene) ? Number(body.scene) : null;
+      const result = await runJobAction(env, row, body.action as JobAction, scene, token, webhook);
       if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
       const fresh = await getRenderJob(env, id);
       return NextResponse.json({ redo: result.redo, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
@@ -65,17 +75,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const present = await framesPresent(env, id, manifest.inputs.length);
     const missing = present.map((value, index) => value ? 0 : index + 1).filter(Boolean);
     if (missing.length) return NextResponse.json({ error: `Scene ${missing.join(", ")} has no photo yet.`, missing }, { status: 409 });
-    // Only one start: the check that carries a cut-off start forward uses the same claim.
-    const claim = await env.DB.prepare(`UPDATE render_jobs SET updated_at = ? WHERE id = ? AND status = 'starting' AND updated_at = ?`).bind(Date.now(), id, row.updatedAt).run();
-    if (claim.meta.changes) {
-      try {
-        await startProductionScenes(env, token, id, manifest, webhook, JSON.parse(row.predictionIds || "[]") as string[]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "The video could not start.";
-        await env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status = 'starting'`).bind(message.slice(0, 1000), Date.now(), id).run();
-        return NextResponse.json({ error: message }, { status: 502 });
-      }
-    }
+    // Into the queue (only once, however many times this is clicked); the
+    // first scene is sent right away if the engine has room.
+    if (await beginQueue(env, id)) { const fresh = await getRenderJob(env, id); if (fresh) await advanceRenderJob(env, fresh, token, webhook); }
     const fresh = await getRenderJob(env, id);
     return NextResponse.json({ job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
   } catch (error) { return jsonError(error); }

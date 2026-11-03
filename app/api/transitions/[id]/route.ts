@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { advanceRenderJob, cancelProviderJob, getRenderJob, jobScenes, publicJob } from "../../_lib/render-jobs";
+import { advanceRenderJob, cancelProviderJob, getRenderJob, jobScenes, providerNote, publicJob } from "../../_lib/render-jobs";
 import { jsonError, requireAdmin } from "../../_lib/account";
 
 function validId(id: string) { return /^[0-9a-f-]{36}$/i.test(id); }
@@ -20,7 +20,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   // Webhooks normally move the job; checking also moves it, so a missed
   // callback never leaves it stuck (at most every few seconds).
   if (token && Date.now() - row.updatedAt > 6000) row = await advanceRenderJob(env, row, token, webhook) || row;
-  return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row) } });
+  return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row), provider: await providerNote(env) } });
 }
 
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {

@@ -9,6 +9,7 @@ import { WrenMark } from "../components/brand";
 const links: Array<{ href: string; label: string; icon: IconName; match: (path: string) => boolean }> = [
   { href: "/admin", label: "Overview", icon: "dashboard", match: (path) => path === "/admin" },
   { href: "/admin/orders", label: "Orders", icon: "orders", match: (path) => path.startsWith("/admin/orders") || path.startsWith("/admin/projects") },
+  { href: "/admin/production", label: "Production", icon: "quality", match: (path) => path.startsWith("/admin/production") },
   { href: "/admin/customers", label: "Customers", icon: "user", match: (path) => path.startsWith("/admin/customers") },
   { href: "/admin/engines", label: "Engines", icon: "motion", match: (path) => path.startsWith("/admin/engines") },
   { href: "/admin/replicates", label: "Spend", icon: "money", match: (path) => path.startsWith("/admin/replicates") },

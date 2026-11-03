@@ -1,17 +1,23 @@
 import type { StudioEngineKey } from "../../engine-catalog";
+import { providerUrl } from "./provider";
 
-/* Server-side production for every multi-scene video (customer orders and
-   Studio tests). Each job keeps a manifest in R2 with exactly what was sent
-   to the engine for every scene, so a scene that fails — or hangs — is
-   started again on its own (up to MAX_ATTEMPTS) instead of failing the whole
-   video. Nothing depends on a browser staying open: provider webhooks, and
-   any page that checks on the job, move it forward; the finished film is
-   joined and saved to History on the server. */
+/* Server-side production for every multi-scene video (client orders and
+   Studio videos). Each job keeps a manifest in R2 — durable storage that
+   survives refreshes, redeploys and restarts — with, per scene: the exact
+   engine request (prompt and settings snapshot), its photo, its state,
+   tries, next allowed time, last provider error and finished output. The
+   job row in D1 holds each scene's provider prediction ID (aligned by scene)
+   and finished output URL. The queue that moves scenes along is in
+   scene-queue.ts. */
 
-export const MAX_ATTEMPTS = 3; // first try + two automatic retries per scene
-export const STALE_SCENE_MS = 20 * 60 * 1000; // a scene running this long is restarted
+export const MAX_ATTEMPTS = 3; // tries per scene (a provider "slow down" is a wait, not a try)
+export const STALE_SCENE_MS = 20 * 60 * 1000; // a scene running this long is cancelled and tried again
 
-export type SceneState = "waiting" | "creating" | "ready" | "retrying" | "failed";
+/* queued: waiting its turn · submitting: being sent · creating: with the
+   engine · retry: will be sent again at nextAt · ready · failed: tries used
+   up. ("waiting"/"retrying" are the same states from older manifests.) */
+export type SceneState = "queued" | "submitting" | "creating" | "retry" | "ready" | "failed" | "waiting" | "retrying";
+export type WaitReason = "" | "throttle" | "credit" | "retry";
 
 export type ProductionManifest = {
   version: 1;
@@ -29,13 +35,37 @@ export type ProductionManifest = {
      is written in the scene's input, and its copy in the engine's own file
      storage once uploaded. */
   photos?: { key: string; link: string; file?: string }[];
+  nextAt?: number[];      // earliest time the scene may be sent (again)
+  waits?: number[];       // provider waits/hiccups since the last try (not tries)
+  reasons?: WaitReason[]; // why a scene is waiting, for the progress view
+  outputs?: string[];     // finished scene video from the engine
+  readyAt?: number[];     // when the scene finished (engine copies expire after ~1 hour)
+  saved?: string[];       // our durable copy of the finished scene (R2 key)
+  finalUrl?: string;      // the joined film, while it is being saved to History
 };
 
 type R2Env = { BUCKET: R2Bucket };
-type JobEnv = R2Env & { DB: D1Database };
 
 const manifestKey = (jobId: string) => `render-jobs/${jobId}/manifest.json`;
 export const frameKey = (jobId: string, index: number) => `render-jobs/${jobId}/scene-${String(index + 1).padStart(2, "0")}.jpg`;
+export const outputKey = (jobId: string, index: number) => `render-jobs/${jobId}/out-${String(index + 1).padStart(2, "0")}.mp4`;
+
+/* Fills fields older manifests do not have, so every job runs on the queue. */
+export function normalizeManifest(manifest: ProductionManifest) {
+  const n = manifest.inputs.length;
+  const fill = <T,>(list: T[] | undefined, value: T) => Array.from({ length: n }, (_, index) => list && list[index] !== undefined && list[index] !== null ? list[index] : value);
+  manifest.attempts = fill(manifest.attempts, 0);
+  manifest.startedAt = fill(manifest.startedAt, 0);
+  manifest.lastErrors = fill(manifest.lastErrors, "");
+  manifest.states = fill(manifest.states, "queued" as SceneState).map((state) => state === "waiting" ? "queued" : state === "retrying" ? "retry" : state);
+  manifest.nextAt = fill(manifest.nextAt, 0);
+  manifest.waits = fill(manifest.waits, 0);
+  manifest.reasons = fill(manifest.reasons, "" as WaitReason);
+  manifest.outputs = fill(manifest.outputs, "");
+  manifest.readyAt = fill(manifest.readyAt, 0);
+  manifest.saved = fill(manifest.saved, "");
+  return manifest as Required<ProductionManifest>;
+}
 
 export async function loadManifest(env: R2Env, jobId: string): Promise<ProductionManifest | null> {
   try {
@@ -98,7 +128,7 @@ async function engineFile(env: R2Env, token: string, key: string): Promise<strin
   const type = object.httpMetadata?.contentType || "image/jpeg";
   const form = new FormData();
   form.append("content", new Blob([await new Response(object.body).arrayBuffer()], { type }), `scene.${type.split("/")[1] === "png" ? "png" : type.split("/")[1] === "webp" ? "webp" : "jpg"}`);
-  const response = await fetch("https://api.replicate.com/v1/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+  const response = await fetch(providerUrl("https://api.replicate.com/v1/files"), { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
   const data = await response.json().catch(() => ({})) as { urls?: { get?: unknown } };
   if (!response.ok || typeof data.urls?.get !== "string") throw new Error(`The photo could not be handed to the engine (${response.status}).`);
   return data.urls.get;
@@ -151,61 +181,6 @@ export async function deleteFrames(env: R2Env, jobId: string, count: number) {
   await Promise.allSettled(Array.from({ length: count }, (_, index) => env.BUCKET.delete(frameKey(jobId, index))));
 }
 
-/* Starts one prediction. A refused start is tried once more after a short
-   pause (the provider occasionally answers a burst of starts with 429/5xx). */
-export async function startScene(token: string, endpoint: string, input: Record<string, unknown>, webhook?: string): Promise<string> {
-  let lastError = "The scene could not start.";
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (attempt) await new Promise((resolve) => setTimeout(resolve, 1500));
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "respond-async" },
-        body: JSON.stringify({ input, ...(webhook ? { webhook, webhook_events_filter: ["completed"] } : {}) }),
-      });
-      const data = await response.json().catch(() => ({})) as Record<string, unknown>;
-      if (response.ok && typeof data.id === "string") return data.id;
-      lastError = String(data.detail || data.error || `The engine refused the scene (${response.status}).`);
-      if (response.status >= 400 && response.status < 500 && response.status !== 429) break; // a bad request will not improve
-    } catch (error) {
-      // A network failure (not an answer from the engine): say so plainly.
-      lastError = `The video engine could not be reached${error instanceof Error && error.message ? ` (${error.message.slice(0, 120)})` : ""}.`;
-    }
-  }
-  throw new Error(lastError);
-}
-
-/* Starts every scene not started yet and moves the job to "generating".
-   The job row must already exist (callbacks can arrive within seconds). Each
-   started scene is recorded at once, so if this request is cut off (a page
-   refresh, a dropped connection) the next check carries on from the same
-   point instead of losing or repeating paid work. If a scene cannot start at
-   all, the ones already started are cancelled and the error is thrown. */
-export async function startProductionScenes(env: JobEnv, token: string, jobId: string, manifest: ProductionManifest, webhook: string | undefined, already: string[] = []) {
-  const ids = [...already];
-  for (let index = 0; index < ids.length; index += 1) {
-    if (!manifest.attempts[index]) { manifest.attempts[index] = 1; manifest.startedAt[index] = Date.now(); manifest.states[index] = "creating"; }
-  }
-  await saveManifest(env, jobId, manifest);
-  try {
-    for (let index = ids.length; index < manifest.inputs.length; index += 1) {
-      try { ids.push(await startScene(token, manifest.endpoint, await engineInputFor(env, token, jobId, manifest, index, 1), webhook)); }
-      catch (error) { throw new Error(`Scene ${index + 1} could not be started: ${error instanceof Error ? error.message : "the engine refused it"}`); }
-      manifest.attempts[index] = 1;
-      manifest.startedAt[index] = Date.now();
-      manifest.states[index] = "creating";
-      await env.DB.prepare(`UPDATE render_jobs SET prediction_ids = ?, updated_at = ? WHERE id = ? AND status = 'starting'`).bind(JSON.stringify(ids), Date.now(), jobId).run();
-      await saveManifest(env, jobId, manifest);
-    }
-  } catch (error) {
-    await Promise.allSettled(ids.map((id) => fetch(`https://api.replicate.com/v1/predictions/${id}/cancel`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })));
-    throw error;
-  }
-  await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', prediction_ids = ?, updated_at = ? WHERE id = ? AND status = 'starting'`).bind(JSON.stringify(ids), Date.now(), jobId).run();
-  await env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE render_job_id = ? AND status IN ('queued', 'submitted')`).bind(Date.now(), jobId).run();
-  return ids;
-}
-
 export function newManifest(engine: StudioEngineKey, endpoint: string, sceneSeconds: number, inputs: Record<string, unknown>[], audio?: ProductionManifest["audio"], photos?: ProductionManifest["photos"]): ProductionManifest {
   return {
     ...(audio ? { audio } : {}),
@@ -217,7 +192,13 @@ export function newManifest(engine: StudioEngineKey, endpoint: string, sceneSeco
     inputs,
     attempts: inputs.map(() => 0),
     startedAt: inputs.map(() => 0),
-    states: inputs.map(() => "waiting" as SceneState),
+    states: inputs.map(() => "queued" as SceneState),
     lastErrors: inputs.map(() => ""),
+    nextAt: inputs.map(() => 0),
+    waits: inputs.map(() => 0),
+    reasons: inputs.map(() => "" as WaitReason),
+    outputs: inputs.map(() => ""),
+    readyAt: inputs.map(() => 0),
+    saved: inputs.map(() => ""),
   };
 }

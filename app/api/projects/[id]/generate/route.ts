@@ -1,8 +1,9 @@
 import { MAX_CUSTOMER_SCENES, engineCost, scenePlan } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../../../engine-providers";
-import { enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
+import { HttpError, enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
 import { customerSafeError } from "../../../_lib/customer-errors";
-import { newManifest, startProductionScenes } from "../../../_lib/production";
+import { newManifest, saveManifest } from "../../../_lib/production";
+import { advanceRenderJob, beginQueue, getRenderJob } from "../../../_lib/render-jobs";
 
 const MOVEMENTS = [
   "a slow stabilized push-in",
@@ -71,18 +72,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       photos.push({ key: asset.r2Key, link: imageUrl });
       inputs.push(buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
     }
-    try {
-      await startProductionScenes(env, providerToken, jobId, newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos), webhook);
-    } catch (error) {
-      throw new Error(customerSafeError(error instanceof Error ? error.message : "A scene could not start."));
-    }
+    // Into the scene queue: scenes are made one after another as the engine
+    // allows (waits and retries are automatic); the customer can leave.
+    await saveManifest(env, jobId, newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos));
+    if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
       env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(Date.now(), projectId, account.id),
       env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'production_started', 'Production started', 'Your photographs are generating now. You can close this page; processing will continue.', NULL, ?)`).bind(`${jobId}:started`, account.id, Date.now()),
     ]);
     return Response.json({ jobId, status: "generating" }, { status: 202 });
   } catch (error) {
-    // startProductionScenes already cancelled any scene it had started.
     if (jobId && ownerId && projectId) {
       const { env } = await import("cloudflare:workers");
       const message = error instanceof Error ? error.message : "Production could not start.";
@@ -90,9 +89,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       await env.DB.batch([
         env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind(message.slice(0, 1000), now, jobId),
         env.DB.prepare(`UPDATE projects SET status = 'failed', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(now, projectId, ownerId),
-        env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'generation_failed', 'Production could not start', ?, NULL, ?)`).bind(`${jobId}:failed`, ownerId, message.slice(0, 500), now),
+        env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'generation_failed', 'Production could not start', ?, NULL, ?)`).bind(`${jobId}:failed`, ownerId, customerSafeError(message).slice(0, 500), now),
       ]);
     }
-    return jsonError(error);
+    // Account and permission errors are shown as-is; anything else in plain words.
+    return error instanceof HttpError ? jsonError(error) : Response.json({ error: customerSafeError(error instanceof Error ? error.message : "") }, { status: 500 });
   }
 }

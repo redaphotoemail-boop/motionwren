@@ -7,7 +7,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
    found again after a refresh, scenes that fail restart on their own, and the
    finished video lands in History whether or not this page stays open. */
 
-export type SceneInfo = { state: "waiting" | "creating" | "ready" | "retrying" | "failed"; attempt: number };
+export type SceneInfo = {
+  state: "queued" | "submitting" | "creating" | "retry" | "ready" | "failed" | "waiting" | "retrying";
+  attempt: number;
+  reason?: "" | "throttle" | "credit" | "retry";
+  nextAt?: number;
+  error?: string;
+  predictionId?: string;
+  saved?: boolean;
+};
+export type ProviderNote = { waitingUntil: number; paused: boolean; lowCredit: boolean };
 export type StudioJob = {
   id: string;
   kind: string;
@@ -27,6 +36,7 @@ export type StudioJob = {
   category: string;
   costCents: number;
   scenes?: SceneInfo[] | null;
+  provider?: ProviderNote | null;
 };
 
 export const ACTIVE = ["starting", "generating", "stitching", "saving"];
@@ -152,7 +162,14 @@ export async function resumeStudioJob(id: string): Promise<StudioJob> {
   if (!response.ok || !data.job?.id) throw new Error(data.error || "This video could not be picked up again.");
   return data.job as StudioJob;
 }
-export const canResume = (job: StudioJob) => job.status === "failed" && STUDIO_KINDS.includes(job.kind) && !/did not finish sending|photo could not be sent/i.test(job.error || "");
+export const canStartOver = (job: StudioJob) => job.status === "failed" && STUDIO_KINDS.includes(job.kind) && !/did not finish sending|photo could not be sent|replaced by a new run/i.test(job.error || "");
+export async function startOverStudioJob(id: string): Promise<StudioJob> {
+  const response = await fetch(`/api/studio/production/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start-over" }) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.job?.id) throw new Error(data.error || "This video could not be started over.");
+  return data.job as StudioJob;
+}
+export const canResume = (job: StudioJob) => job.status === "failed" && STUDIO_KINDS.includes(job.kind) && !/did not finish sending|photo could not be sent|replaced by a new run/i.test(job.error || "");
 
 export async function stopStudioJob(id: string) {
   await fetch(`/api/transitions/${id}`, { method: "DELETE" }).catch(() => undefined);
@@ -174,7 +191,20 @@ function clock(seconds: number) {
 
 /* The loading view: what is happening now, every scene's state, and that it
    is safe to leave. */
-export function ProductionView({ job, title, thumbs, onStop, onResume, onDismiss, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onDismiss?: () => void; offline?: boolean; sending?: Sending | null }) {
+/* A scene's state in plain words. */
+export function sceneLabel(scene: SceneInfo, now: number) {
+  const wait = scene.nextAt && scene.nextAt > now ? ` · ${Math.ceil((scene.nextAt - now) / 1000)}s` : "";
+  if (scene.state === "ready") return "Ready";
+  if (scene.state === "failed") return "Failed";
+  if (scene.state === "submitting") return "Sending";
+  if (scene.state === "creating") return scene.attempt > 1 ? `Making · try ${scene.attempt}` : "Making";
+  if (scene.reason === "credit") return "Paused";
+  if (scene.reason === "throttle") return `Engine busy${wait}`;
+  if (scene.state === "retry" || scene.state === "retrying") return `Try ${Math.min(3, scene.attempt + 1)} soon${wait}`;
+  return "In line";
+}
+
+export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOver, onDismiss, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onStartOver?: () => void; onDismiss?: () => void; offline?: boolean; sending?: Sending | null }) {
   const [now, setNow] = useState(() => job.updatedAt || job.createdAt);
   const [broken, setBroken] = useState<number[]>([]);
   const active = isActive(job);
@@ -186,9 +216,12 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onDismiss
     return () => window.clearInterval(timer);
   }, [active]);
 
-  const scenes: SceneInfo[] = job.scenes?.length ? job.scenes : Array.from({ length: Math.max(1, job.total) }, (_, index) => ({ state: index < job.completed ? "ready" : job.status === "starting" ? "waiting" : "creating", attempt: 1 }));
+  const scenes: SceneInfo[] = job.scenes?.length ? job.scenes : Array.from({ length: Math.max(1, job.total) }, (_, index) => ({ state: index < job.completed ? "ready" : job.status === "starting" ? "queued" : "creating", attempt: 1 }));
   const many = scenes.length > 1;
-  const retrying = scenes.filter((scene) => scene.state === "retrying" || (scene.state === "creating" && scene.attempt > 1)).length;
+  const retrying = scenes.filter((scene) => scene.reason === "retry" || scene.state === "retrying" || (scene.state === "creating" && scene.attempt > 1)).length;
+  const pacing = scenes.some((scene) => scene.reason === "throttle") || Boolean(job.provider?.waitingUntil && job.provider.waitingUntil > now && !job.provider.paused);
+  const paused = Boolean(job.provider?.paused) || scenes.some((scene) => scene.reason === "credit");
+  const inLine = job.status === "generating" && !scenes.some((scene) => ["creating", "submitting"].includes(scene.state));
   const ready = job.status === "generating" ? Math.min(job.completed, scenes.length) : ["stitching", "saving", "succeeded"].includes(job.status) ? scenes.length : 0;
   const percent = percentOf(job, sending);
   const steps = [
@@ -207,8 +240,9 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onDismiss
         <small>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : job.error || "This video stopped."}</small>
       </div>
       {active && onStop && <button type="button" className="prod-stop" onClick={onStop}>Stop</button>}
-      {!active && (onResume || onDismiss) && <div className="prod-actions">
-        {onResume && canResume(job) && <button type="button" className="prod-stop prod-resume" onClick={onResume} title="Pick up where it stopped">Resume</button>}
+      {!active && (onResume || onStartOver || onDismiss) && <div className="prod-actions">
+        {onResume && canResume(job) && <button type="button" className="prod-stop prod-resume" onClick={onResume} title="Keep the finished scenes and make the rest">Resume</button>}
+        {onStartOver && canStartOver(job) && <button type="button" className="prod-stop" onClick={onStartOver} title="A new run with the same photos and settings">Start over</button>}
         {onDismiss && <button type="button" className="prod-stop" onClick={onDismiss}>Hide</button>}
       </div>}
     </header>
@@ -219,8 +253,9 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onDismiss
     {many && <ol className="prod-scenes" aria-label="Scenes">
       {scenes.map((scene, index) => {
         const thumb = thumbs?.[index] || (studioFrames && active && !broken.includes(index) ? `/api/job-frames/${job.id}/scene-${String(index + 1).padStart(2, "0")}.jpg` : "");
-        const label = scene.state === "ready" ? "Ready" : scene.state === "failed" ? "Failed" : scene.state === "waiting" ? "Waiting" : scene.attempt > 1 || scene.state === "retrying" ? `Try ${Math.max(2, scene.attempt)}/3` : "Making";
-        return <li key={index} className={`prod-scene is-${scene.state === "creating" && scene.attempt > 1 ? "retrying" : scene.state}`} title={`Scene ${index + 1}: ${label}`}>
+        const label = sceneLabel(scene, now);
+        const look = scene.state === "creating" || scene.state === "submitting" ? (scene.attempt > 1 ? "retrying" : "creating") : scene.state === "retry" || scene.state === "retrying" ? "waiting" : scene.state === "queued" || scene.state === "waiting" ? "waiting" : scene.state;
+        return <li key={index} className={`prod-scene is-${look}`} title={`Scene ${index + 1}: ${label}${scene.error && scene.state !== "ready" ? ` — ${scene.error}` : ""}`}>
           {/* eslint-disable-next-line @next/next/no-img-element -- the owner's own scene photo, served privately */}
           {thumb ? <img src={thumb} alt="" onError={() => setBroken((list) => [...list, index])} /> : <b>{index + 1}</b>}
           <span className="prod-scene-state" aria-hidden="true" />
@@ -228,7 +263,13 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onDismiss
         </li>;
       })}
     </ol>}
-    {active && <p className="prod-note">{job.status === "starting" && sending?.id === job.id ? "Keep this page open while the photos are sent — after that you can leave or refresh." : offline ? "Reconnecting… your video keeps going on our server." : retrying ? `${retrying === 1 ? "A scene is" : `${retrying} scenes are`} being redone automatically — no need to do anything.` : "You can leave or refresh this page. It keeps going on our server and lands in History."}</p>}
+    {active && <p className="prod-note">{job.status === "starting" && sending?.id === job.id ? "Keep this page open while the photos are sent — after that you can leave or refresh."
+      : offline ? "Reconnecting… your video keeps going on our server."
+      : paused ? "Paused: the video engine account needs credit. Everything is kept and continues automatically once credit is added."
+      : pacing ? "The engine is pacing requests, so scenes are made one after another. The next one starts automatically — nothing is lost."
+      : retrying ? `${retrying === 1 ? "A scene is" : `${retrying} scenes are`} being redone automatically — no need to do anything.`
+      : inLine ? "In line for the engine — scenes are made one after another. You can leave or refresh this page."
+      : "You can leave or refresh this page. It keeps going on our server and lands in History."}</p>}
   </section>;
 }
 

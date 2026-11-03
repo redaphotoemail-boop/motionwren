@@ -1350,3 +1350,31 @@ p { text-wrap: pretty; }
 .prod-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .prod-resume { background: var(--amber); color: #1A1206; }
 .prod-resume:hover { background: #F1B358; }
+.prod-scene.is-waiting .prod-scene-state { border: 1.5px solid rgba(255, 255, 255, .45); }
+
+/* Manager · Production ---------------------------------------------------- */
+.prodm-setting { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; padding: 18px 20px; border-radius: 18px; background: var(--surface); }
+.prodm-setting > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.prodm-setting strong { font: 600 15px/1.3 var(--body); }
+.prodm-setting small { color: var(--muted); font-size: 13px; line-height: 1.4; max-width: 60ch; }
+.prodm-setting .tabs { flex: none; padding: 4px; border-radius: 999px; background: var(--paper); }
+.prodm-list { display: grid; gap: 18px; margin-top: 22px; }
+.prodm-job { display: grid; gap: 12px; padding: 14px; border-radius: 24px; background: var(--surface); }
+.prodm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.prodm-actions:empty { display: none; }
+.prodm-scenes { list-style: none; margin: 0; padding: 0 4px; display: grid; }
+.prodm-scenes li { display: grid; grid-template-columns: 28px 130px 150px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.prodm-scenes li:first-child { border-top: 0; }
+.prodm-n { font: 600 13px/1 var(--mono); color: var(--muted); }
+.prodm-state { font-weight: 600; color: var(--ink-2); }
+.prodm-state.is-ready { color: #1F6B43; }
+.prodm-state.is-failed { color: var(--bad); }
+.prodm-state.is-retry, .prodm-state.is-queued { color: var(--amber-ink); }
+.prodm-meta { color: var(--muted); font: 500 12px/1.3 var(--mono); }
+.prodm-detail { color: var(--muted); overflow-wrap: anywhere; }
+.prodm-btns { display: flex; gap: 10px; justify-content: flex-end; }
+@media (max-width: 760px) {
+  .prodm-setting { flex-direction: column; align-items: flex-start; }
+  .prodm-scenes li { grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-areas: "n state btns" "n meta meta" "n detail detail"; row-gap: 4px; }
+  .prodm-n { grid-area: n; } .prodm-state { grid-area: state; } .prodm-meta { grid-area: meta; } .prodm-detail { grid-area: detail; } .prodm-btns { grid-area: btns; }
+}

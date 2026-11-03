@@ -318,7 +318,7 @@ export default function CustomerDashboard() {
               </span>
               <div className="hist-text">
                 <strong>{project.title}</strong>
-                <small>{[orderTitle.get(project.id) || "", dateTime(project.createdAt), project.targetDuration ? `${project.targetDuration} sec` : "", aspectLabel(project.aspect)].filter(Boolean).join(" · ")}</small>
+                <small>{[orderTitle.get(project.id) && orderTitle.get(project.id) !== project.title ? orderTitle.get(project.id) as string : "", dateTime(project.createdAt), project.targetDuration ? `${project.targetDuration} sec` : "", aspectLabel(project.aspect)].filter(Boolean).join(" · ")}</small>
                 {progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
               </div>
               <span className={`status status-${group}`}><i />{progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>

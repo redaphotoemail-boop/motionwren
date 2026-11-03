@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { engineCost, engineDurationOptions, preferredDurationForEngine, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, isEngineKey } from "../../../engine-providers";
-import { getRenderJob, publicJob } from "../../_lib/render-jobs";
-import { frameKey, newManifest, saveManifest, startProductionScenes, storeFrame } from "../../_lib/production";
+import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_lib/render-jobs";
+import { frameKey, newManifest, saveManifest, storeFrame } from "../../_lib/production";
 import { studioToken } from "../../_lib/studio-token";
 
 /* Studio production on the server — the same path client videos take.
@@ -77,11 +77,11 @@ export async function POST(request: Request) {
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;
   const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio, links.map((link, index) => ({ key: frameKey(id, index), link })));
   try {
+    await saveManifest(env, id, manifest);
     if (inline) {
+      // Older Studio page: photos came inline, so the video goes straight into the queue.
       for (let index = 0; index < scenes.length; index += 1) await storeFrame(env, id, index, String(scenes[index].image));
-      await startProductionScenes(env, token, id, manifest, `${origin}/api/webhooks/replicate/${id}?token=${webhookToken}`);
-    } else {
-      await saveManifest(env, id, manifest);
+      if (await beginQueue(env, id)) { const row = await getRenderJob(env, id); if (row) await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${id}?token=${webhookToken}`); }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "The video could not start.";

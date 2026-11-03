@@ -1,12 +1,12 @@
 /**
- * Customer-safe provider error text. Provider errors can embed raw URLs
- * (e.g. a billing page) that must never reach a customer notification,
- * email, or banner. Insufficient-credit errors get one plain message.
+ * What a customer is told when a video cannot be finished. Customers never
+ * see provider wording, API details, URLs or credit balances — only a plain
+ * message, with the reason kept for the manager (render_jobs.error and the
+ * manager's Production page).
  */
 export function customerSafeError(message: string): string {
   const stripped = message.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
-  if (/insufficient credit/i.test(stripped)) {
-    return "Video generation is temporarily unavailable because the provider is out of credit. Please try again later.";
-  }
-  return stripped || "Video production could not be completed. Please try again later.";
+  if (/photos? did not finish sending|photo could not be sent/i.test(stripped)) return "Your photos did not finish uploading, so nothing was made. Please start the order again.";
+  if (/took too long/i.test(stripped)) return "We couldn't finish this video in time. You won't be charged for it — please try again, or contact us and we'll make it for you.";
+  return "We couldn't finish this video. You won't be charged for it — please try again, or contact us and we'll make it for you.";
 }
