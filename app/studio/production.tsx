@@ -110,19 +110,57 @@ export function useStudioJobs(handlers: { onFinished?: (job: StudioJob) => void;
   return { jobs, track, forget, restored, offline };
 }
 
-export async function startStudioProduction(body: Record<string, unknown>): Promise<StudioJob> {
-  const response = await fetch("/api/studio/production", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+export type Sending = { id: string; done: number; total: number };
+
+/* Starts a Studio video in three small steps: create it (nothing is made or
+   charged yet), send each scene's photo, then start. The job is shown from
+   the first step, so the loading view appears at once. A photo that fails to
+   send is tried again; once all are in, the server finishes starting even if
+   the page is refreshed. */
+export async function startStudioProduction(body: Record<string, unknown>, photos: string[], hooks: { onCreated: (job: StudioJob) => void; onProgress: (sending: Sending) => void }): Promise<StudioJob> {
+  const created = await fetch("/api/studio/production", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await created.json().catch(() => ({}));
+  if (!created.ok || !data.job?.id) throw new Error(data.error || "The video could not start. Please try again.");
+  const job = data.job as StudioJob;
+  const count = Number(data.plan?.count) || photos.length;
+  hooks.onCreated(job);
+  hooks.onProgress({ id: job.id, done: 0, total: count });
+  for (let index = 0; index < count; index += 1) {
+    const blob = await (await fetch(photos[index])).blob();
+    let sent = false, reason = "";
+    for (let attempt = 0; attempt < 3 && !sent; attempt += 1) {
+      if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 1200 * attempt));
+      try {
+        const response = await fetch(`/api/studio/production/${job.id}?scene=${index + 1}`, { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
+        if (response.ok) sent = true;
+        else { reason = ((await response.json().catch(() => ({}))) as { error?: string }).error || ""; if (response.status < 500 && response.status !== 429) break; }
+      } catch { reason = "The connection dropped."; }
+    }
+    if (!sent) throw new Error(`Scene ${index + 1}'s photo could not be sent. ${reason} Nothing was made or charged — please try again.`.replace(/\s+/g, " "));
+    hooks.onProgress({ id: job.id, done: index + 1, total: count });
+  }
+  const started = await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const result = await started.json().catch(() => ({}));
+  if (!started.ok || !result.job?.id) throw new Error(result.error || "The video could not start. Please try again.");
+  return result.job as StudioJob;
+}
+
+/* Resumes a stopped video: finished scenes are kept when possible. */
+export async function resumeStudioJob(id: string): Promise<StudioJob> {
+  const response = await fetch(`/api/studio/production/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resume" }) });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.job?.id) throw new Error(data.error || "The video could not start. Please try again.");
+  if (!response.ok || !data.job?.id) throw new Error(data.error || "This video could not be picked up again.");
   return data.job as StudioJob;
 }
+export const canResume = (job: StudioJob) => job.status === "failed" && STUDIO_KINDS.includes(job.kind) && !/did not finish sending|photo could not be sent/i.test(job.error || "");
 
 export async function stopStudioJob(id: string) {
   await fetch(`/api/transitions/${id}`, { method: "DELETE" }).catch(() => undefined);
 }
 
-function percentOf(job: StudioJob) {
+function percentOf(job: StudioJob, sending?: Sending | null) {
   if (job.status === "succeeded") return 100;
+  if (job.status === "starting" && sending && sending.id === job.id && sending.total) return Math.round(2 + (sending.done / sending.total) * 6);
   if (job.status === "saving") return 95;
   if (job.status === "stitching") return 86;
   if (job.status === "generating" && job.total) return Math.round(8 + (Math.min(job.completed, job.total) / job.total) * 74);
@@ -136,7 +174,7 @@ function clock(seconds: number) {
 
 /* The loading view: what is happening now, every scene's state, and that it
    is safe to leave. */
-export function ProductionView({ job, title, thumbs, onStop, offline }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; offline?: boolean }) {
+export function ProductionView({ job, title, thumbs, onStop, onResume, onDismiss, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onDismiss?: () => void; offline?: boolean; sending?: Sending | null }) {
   const [now, setNow] = useState(() => job.updatedAt || job.createdAt);
   const [broken, setBroken] = useState<number[]>([]);
   const active = isActive(job);
@@ -152,9 +190,9 @@ export function ProductionView({ job, title, thumbs, onStop, offline }: { job: S
   const many = scenes.length > 1;
   const retrying = scenes.filter((scene) => scene.state === "retrying" || (scene.state === "creating" && scene.attempt > 1)).length;
   const ready = job.status === "generating" ? Math.min(job.completed, scenes.length) : ["stitching", "saving", "succeeded"].includes(job.status) ? scenes.length : 0;
-  const percent = percentOf(job);
+  const percent = percentOf(job, sending);
   const steps = [
-    { key: "sent", label: "Photos sent", done: job.status !== "starting", current: job.status === "starting" },
+    { key: "sent", label: job.status === "starting" && sending && sending.id === job.id && sending.done < sending.total ? `Sending photos · ${sending.done} of ${sending.total}` : "Photos sent", done: job.status !== "starting", current: job.status === "starting" },
     { key: "scenes", label: many ? `Creating scenes${job.status === "generating" ? ` · ${ready} of ${scenes.length}` : ""}` : "Creating the clip", done: ["stitching", "saving", "succeeded"].includes(job.status), current: job.status === "generating" },
     ...(many ? [{ key: "join", label: "Joining with crossfades", done: ["saving", "succeeded"].includes(job.status), current: job.status === "stitching" }] : []),
     { key: "save", label: "Saving to History", done: job.status === "succeeded", current: job.status === "saving" },
@@ -169,6 +207,10 @@ export function ProductionView({ job, title, thumbs, onStop, offline }: { job: S
         <small>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : job.error || "This video stopped."}</small>
       </div>
       {active && onStop && <button type="button" className="prod-stop" onClick={onStop}>Stop</button>}
+      {!active && (onResume || onDismiss) && <div className="prod-actions">
+        {onResume && canResume(job) && <button type="button" className="prod-stop prod-resume" onClick={onResume} title="Pick up where it stopped">Resume</button>}
+        {onDismiss && <button type="button" className="prod-stop" onClick={onDismiss}>Hide</button>}
+      </div>}
     </header>
     {job.status !== "failed" && <div className="prod-bar" role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i style={{ width: `${percent}%` }} /></div>}
     <ol className="prod-steps">
@@ -186,7 +228,7 @@ export function ProductionView({ job, title, thumbs, onStop, offline }: { job: S
         </li>;
       })}
     </ol>}
-    {active && <p className="prod-note">{offline ? "Reconnecting… your video keeps going on our server." : retrying ? `${retrying === 1 ? "A scene is" : `${retrying} scenes are`} being redone automatically — no need to do anything.` : "You can leave or refresh this page. It keeps going on our server and lands in History."}</p>}
+    {active && <p className="prod-note">{job.status === "starting" && sending?.id === job.id ? "Keep this page open while the photos are sent — after that you can leave or refresh." : offline ? "Reconnecting… your video keeps going on our server." : retrying ? `${retrying === 1 ? "A scene is" : `${retrying} scenes are`} being redone automatically — no need to do anything.` : "You can leave or refresh this page. It keeps going on our server and lands in History."}</p>}
   </section>;
 }
 

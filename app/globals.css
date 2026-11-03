@@ -1347,3 +1347,6 @@ p { text-wrap: pretty; }
 .history-prompt summary { font-size: 12px !important; color: var(--muted) !important; }
 .history-prompt p { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; max-height: 9em; overflow: auto; }
 @media (prefers-reduced-motion: reduce) { .prod-bar i, .prod-dot, .prod-steps li.current span, .prod-scene.is-creating::after { animation: none; } }
+.prod-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.prod-resume { background: var(--amber); color: #1A1206; }
+.prod-resume:hover { background: #F1B358; }

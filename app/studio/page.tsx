@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../ui-icon";
 import { engineCost, scenePlan, studioEngine, studioEngines, VIDEO_LENGTHS, type StudioEngineKey, type StudioResolution, type VideoLength } from "../engine-catalog";
-import { historyKind, isActive, jobMode, ProductionView, startStudioProduction, stopStudioJob, useStudioJobs, type StudioJob } from "./production";
+import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startStudioProduction, stopStudioJob, useStudioJobs, type Sending, type StudioJob } from "./production";
 
 type MotionKey = "push" | "orbit" | "slide" | "focus" | "pull" | "mixed" | "custom";
 type SpeedKey = "slow" | "medium" | "fast";
@@ -274,6 +274,8 @@ export default function Home() {
   const [overlayWork, setOverlayWork] = useState<{ id: string; message: string; busy: boolean } | null>(null);
   const [historyFilter, setHistoryFilter] = useState<"all" | "film" | "clip">("all");
   const [localThumbs, setLocalThumbs] = useState<Record<string, string[]>>({});
+  const [sending, setSending] = useState<Sending | null>(null);
+  const [dismissed, setDismissed] = useState<string[]>([]);
   const overlayJobs = useRef(new Map<string, { branding: RealEstateBranding; prompt: string; category: string }>());
   const production = useStudioJobs({ onFinished: jobFinished, onRestore: restoreJobs });
   const singleJob = jobIds.single ? production.jobs[jobIds.single] : undefined;
@@ -281,6 +283,8 @@ export default function Home() {
   const extendJob = jobIds.extend ? production.jobs[jobIds.extend] : undefined;
   const transitionJob = jobIds.transition ? production.jobs[jobIds.transition] : undefined;
   const activeJobs = Object.values(production.jobs).filter(isActive).sort((a, b) => b.createdAt - a.createdAt);
+  // Studio videos that stopped in the last few hours stay visible (with "Pick up where it stopped").
+  const stoppedJobs = Object.values(production.jobs).filter((job) => canResume(job) && !dismissed.includes(job.id)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
   const seriesGenerating = isActive(seriesJob) || starting === "series";
   const output = singleJob?.status === "succeeded" ? branded[singleJob.id]?.url || singleJob.videoUrl || "" : "";
   const outputFormat: OutputFormat = singleJob && branded[singleJob.id] ? branded[singleJob.id].format : "mp4";
@@ -304,10 +308,42 @@ export default function Home() {
   useEffect(() => { loadHistory(); }, []);
   /* After a refresh: pick each tab's video back up and open the newest one. */
   function restoreJobs(found: StudioJob[]) {
-    const active = found.filter(isActive).sort((a, b) => a.createdAt - b.createdAt);
-    if (!active.length) return;
-    setJobIds((current) => { const next = { ...current }; for (const job of active) next[jobMode(job)] = job.id; return next; });
-    if (!new URLSearchParams(window.location.search).get("mode")) setMode(jobMode(active[active.length - 1]));
+    // Each tab gets its newest video back: one still being made first,
+    // otherwise the latest that finished or stopped (shown with its result).
+    const newestFirst = [...found].sort((a, b) => b.createdAt - a.createdAt);
+    const pick: Partial<Record<ProductionTab, StudioJob>> = {};
+    for (const job of newestFirst) { const tab = jobMode(job); if (isActive(job) && !isActive(pick[tab])) pick[tab] = job; }
+    for (const job of newestFirst) { const tab = jobMode(job); if (!pick[tab]) pick[tab] = job; }
+    setJobIds((current) => { const next = { ...current }; for (const [tab, job] of Object.entries(pick)) if (job && !current[tab as ProductionTab]) next[tab as ProductionTab] = job.id; return next; });
+    if (new URLSearchParams(window.location.search).get("mode")) return;
+    const live = newestFirst.find(isActive);
+    const recent = newestFirst.find((job) => Date.now() - job.updatedAt < 30 * 60 * 1000);
+    if (live || recent) setMode(jobMode((live || recent) as StudioJob));
+  }
+  async function resumeJob(id: string) {
+    const job = production.jobs[id]; if (!job) return;
+    const perScene = job.costCents / Math.max(1, job.scenes?.length || job.total || 1);
+    const unfinished = (job.scenes || []).filter((scene) => scene.state !== "ready").length || job.total || 1;
+    if (!window.confirm(`Pick this video back up? About ${unfinished} scene${unfinished === 1 ? "" : "s"} will be made again (roughly $${((perScene * unfinished) / 100).toFixed(2)} in engine cost).`)) return;
+    try { production.track(await resumeStudioJob(id)); }
+    catch (reason) { window.alert(reason instanceof Error ? reason.message : "This video could not be picked up again."); }
+  }
+  /* Shared start for every Studio video: the loading view appears at once,
+     photos are sent one by one, then the server takes over. */
+  async function launch(tab: ProductionTab, body: Record<string, unknown>, photos: string[], extra?: (job: StudioJob) => void) {
+    let created: StudioJob | null = null;
+    try {
+      const job = await startStudioProduction(body, photos, {
+        onCreated: (job) => { created = job; production.track({ ...job, scenes: job.scenes || null }); setJobIds((current) => ({ ...current, [tab]: job.id })); extra?.(job); },
+        onProgress: setSending,
+      });
+      production.track(job);
+    } catch (reason) {
+      // Nothing was started: close the half-made job so it does not linger.
+      const job = created as StudioJob | null;
+      if (job) { await stopStudioJob(job.id); production.track({ ...job, status: "failed", error: reason instanceof Error ? reason.message : "The video could not start." }); }
+      throw reason;
+    } finally { setSending(null); }
   }
   /* A video finished (seen while this page is open): refresh History, and
      burn in the listing cards if they were asked for. */
@@ -423,9 +459,8 @@ export default function Home() {
     setError(""); setStarting("single");
     try {
       const image = await prepareFrame(source, aspect, engine);
-      const job = await startStudioProduction({ mode: "single", scenes: [{ image, prompt: finalPrompt, audio: soundEnabled || voiceoverEnabled }], engine, resolution, aspect, clipSeconds: frames === 121 ? 10 : 5, seed: seed ? Number(seed) : null, label: "Single clip" });
-      production.track(job); setJobIds((current) => ({ ...current, single: job.id }));
-      if (wantsOverlays()) overlayJobs.current.set(job.id, { branding, prompt: finalPrompt, category });
+      const overlays = wantsOverlays();
+      await launch("single", { mode: "single", scenes: [{ prompt: finalPrompt, audio: soundEnabled || voiceoverEnabled }], engine, resolution, aspect, clipSeconds: frames === 121 ? 10 : 5, seed: seed ? Number(seed) : null, label: "Single clip" }, [image], (job) => { if (overlays) overlayJobs.current.set(job.id, { branding, prompt: finalPrompt, category }); });
     } catch (err) { setError(err instanceof Error ? err.message : "Could not start the clip."); }
     finally { setStarting(""); }
   }
@@ -441,14 +476,17 @@ export default function Home() {
     if (category !== "interior" && seriesPromptMode === "shared" && details.trim().length < 12) return setError("Write one clear prompt for the full series.");
     setError(""); setStarting("series");
     try {
-      const scenes = await Promise.all(used.map(async (shot, shotIndex) => {
+      const scenes = used.map((shot, shotIndex) => {
         const direction = seriesPromptMode === "scene" ? shot.prompt : details;
         const sceneAudio = soundEnabled && !voiceoverEnabled && shotIndex === 0;
-        return { image: await prepareFrame(shot.source, aspect, engine), prompt: buildPrompt(shot.motion, direction, category, continuity, speed, aspect, sceneAudio ? audioPrompt : "", true), audio: sceneAudio };
-      }));
-      const job = await startStudioProduction({ mode: "series", scenes, engine, resolution, aspect, length: seriesLength, seed: seed ? Number(seed) : null, label: `${seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "" });
-      production.track(job); setJobIds((current) => ({ ...current, series: job.id })); setLocalThumbs((current) => ({ ...current, [job.id]: used.map((shot) => shot.source) }));
-      if (wantsOverlays()) overlayJobs.current.set(job.id, { branding, prompt: scenes[0].prompt, category: `${seriesLength}-second film` });
+        return { prompt: buildPrompt(shot.motion, direction, category, continuity, speed, aspect, sceneAudio ? audioPrompt : "", true), audio: sceneAudio };
+      });
+      const photos = await Promise.all(used.map((shot) => prepareFrame(shot.source, aspect, engine)));
+      const overlays = wantsOverlays();
+      await launch("series", { mode: "series", scenes, engine, resolution, aspect, length: seriesLength, seed: seed ? Number(seed) : null, label: `${seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "" }, photos, (job) => {
+        setLocalThumbs((current) => ({ ...current, [job.id]: used.map((shot) => shot.source) }));
+        if (overlays) overlayJobs.current.set(job.id, { branding, prompt: scenes[0].prompt, category: `${seriesLength}-second film` });
+      });
     } catch (err) { setError(err instanceof Error ? err.message : "The film could not start."); }
     finally { setStarting(""); }
   }
@@ -457,9 +495,8 @@ export default function Home() {
     setError(""); setStarting("extend");
     try {
       const image = await prepareFrame(extendSource, aspect, engine);
-      const job = await startStudioProduction({ mode: "single", scenes: [{ image, prompt: extensionPrompt, audio: soundEnabled || voiceoverEnabled }], engine, resolution, aspect, clipSeconds: frames === 121 ? 10 : 5, seed: seed ? Number(seed) : null, label: "Extension" });
-      production.track(job); setJobIds((current) => ({ ...current, extend: job.id }));
-      if (wantsOverlays()) overlayJobs.current.set(job.id, { branding, prompt: extensionPrompt, category: "extension" });
+      const overlays = wantsOverlays();
+      await launch("extend", { mode: "single", scenes: [{ prompt: extensionPrompt, audio: soundEnabled || voiceoverEnabled }], engine, resolution, aspect, clipSeconds: frames === 121 ? 10 : 5, seed: seed ? Number(seed) : null, label: "Extension" }, [image], (job) => { if (overlays) overlayJobs.current.set(job.id, { branding, prompt: extensionPrompt, category: "extension" }); });
     } catch (err) { setError(err instanceof Error ? err.message : "Could not extend the scene."); }
     finally { setStarting(""); }
   }
@@ -518,7 +555,7 @@ export default function Home() {
   /* The output area of a tab: the live production view while a video is
      being made, then the finished video (or what stopped it). */
   function renderStage(tab: ProductionTab, job: StudioJob | undefined, videoUrl: string, empty: ReactNode, title: string, preparing = false) {
-    if (job && isActive(job)) return <ProductionView job={job} title={title} thumbs={localThumbs[job.id]} onStop={() => stopJob(tab)} offline={production.offline}/>;
+    if (job && (isActive(job) || (job.status === "failed" && job.scenes))) return <ProductionView job={job} title={title} thumbs={localThumbs[job.id]} onStop={() => stopJob(tab)} onResume={() => resumeJob(job.id)} offline={production.offline} sending={sending}/>;
     const overlay = overlayWork && job && overlayWork.id === job.id ? overlayWork : null;
     return <>
       <div className="output-stage">{videoUrl ? <video src={videoUrl} controls autoPlay loop playsInline/> : empty}
@@ -594,7 +631,7 @@ export default function Home() {
           <div className="length-picker" role="radiogroup" aria-label="Film length">{VIDEO_LENGTHS.map((length) => <button type="button" key={length} role="radio" aria-checked={seriesLength === length} className={seriesLength === length ? "active" : ""} onClick={() => { setSeriesLength(length); clearResult("series"); }} disabled={seriesGenerating}><strong>{length} s</strong><small>{length === 15 ? "Reel · story" : length === 30 ? "Listing film" : "Full tour"}</small></button>)}</div>
           <p className="length-plan">{shots.length < 2 ? "Add at least two scenes." : `Uses ${planScenes === shots.length ? `all ${planScenes}` : `your first ${planScenes} of ${shots.length}`} scenes · ${plan.sceneSeconds} s each · about ${stitchedDuration} s.`}{shortOfLength && " Add more scenes to reach the full length."}</p>
           <div className="series-summary"><div><span>Length</span><strong>{stitchedDuration}s</strong></div><div><span>Scenes</span><strong>{shots.length < 2 ? 0 : planScenes}</strong></div><div><span>Engine cost</span><strong>{shots.length < 2 ? "—" : `$${seriesCost.toFixed(2)}`}</strong></div></div>
-          {seriesJob && (isActive(seriesJob) || seriesJob.status === "failed") && <ProductionView job={seriesJob} title={`Making your ${seriesJob.category.replace(/^Studio · /, "") || "film"}`} thumbs={localThumbs[seriesJob.id]} onStop={() => stopJob("series")} offline={production.offline}/>}
+          {seriesJob && (isActive(seriesJob) || seriesJob.status === "failed") && <ProductionView job={seriesJob} title={`${seriesJob.status === "failed" ? "Your" : "Making your"} ${seriesJob.category.replace(/^Studio · /, "") || "film"}`} thumbs={localThumbs[seriesJob.id]} onStop={() => stopJob("series")} onResume={() => resumeJob(seriesJob.id)} offline={production.offline} sending={sending}/>}
           {error && <div className="error">{error}</div>}
           <div className="series-actions"><button className="generate" onClick={generateSeries} disabled={!connected || shots.length < 2 || seriesGenerating || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" ? "Sending your scenes…" : isActive(seriesJob) ? "Making your film…" : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button></div>
           {historyMessage && <p className="history-message">{historyMessage}</p>}
@@ -618,7 +655,7 @@ export default function Home() {
       <div className="panel output-panel"><Heading number="03" title="Generate transitions" note="Every frame is treated as an exact destination"/>{renderStage("transition", transitionJob, transitionOutput, <div className="empty-output"><span>1 → 2 → 3</span><strong>Your multi-frame video will appear here</strong><small>Add frames in order. Every adjacent pair becomes one controlled transition.</small></div>, transitionMode === "clean" ? "Making a clean dissolve" : "Making your transitions", transitionStatus === "preparing")}{transitionError && <div className="error">{transitionError}</div>}<button className="generate" onClick={generateTransition} disabled={!connected || !firstFrame || !lastFrame || middleFrames.some((frame) => !frame.source) || transitionStatus === "preparing" || starting === "transition" || isActive(transitionJob)}>{!connected ? "Connect Replicate first" : starting === "transition" ? "Starting…" : isActive(transitionJob) ? "Making your transitions…" : transitionMode === "clean" ? `Create clean ${middleFrames.length + 2}-frame dissolve` : `Generate ${middleFrames.length + 2}-frame sequence`}<span>→</span></button>{downloadLink(transitionOutput, transitionJob, "mp4", "motionwren-transition")}{historyMessage && <p className="history-message">{historyMessage}</p>}<div className="cost-line"><span>Estimated generation cost</span><strong>{transitionMode === "clean" ? "Less than $0.01 processing" : `$${(((middleFrames.length + 1) * (frames === 121 ? 10 : 5) * .15)).toFixed(2)} total · ${middleFrames.length + 1} transition${middleFrames.length === 0 ? "" : "s"}`}</strong></div></div>
     </section> : mode === "history" ? <section className="history-area" aria-live="polite">
       <div className="history-heading"><div><span className="label">HISTORY</span><h2>Your videos</h2><p>Everything you have made, newest first. Videos still being made are at the top.</p></div><button onClick={loadHistory} disabled={historyLoading}>{historyLoading ? "Refreshing…" : "Refresh"}</button></div>
-      {activeJobs.length > 0 && <div className="history-live">{activeJobs.map((job) => <ProductionView key={job.id} job={job} title={job.category.replace(/^Studio · /, "") || "Video"} thumbs={localThumbs[job.id]} onStop={() => stopById(job.id)} offline={production.offline}/>)}</div>}
+      {(activeJobs.length > 0 || stoppedJobs.length > 0) && <div className="history-live">{[...activeJobs, ...stoppedJobs].map((job) => <ProductionView key={job.id} job={job} title={job.category.replace(/^Studio · /, "") || "Video"} thumbs={localThumbs[job.id]} onStop={() => stopById(job.id)} onResume={() => resumeJob(job.id)} onDismiss={() => setDismissed((list) => [...list, job.id])} offline={production.offline} sending={sending}/>)}</div>}
       {history.length > 0 && <div className="tabs history-filter" role="tablist" aria-label="Show">{(["all", "film", "clip"] as const).map((key) => <button type="button" role="tab" key={key} aria-selected={historyFilter === key} className={historyFilter === key ? "active" : ""} onClick={() => setHistoryFilter(key)}>{key === "all" ? "All" : key === "film" ? "Finished videos" : "Clips"}<span>{key === "all" ? history.length : history.filter((item) => historyKind(item.category).group === key).length}</span></button>)}</div>}
       {historyMessage && <p className="history-message history-wide">{historyMessage}</p>}
       {historyLoading && !history.length ? <div className="history-empty">Loading saved videos…</div> : history.length ? <div className="history-grid">{history.filter((item) => historyFilter === "all" || historyKind(item.category).group === historyFilter).map((item) => <article className="history-card" key={item.id}><video src={item.videoUrl} controls preload="metadata" playsInline/><div className="history-card-body"><strong className="history-title">{historyKind(item.category).label}</strong><div className="history-meta"><span>{engineName(item.engine)}</span><span>{item.duration}s</span><span>{item.aspect === "vertical" ? "9:16" : item.aspect === "cinematic" ? "2.39:1" : "16:9"}</span><span>{item.resolution}</span></div>{item.prompt && <details className="history-prompt"><summary>Prompt</summary><p>{item.prompt}</p></details>}<div className="history-card-footer"><div><strong>{item.costCents ? `$${(item.costCents / 100).toFixed(2)}` : "—"}</strong><small>{new Date(item.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div><div><a href={item.downloadUrl}>Download</a><button onClick={() => removeHistoryItem(item.id)}>Remove</button></div></div></div></article>)}</div> : <div className="history-empty"><strong>No saved videos yet.</strong><span>Your next video will appear here automatically.</span></div>}

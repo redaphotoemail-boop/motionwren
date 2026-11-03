@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { ACTIVE_STATUSES, publicJob, type RenderJobRow } from "../_lib/render-jobs";
+import { ACTIVE_STATUSES, jobScenes, publicJob, type RenderJobRow } from "../_lib/render-jobs";
 import { jsonError, requireAdmin } from "../_lib/account";
 
 const AI_ENDPOINT = "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions";
@@ -15,10 +15,13 @@ export async function GET(request: Request) {
   let ownerId: string;
   try { ownerId = (await requireAdmin(env)).id; } catch (error) { return jsonError(error); }
   const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
-  // ?all=1: every video still being made (the Studio's History shows them).
+  // ?all=1: every video still being made, plus those that finished or
+  // stopped in the last 3 hours — so after a refresh the Studio shows each
+  // one again (still running, the finished film, or what stopped it).
   if (new URL(request.url).searchParams.get("all") === "1") {
-    const rows = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND status IN (${placeholders}) ORDER BY created_at DESC LIMIT 10`).bind(ownerId, ...ACTIVE_STATUSES).all<RenderJobRow>();
-    return NextResponse.json({ jobs: rows.results.map(publicJob) });
+    const rows = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND (status IN (${placeholders}) OR updated_at > ?) ORDER BY created_at DESC LIMIT 12`).bind(ownerId, ...ACTIVE_STATUSES, Date.now() - 3 * 60 * 60 * 1000).all<RenderJobRow>();
+    const jobs = await Promise.all(rows.results.map(async (row) => ({ ...publicJob(row), scenes: await jobScenes(env, row) })));
+    return NextResponse.json({ jobs });
   }
   const row = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND status IN (${placeholders}) ORDER BY created_at DESC LIMIT 1`).bind(ownerId, ...ACTIVE_STATUSES).first<RenderJobRow>();
   return NextResponse.json({ job: row ? publicJob(row) : null });

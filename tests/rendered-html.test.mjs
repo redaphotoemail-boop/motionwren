@@ -47,7 +47,7 @@ test("keeps the professional multi-shot crossfade workflow visible", async () =>
   assert.match(source, /VIDEO_LENGTHS/);
   assert.match(source, /audioMode: seriesAudioRequested \? "single_master" : "silent"/);
   assert.match(source, /const sceneAudio = soundEnabled && !voiceoverEnabled && shotIndex === 0/);
-  assert.match(source, /startStudioProduction\(\{ mode: "series"/);
+  assert.match(source, /launch\("series", \{ mode: "series"/);
   assert.match(route, /scenePlan\(engine, resolution, length/);
 });
 

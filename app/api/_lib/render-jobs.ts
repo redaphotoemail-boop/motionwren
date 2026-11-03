@@ -1,7 +1,7 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
-import { MAX_ATTEMPTS, STALE_SCENE_MS, deleteFrames, loadManifest, saveManifest, startScene } from "./production";
+import { MAX_ATTEMPTS, STALE_SCENE_MS, deleteFrames, engineInputFor, framesPresent, loadManifest, saveManifest, startProductionScenes, startScene } from "./production";
 
 /* Kinds whose scenes are joined with one-second cross-dissolves. */
 const CROSSFADE_KINDS = new Set(["customer-series", "studio-series"]);
@@ -63,6 +63,8 @@ export function outputUrl(value: unknown) {
 export async function replicatePrediction(token: string, id: string): Promise<Record<string, unknown>> {
   // A scene whose restart is being sent right now.
   if (id.startsWith("pending-")) return { status: "starting" };
+  // A scene of a stopped video that was picked up again: make it once more.
+  if (id.startsWith("resume-")) return { status: "failed", error: "Picked up again." };
   if (id.startsWith("compositor:")) {
     const baseUrl = process.env.COMPOSITOR_API_URL;
     const secret = process.env.COMPOSITOR_API_SECRET;
@@ -232,7 +234,19 @@ async function failRenderJob(env: { DB: D1Database }, row: RenderJobRow, message
 export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
   if (["succeeded", "failed"].includes(row.status)) return row;
   try {
-    if (row.status === "generating") {
+    if (row.status === "starting" && Date.now() - row.updatedAt > 90 * 1000) {
+      // The start was cut off (a refresh or dropped connection while the
+      // photos were sent or the scenes started): carry on from where it was.
+      const manifest = await loadManifest(env, row.id);
+      if (!manifest) {
+        if (Date.now() - row.updatedAt > 10 * 60 * 1000) throw new Error("The video could not start. Please try again.");
+      } else {
+        const present = row.kind.startsWith("studio-") ? await framesPresent(env, row.id, manifest.inputs.length) : [];
+        if (present.some((value) => !value)) throw new Error("The photos did not finish sending, so nothing was made. Please start again.");
+        const claim = await env.DB.prepare(`UPDATE render_jobs SET updated_at = ? WHERE id = ? AND status = 'starting' AND updated_at = ?`).bind(Date.now(), row.id, row.updatedAt).run();
+        if (claim.meta.changes) await startProductionScenes(env, token, row.id, manifest, webhookUrl, JSON.parse(row.predictionIds || "[]") as string[]);
+      }
+    } else if (row.status === "generating") {
       const ids = JSON.parse(row.predictionIds || "[]") as string[];
       const manifest = await loadManifest(env, row.id);
       // A failed status lookup is "try again later", never a failed video.
@@ -273,7 +287,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
             manifest.attempts[index] += 1;
             manifest.startedAt[index] = Date.now();
             manifest.states[index] = "retrying";
-            try { next[index] = await startScene(token, manifest.endpoint, manifest.inputs[index], webhookUrl); }
+            try { next[index] = await startScene(token, manifest.endpoint, await engineInputFor(env, row.id, index, manifest.inputs[index], manifest.attempts[index]), webhookUrl); }
             catch (error) { next[index] = ids[index]; manifest.lastErrors[index] = (error instanceof Error ? error.message : "The scene could not restart.").slice(0, 300); }
           }
           await saveManifest(env, row.id, manifest);
@@ -381,14 +395,7 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
 export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }, origin: string, ownerId: string | null, limit = 3) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return;
-  // A job that never got past "starting" (the starting request was cut off)
-  // is closed after 10 minutes so it cannot sit in the list forever.
-  const stuck = await env.DB.prepare(`SELECT id FROM render_jobs WHERE status = 'starting' AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} LIMIT 3`).bind(...(ownerId ? [Date.now() - 10 * 60 * 1000, ownerId] : [Date.now() - 10 * 60 * 1000])).all<{ id: string }>();
-  for (const item of stuck.results) {
-    const row = await getRenderJob(env, item.id);
-    if (row && row.status === "starting") await failRenderJob(env, row, "The video could not start. Please try again.").catch(() => undefined);
-  }
-  const query = `SELECT id FROM render_jobs WHERE status IN ('generating','stitching','saving') AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} ORDER BY updated_at ASC LIMIT ?`;
+  const query = `SELECT id FROM render_jobs WHERE status IN ('starting','generating','stitching','saving') AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} ORDER BY updated_at ASC LIMIT ?`;
   const cutoff = Date.now() - 45 * 1000;
   const stale = ownerId
     ? await env.DB.prepare(query).bind(cutoff, ownerId, limit).all<{ id: string }>()
@@ -398,4 +405,35 @@ export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }
     if (!row || !row.webhookToken) continue;
     await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${row.id}?token=${row.webhookToken}`).catch(() => undefined);
   }
+}
+
+/* Picks a stopped video back up. Scenes the engine already finished are kept
+   when they are still held by the engine (about an hour); the rest are made
+   again from the stored photos and settings. Returns how many scenes will be
+   made, or why it cannot be picked up. */
+export async function resumeRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string): Promise<{ redo: number } | { error: string }> {
+  if (row.status !== "failed") return { error: "Only a stopped video can be picked up again." };
+  const manifest = await loadManifest(env, row.id);
+  if (!manifest) return { error: "This video was made before videos could be picked up again. Please start a new one." };
+  if (row.kind.startsWith("studio-") && (await framesPresent(env, row.id, manifest.inputs.length)).some((value) => !value)) return { error: "This video's photos are no longer stored. Please start a new one." };
+  const ids = JSON.parse(row.predictionIds || "[]") as string[];
+  const keepFinished = Date.now() - row.updatedAt < 45 * 60 * 1000;
+  let redo = 0;
+  const next = manifest.inputs.map((_, index) => {
+    if (keepFinished && manifest.states[index] === "ready" && ids[index] && !ids[index].startsWith("pending-")) return ids[index];
+    manifest.attempts[index] = 0;
+    manifest.startedAt[index] = Date.now();
+    manifest.states[index] = "retrying";
+    redo += 1;
+    return `resume-${index}`;
+  });
+  manifest.stitchAttempts = 0;
+  await saveManifest(env, row.id, manifest);
+  const now = Date.now();
+  const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', prediction_ids = ?, segment_urls = '[]', stitch_prediction_id = NULL, error = NULL, updated_at = ? WHERE id = ? AND status = 'failed'`).bind(JSON.stringify(next), now, row.id).run();
+  if (!claim.meta.changes) return { error: "This video changed while it was being picked up. Refresh and try again." };
+  await env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE render_job_id = ? AND status IN ('failed', 'cancelled')`).bind(now, row.id).run();
+  const fresh = await getRenderJob(env, row.id);
+  if (fresh) await advanceRenderJob(env, fresh, token, webhookUrl);
+  return { redo };
 }

@@ -13,13 +13,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try { ownerId = (await requireAdmin(env)).id; } catch (error) { return jsonError(error); }
   const store = await cookies();
   const token = process.env.REPLICATE_API_TOKEN || store.get("wan_replicate_token")?.value;
-  if (!token) return NextResponse.json({ error: "Reconnect the generation provider to resume this job." }, { status: 503 });
   let row = await getRenderJob(env, id, ownerId);
   if (!row) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+  if (!token) return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row) } }); // still shown; the server moves it on
   const webhook = row.webhookToken ? `${new URL(request.url).origin}/api/webhooks/replicate/${id}?token=${row.webhookToken}` : undefined;
   // Webhooks normally move the job; checking also moves it, so a missed
   // callback never leaves it stuck (at most every few seconds).
-  if (Date.now() - row.updatedAt > 6000) row = await advanceRenderJob(env, row, token, webhook) || row;
+  if (token && Date.now() - row.updatedAt > 6000) row = await advanceRenderJob(env, row, token, webhook) || row;
   return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row) } });
 }
 
