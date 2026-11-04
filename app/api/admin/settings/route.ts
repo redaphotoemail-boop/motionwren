@@ -1,7 +1,7 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { isEngineKey } from "../../../engine-providers";
 
-const DEFAULT_SECONDS = 5;
+const DEFAULT_SECONDS = "auto"; // unset means automatic scene timing (scenePlan)
 const allowed = new Set([3, 5, "auto"]);
 
 export async function GET() {
