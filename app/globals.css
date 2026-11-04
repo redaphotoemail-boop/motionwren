@@ -1384,3 +1384,5 @@ p { text-wrap: pretty; }
   .prodm-scenes li { grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-areas: "n state btns" "n meta meta" "n detail detail"; row-gap: 4px; }
   .prodm-n { grid-area: n; } .prodm-state { grid-area: state; } .prodm-meta { grid-area: meta; } .prodm-detail { grid-area: detail; } .prodm-btns { grid-area: btns; }
 }
+
+.start-order { display: grid; gap: 6px; justify-items: start; margin: 4px 0 16px; }

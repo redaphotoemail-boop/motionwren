@@ -4,7 +4,7 @@ export const money = (dollars: number) => `$${dollars.toLocaleString("en-US", { 
 export const cents = (value: unknown) => money(Number(value || 0) / 100);
 export const bytes = (value: number) => value < 1024 ** 2 ? `${(value / 1024).toFixed(1)} KB` : value < 1024 ** 3 ? `${(value / 1024 ** 2).toFixed(1)} MB` : `${(value / 1024 ** 3).toFixed(2)} GB`;
 
-export const projectStatusLabels: Record<string, string> = { draft: "Saved", submitted: "Received", queued: "Queued", generating: "Creating scenes", stitching: "Finishing video", saving: "Preparing delivery", completed: "Ready", failed: "Needs attention" };
+export const projectStatusLabels: Record<string, string> = { draft: "Saved", approval: "Waiting for you", submitted: "Received", queued: "Queued", generating: "Creating scenes", stitching: "Finishing video", saving: "Preparing delivery", completed: "Ready", failed: "Needs attention" };
 export const statusGroup = (value: string) => value === "draft" ? "draft" : value === "failed" ? "failed" : value === "completed" ? "completed" : "production";
 
 export function StatusPill({ status }: { status: string }) {

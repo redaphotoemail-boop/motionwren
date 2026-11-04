@@ -16,7 +16,7 @@ type Notification = { id: string; type: string; title: string; message: string; 
 type Filter = "all" | StatusGroup | "history";
 type Playing = { title: string; historyId: string; vertical: boolean };
 
-const ACTIVE = ["submitted", "queued", "generating", "stitching", "saving", "editing", "review"];
+const ACTIVE = ["approval", "submitted", "queued", "generating", "stitching", "saving", "editing", "review"];
 /* Being made by the engines right now: these cannot be deleted mid-way. */
 const MAKING = ["queued", "generating", "stitching", "saving"];
 /* A video still "Starting" after a few minutes never reached the engines
@@ -24,6 +24,7 @@ const MAKING = ["queued", "generating", "stitching", "saving"];
 const STUCK_AFTER = 3 * 60 * 1000;
 const videoStatus: Record<string, string> = {
   draft: "Saved",
+  approval: "Received",
   submitted: "Starting",
   queued: "Queued",
   generating: "Creating scenes",
@@ -130,7 +131,7 @@ export default function CustomerDashboard() {
     const response = await fetch(`/api/projects/${id}/generate`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setError(data.error || "Production could not be restarted."); return; }
-    setMessage("Production restarted. You can close this page.");
+    setMessage(data.status === "approval" ? "Received. Your video goes into production shortly." : "Production restarted. You can close this page.");
     await load();
   }
 

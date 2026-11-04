@@ -18,11 +18,14 @@ export default function EnginesPage() {
   const [secondsPerImage, setSecondsPerImage] = useState<3 | 5 | "auto">("auto");
   const [savingTiming, setSavingTiming] = useState(false);
   const [timingMessage, setTimingMessage] = useState("");
+  const [orders, setOrders] = useState<{ mode: "approval" | "automatic"; payments: boolean }>({ mode: "approval", payments: false });
+  const [ordersMessage, setOrdersMessage] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => {
       if (result.multiShotSecondsPerImage === 3 || result.multiShotSecondsPerImage === 5 || result.multiShotSecondsPerImage === "auto") setSecondsPerImage(result.multiShotSecondsPerImage);
       if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine);
+      setOrders({ mode: result.customerProduction === "automatic" ? "automatic" : "approval", payments: Boolean(result.paymentsConnected) });
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
@@ -50,6 +53,16 @@ export default function EnginesPage() {
       setTimingMessage(value === "auto" ? "New multi-shot scenes will set their timing automatically." : `New multi-shot scenes will use ${value} seconds per image.`);
     } catch (error) { setTimingMessage(error instanceof Error ? error.message : "The timing setting could not be saved."); }
     finally { setSavingTiming(false); }
+  }
+
+  async function saveOrders(mode: "approval" | "automatic") {
+    if (mode === "automatic" && !orders.payments && !window.confirm("Start customer orders automatically, without payment? Each order uses engine credit as soon as it is submitted.")) return;
+    setOrdersMessage("");
+    const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerProduction: mode }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { setOrdersMessage(result.error || "The setting could not be saved."); return; }
+    setOrders({ mode, payments: Boolean(result.paymentsConnected) });
+    setOrdersMessage(mode === "automatic" ? "New orders start on their own." : "New orders wait for you to press Start production.");
   }
 
   const current = studioEngine(defaultEngine);
@@ -88,6 +101,15 @@ export default function EnginesPage() {
         </article>)}
       </div>
       <p className="fine">Applies to new videos only. Videos already in production keep the engine they started with. RECOMMENDED is our suggested starting point — the selected default is what new videos actually use. Film estimates are price per second × {FILM_SECONDS} seconds; real bills depend on scene count and the provider.</p>
+    </section>
+
+    <section className="panel" id="orders">
+      <div className="panel-head"><h2>Customer orders</h2><span className="muted small">{orders.payments ? "Payments connected" : "Payments not connected"}</span></div>
+      <p className="muted">{orders.payments ? "Paid orders start on their own." : "Until payments are connected, choose whether orders start on their own or wait for you."}</p>
+      {!orders.payments && <div className="choice-row">
+        {([["approval", "Wait for my OK", "You press Start production on each order"], ["automatic", "Start automatically", "Uses engine credit right away, unpaid"]] as Array<["approval" | "automatic", string, string]>).map(([value, label, note]) => <button key={value} type="button" className={orders.mode === value ? "choice active" : "choice"} aria-pressed={orders.mode === value} onClick={() => saveOrders(value)}><strong>{label}</strong><small>{note}</small></button>)}
+      </div>}
+      {ordersMessage && <p className="note" role="status">{ordersMessage}</p>}
     </section>
 
     <section className="panel" id="timing">

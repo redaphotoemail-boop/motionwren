@@ -34,6 +34,19 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
     finally { setWorking(false); }
   }
 
+  async function startProduction() {
+    if (!window.confirm("Start production of this order now? The video engine starts making it (this uses engine credit).")) return;
+    setWorking(true); setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/admin/projects/${id}/start`, { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Production could not start.");
+      setMessage("Production started. Follow it on the Production page; the customer is told when it is ready.");
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Production could not start."); }
+    finally { setWorking(false); }
+  }
+
   async function deliver(event: FormEvent) {
     event.preventDefault(); if (!video) return setError("Choose the finished video first.");
     setWorking(true); setError(""); setMessage("Uploading final delivery…");
@@ -84,6 +97,10 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
       <div className="mgr-stack">
         <section className="panel">
           <div className="panel-head"><h2>Production control</h2></div>
+          {["approval", "submitted", "failed"].includes(project.status) && <div className="start-order">
+            <button type="button" className="btn btn-ink" disabled={working} onClick={startProduction}>{working ? "Starting…" : project.status === "failed" ? "Start production again" : "Start production"}</button>
+            <small className="muted">{project.status === "approval" ? "This order is waiting for you." : "Makes the video now, scene by scene."}</small>
+          </div>}
           <p className="muted small">Moves the status the customer sees.</p>
           <div className="status-buttons">{["queued", "generating", "stitching", "saving", "completed", "failed"].map((status) => <button key={status} type="button" className={project.status === status ? "active" : ""} disabled={working || project.status === status} onClick={() => setStatus(status)}>{status}</button>)}</div>
           <Link className="btn btn-soft btn-sm" href={`/studio?duration=${project.targetDuration || 20}`}><Icon name="studio" size={15} />Open in Studio</Link>
