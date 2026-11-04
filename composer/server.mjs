@@ -20,6 +20,8 @@
      GET    /jobs/:key/output       the finished MP4
      GET    /jobs/:key/music        the film's music (to reuse on a re-edit)
      DELETE /jobs/:key              drop the job's files
+     POST   /music-check            a 5-second ElevenLabs track, no backup:
+                                    confirms the key, plan and format work
 
    No dependencies beyond Node and ffmpeg. */
 
@@ -33,6 +35,9 @@ import { pipeline } from "node:stream/promises";
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = process.env.COMPOSER_DIR || "/tmp/composer";
 const ELEVEN_BASE = process.env.ELEVENLABS_API_BASE || "https://api.elevenlabs.io";
+// 128 kbps MP3 is allowed on every ElevenLabs plan; 192 kbps needs Creator or
+// above and is refused on Starter. The film's sound is re-encoded anyway.
+const ELEVEN_FORMAT = process.env.ELEVENLABS_MUSIC_FORMAT || "mp3_44100_128";
 const REPLICATE_BASE = process.env.REPLICATE_API_BASE || "https://api.replicate.com";
 const MAX_CLIP_BYTES = 400 * 1024 * 1024;
 const MAX_MUSIC_BYTES = 60 * 1024 * 1024;
@@ -122,7 +127,7 @@ async function elevenLabsMusic(prompt, seconds, file) {
   let lastError;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      const response = await fetch(`${ELEVEN_BASE}/v1/music?output_format=mp3_44100_192`, {
+      const response = await fetch(`${ELEVEN_BASE}/v1/music?output_format=${encodeURIComponent(ELEVEN_FORMAT)}`, {
         method: "POST",
         headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
         body: JSON.stringify({ prompt, music_length_ms: Math.min(600_000, Math.max(3_000, Math.ceil(seconds * 1000))), model_id: model, force_instrumental: true }),
@@ -189,7 +194,12 @@ async function getMusic(spec, dir, job) {
   const seconds = spec.duration + 1.5;
   const errors = [];
   for (const maker of [elevenLabsMusic, stableAudioMusic]) {
-    try { job.musicSource = await maker(String(spec.music.prompt || "").slice(0, 2000), seconds, file); return file; }
+    try {
+      job.musicSource = await maker(String(spec.music.prompt || "").slice(0, 2000), seconds, file);
+      // The backup made it: keep why the first choice was skipped, for the manager.
+      if (errors.length) { job.musicError = errors.join(" / ").slice(0, 600); console.warn(`music: ${job.musicSource} used; ${job.musicError}`); }
+      return file;
+    }
     catch (error) { errors.push(error.message); }
   }
   if (spec.music.required) throw new Error(`Music could not be made: ${errors.join(" / ")}`);
@@ -287,6 +297,24 @@ async function compose(key, spec) {
   }
 }
 
+/* The manager's music check: one short ElevenLabs track, no backup, so a
+   refused key, plan or format shows up as ElevenLabs' own answer. */
+async function musicCheck() {
+  await fs.mkdir(ROOT, { recursive: true });
+  const dir = await fs.mkdtemp(path.join(ROOT, "check-"));
+  try {
+    const file = path.join(dir, "check.mp3");
+    await elevenLabsMusic("Short calm instrumental piano phrase, soft and warm. No vocals.", 5, file);
+    const info = await probe(file);
+    return { ok: true, source: "elevenlabs", duration: round(info.duration, 2) };
+  } catch (error) {
+    console.warn(`music check: ${error.message}`);
+    return { ok: false, error: String(error.message || "ElevenLabs did not answer.").slice(0, 400) };
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 function publicJob(key) {
   const job = jobs.get(key);
   if (!job) return { key, status: "unknown" };
@@ -314,6 +342,7 @@ export function createServer() {
         const { stdout } = await run("ffmpeg", ["-hide_banner", "-version"], { timeoutMs: 10_000 }).catch(() => ({ stdout: "" }));
         return send(res, 200, { ok: true, ffmpeg: stdout.split("\n")[0] || "missing", jobs: jobs.size });
       }
+      if (url.pathname === "/music-check" && req.method === "POST") return send(res, 200, await musicCheck());
       const match = /^\/jobs\/([^/]+)(\/output|\/music)?$/.exec(url.pathname);
       if (!match || !KEY.test(match[1])) return send(res, 404, { error: "Not found." });
       const key = match[1];

@@ -19,7 +19,7 @@ function sceneNote(error: string) {
    fix a stuck video. Every action goes through the same queue, so a double
    click cannot create duplicate engine jobs. */
 
-type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string };
+type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string };
 type Job = StudioJob & { owner?: string };
 
 const time = (value: number) => value ? new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
@@ -70,6 +70,23 @@ export default function ProductionPage() {
     setMessage(`Up to ${value} scene${value === 1 ? "" : "s"} at once.`); await load();
   }
 
+  async function testMusic() {
+    setBusy("music"); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/admin/music-check", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "The music check did not run.");
+      if (data.ok) setMessage("ElevenLabs music works. The next film uses it.");
+      else setError(`ElevenLabs refused: ${data.error || "no answer"}`);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The music check did not run."); }
+    finally { setBusy(""); }
+  }
+
+  const musicNote = !health?.music ? undefined : health.music === "ElevenLabs" ? "Backup: Stable Audio"
+    : health.music === "Backup in use" ? `Last film used Stable Audio${health.musicNote ? ` · ${health.musicNote}` : ""}`
+    : health.music === "Missing" ? `Last film had no music${health.musicNote ? ` · ${health.musicNote}` : ""}`
+    : "Add the ElevenLabs key to use ElevenLabs";
   const status = !health ? "…" : !health.tokenConfigured ? "Engine key missing" : health.paused ? "Paused — needs credit" : health.waitingUntil > now ? `Engine pacing until ${time(health.waitingUntil)}` : "Running normally";
   const perScene = (job: Job) => job.costCents / Math.max(1, job.scenes?.length || job.total || 1);
 
@@ -85,8 +102,13 @@ export default function ProductionPage() {
       <Metric label="With the engine" value={health ? `${health.activeScenes} of ${health.maxActive}` : "…"} note={health ? `${health.queuedScenes} in line · ${health.activeVideos} video${health.activeVideos === 1 ? "" : "s"}` : undefined} />
       <Metric label="Last provider message" value={health?.lastErrorAt ? ago(health.lastErrorAt, now) : "None"} note={health?.lastError ? sceneNote(health.lastError) : undefined} />
       <Metric label="Editing" value={!health ? "…" : health.editor === "ready" ? "Ready" : health.editor === "trouble" ? "Retrying" : "Backup joiner"} tone={health?.editor === "ready" ? "ok" : health?.editor === "trouble" ? "warn" : "bad"} note={health?.editor === "backup" ? "Editing service not set up: music changes between scenes" : health?.editorOkAt ? `Last film edited ${ago(health.editorOkAt, now)}` : "One music track, true crossfades"} />
-      <Metric label="Music" value={health?.music || "…"} tone={health?.music === "ElevenLabs" ? "ok" : "warn"} note={health?.music === "ElevenLabs" ? "Backup: Stable Audio" : "Add the ElevenLabs key to use ElevenLabs"} />
+      <Metric label="Music" value={health?.music || "…"} tone={health?.music === "ElevenLabs" ? "ok" : "warn"} note={musicNote} />
     </section>
+
+    {health && ["Backup in use", "Missing"].includes(health.music || "") && <section className="prodm-setting">
+      <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents of ElevenLabs credit).</small></div>
+      <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
+    </section>}
 
     <section className="prodm-setting">
       <div><strong>Scenes at once</strong><small>How many scenes may be with the engine at the same time, across all videos. Keep 1 while the engine account is under $5 of credit.</small></div>

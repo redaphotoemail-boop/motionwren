@@ -340,7 +340,7 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
 /* A stand-in for the Composer container: the same HTTP protocol as
    composer/server.mjs, finishing an edit 60 s (simulated) after it starts. */
 function makeComposer() {
-  const C = { jobs: new Map(), starts: [], specs: [], failNext: 0, down: 0, loseOutput: false, outputs: 0 };
+  const C = { jobs: new Map(), starts: [], specs: [], failNext: 0, down: 0, loseOutput: false, outputs: 0, musicFallback: false };
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   const stubFor = (name) => ({
     fetch: async (url, init = {}) => {
@@ -350,7 +350,7 @@ function makeComposer() {
         const spec = JSON.parse(init.body); C.specs.push({ name, key, spec });
         const existing = C.jobs.get(key); if (existing && existing.status !== "failed") return json(existing);
         C.starts.push(key);
-        C.jobs.set(key, { key, status: "running", startedAt: clock, doneAt: clock + 60_000, fail: C.failNext-- > 0, music: Boolean(spec.music), musicSource: spec.music?.url ? "kept" : "elevenlabs" });
+        C.jobs.set(key, { key, status: "running", startedAt: clock, doneAt: clock + 60_000, fail: C.failNext-- > 0, music: Boolean(spec.music), musicSource: spec.music?.url ? "kept" : C.musicFallback ? "stable-audio" : "elevenlabs", ...(C.musicFallback && !spec.music?.url ? { musicError: "ElevenLabs music failed (HTTP 403) output_format_not_allowed" } : {}) });
         return json(C.jobs.get(key), 202);
       }
       const job = C.jobs.get(key);
@@ -451,6 +451,24 @@ const stitchCreates = () => P.stitchInputs.length;
   check("20c one edit and one History entry per film", C.starts.length === 25 && hist === 25, `edits=${C.starts.length} history=${hist}`);
   const owners = env.DB.raw.prepare("SELECT COUNT(DISTINCT owner_id) AS n FROM generation_history").get().n;
   check("20d each film went to its own account", owners === 25, `owners=${owners}`);
+}
+
+/* 22. ElevenLabs skipped: the manager sees which music the film got, and why */
+{
+  resetProvider();
+  const { C, binding } = makeComposer(); C.musicFallback = true;
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s22" }); await withEdit(env, id, 7.75);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const editor = () => JSON.parse(env.DB.raw.prepare("SELECT value FROM platform_settings WHERE key = 'editor_state'").get()?.value || "{}");
+  const first = editor();
+  check("22a the film finishes with the backup music and the reason is recorded", end.status === "succeeded" && first.musicSource === "stable-audio" && /HTTP 403/.test(first.musicNote || ""), JSON.stringify(first));
+  C.musicFallback = false;
+  const r = await lib.runJobAction(env, end, "reassemble", undefined, "r8_test", `https://x.test/api/webhooks/replicate/${id}?token=t`);
+  const end2 = await runToEnd(env, id);
+  const second = editor();
+  check("22b a re-edit with the film's kept music does not hide which engine made it", !("error" in r) && end2.status === "succeeded" && second.musicSource === "stable-audio" && second.lastOkAt > first.lastOkAt, JSON.stringify(second));
 }
 
 /* 21. Same 25 films once credit is added (no burst limit, 6 at a time) */

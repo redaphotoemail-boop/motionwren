@@ -395,7 +395,9 @@ async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   // Done: claim it once, keep the music for later re-edits, then save the film.
   const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'stitching' AND stitch_prediction_id = ?`).bind(Date.now(), row.id, row.stitchPredictionId).run();
   if (!claim.meta.changes) return;
-  await recordEditorState(env, { lastOkAt: Date.now(), musicSource: state.musicSource || "" });
+  // A re-edit reuses the film's kept music, which says nothing about the music engines.
+  const madeMusic = state.musicSource && state.musicSource !== "kept";
+  await recordEditorState(env, { lastOkAt: Date.now(), ...(madeMusic ? { musicSource: state.musicSource, musicNote: state.musicError || "" } : {}) });
   if (state.music && !edit.music?.saved) {
     try {
       await storeResponse(env.BUCKET, musicKey(row.id), await editFile(env, row.id, key, "music"), "audio/mpeg");

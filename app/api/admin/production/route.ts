@@ -46,7 +46,10 @@ export async function GET(request: Request) {
         editor: composerBinding(env) ? (editor.lastErrorAt > editor.lastOkAt ? "trouble" : "ready") : "backup",
         editorOkAt: editor.lastOkAt,
         editorError: editor.lastErrorAt > editor.lastOkAt ? editor.lastError : "",
-        music: process.env.ELEVENLABS_API_KEY ? "ElevenLabs" : process.env.REPLICATE_API_TOKEN ? "Stable Audio (backup)" : "None",
+        // What the last film actually used, not just which keys are set.
+        music: !process.env.ELEVENLABS_API_KEY ? (process.env.REPLICATE_API_TOKEN ? "Stable Audio (backup)" : "None")
+          : editor.musicSource === "stable-audio" ? "Backup in use" : editor.musicSource === "none" ? "Missing" : "ElevenLabs",
+        musicNote: editor.musicNote.slice(0, 200),
       },
       jobs,
     });

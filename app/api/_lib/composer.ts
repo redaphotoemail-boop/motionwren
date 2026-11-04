@@ -82,6 +82,15 @@ export async function editFile(env: unknown, jobId: string, key: string, which: 
   return response;
 }
 
+/* The manager's music check (Production page): a 5-second ElevenLabs track
+   made in its own container instance, with no backup. */
+export async function checkMusic(env: unknown): Promise<{ ok: boolean; error?: string; duration?: number }> {
+  const response = await stub(env, "music-check").fetch("http://composer/music-check", { method: "POST" });
+  const data = await response.json().catch(() => null) as { ok?: boolean; error?: string; duration?: number } | null;
+  if (!response.ok || !data) throw new Error(`The editing service did not answer (HTTP ${response.status}).`);
+  return { ok: Boolean(data.ok), ...(data.error ? { error: data.error } : {}), ...(data.duration ? { duration: data.duration } : {}) };
+}
+
 export async function dropEdit(env: unknown, jobId: string, key: string) {
   try { await stub(env, jobId).fetch(url(key), { method: "DELETE" }); } catch { /* the container cleans up when it sleeps */ }
 }
@@ -119,13 +128,15 @@ export function musicPrompt({ aspect, duration }: { aspect: string; duration: nu
 
 /* ---------- editing service health (for the manager's Production page) ---------- */
 
-type EditorState = { lastOkAt: number; lastError: string; lastErrorAt: number; musicSource: string };
+/* musicSource: where the last new music came from ("elevenlabs",
+   "stable-audio" or "none"); musicNote: why ElevenLabs was skipped, if it was. */
+type EditorState = { lastOkAt: number; lastError: string; lastErrorAt: number; musicSource: string; musicNote: string };
 type DbEnv = { DB: D1Database };
 
 export async function readEditorState(env: DbEnv): Promise<EditorState> {
   const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'editor_state'`).first<{ value?: string }>().catch(() => null);
-  try { return { lastOkAt: 0, lastError: "", lastErrorAt: 0, musicSource: "", ...JSON.parse(row?.value || "{}") }; }
-  catch { return { lastOkAt: 0, lastError: "", lastErrorAt: 0, musicSource: "" }; }
+  try { return { lastOkAt: 0, lastError: "", lastErrorAt: 0, musicSource: "", musicNote: "", ...JSON.parse(row?.value || "{}") }; }
+  catch { return { lastOkAt: 0, lastError: "", lastErrorAt: 0, musicSource: "", musicNote: "" }; }
 }
 
 export async function recordEditorState(env: DbEnv, patch: Partial<EditorState>) {

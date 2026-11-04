@@ -36,6 +36,8 @@ const eleven = http.createServer(async (req, res) => {
   calls.eleven += 1; calls.elevenBodies.push({ key: req.headers["xi-api-key"], url: req.url, body: JSON.parse(body || "{}") });
   if (mode.eleven === "down") { res.writeHead(500); return res.end("busy"); }
   if (mode.eleven === "refused") { res.writeHead(401, { "Content-Type": "application/json" }); return res.end('{"detail":"invalid api key"}'); }
+  // Like a Starter-plan account: 192 kbps output is refused.
+  if (/output_format=mp3_44100_192/.test(req.url)) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end('{"detail":{"status":"output_format_not_allowed"}}'); }
   res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": musicBytes.length }); res.end(musicBytes);
 });
 const replicate = http.createServer(async (req, res) => {
@@ -73,6 +75,7 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   check("1b the same job sent twice is one job", again.status === 200);
   const done = await waitDone("film-one-0001");
   check("1c the film is made", done.status === "done", done.error || "");
+  check("1d2 music asked as 128 kbps MP3, a format every ElevenLabs plan allows", /output_format=mp3_44100_128/.test(calls.elevenBodies[0]?.url || ""), calls.elevenBodies[0]?.url);
   check("1d music came from ElevenLabs, asked once, instrumental, film length + 1.5 s", done.musicSource === "elevenlabs" && calls.eleven === 1 && calls.elevenBodies[0].key === "test-eleven-key" && calls.elevenBodies[0].body.force_instrumental === true && calls.elevenBodies[0].body.music_length_ms === 11500, `${done.musicSource} calls=${calls.eleven} ${JSON.stringify(calls.elevenBodies[0]?.body)}`);
   const { file } = await save("film-one-0001");
   const info = probe(file);
@@ -105,6 +108,17 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   await api("POST", "/jobs/film-three-03", spec());
   const done = await waitDone("film-three-03");
   check("3a a refused key is not retried; the backup finishes the film", done.status === "done" && done.musicSource === "stable-audio" && calls.eleven === 1, `${done.musicSource} eleven=${calls.eleven}`);
+  check("3b why ElevenLabs was skipped is kept for the manager", /HTTP 401/.test(done.musicError || ""), done.musicError);
+}
+
+/* 3c. the manager's music check: ElevenLabs only, never the backup */
+{
+  mode.eleven = "refused"; calls.eleven = 0; calls.replicate = 0;
+  const refused = await api("POST", "/music-check");
+  check("3c music check reports ElevenLabs' refusal and does not use the backup", refused.status === 200 && refused.data.ok === false && /HTTP 401/.test(refused.data.error) && calls.replicate === 0, JSON.stringify(refused.data));
+  mode.eleven = "ok"; calls.eleven = 0;
+  const ok = await api("POST", "/music-check");
+  check("3d music check succeeds with a short track", ok.data.ok === true && calls.eleven === 1 && calls.elevenBodies.at(-1).body.music_length_ms === 5000, JSON.stringify(ok.data));
 }
 
 /* 4. both music makers down */
