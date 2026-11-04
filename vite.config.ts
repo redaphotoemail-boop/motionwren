@@ -21,7 +21,8 @@ const localBindingConfig = {
     {
       class_name: "Composer",
       image: "./composer/Dockerfile",
-      instance_type: "standard-3",
+      // 1 vCPU, 6 GiB: a 60-second 1080p film edits in a few minutes for about 1¢.
+      instance_type: "standard-2",
       max_instances: 20,
     },
   ],

@@ -12,8 +12,9 @@ type ComposerEnv = {
 
 export class Composer extends Container<ComposerEnv> {
   defaultPort = 8080;
-  // Kept warm while a film is being edited (the site checks in every minute).
-  sleepAfter = "20m";
+  // Asleep (and not billed) 5 minutes after the last check-in; the site
+  // checks in every minute while a film is being edited.
+  sleepAfter = "5m";
   enableInternet = true;
 
   constructor(ctx: ConstructorParameters<typeof Container<ComposerEnv>>[0], env: ComposerEnv) {
