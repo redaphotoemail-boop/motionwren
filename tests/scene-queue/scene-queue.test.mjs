@@ -246,6 +246,13 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
   await lib.recoverFailedOrders(env);
   const still = env.DB.raw.prepare("SELECT status FROM render_jobs WHERE id = ?").get(id2);
   check("7c an order the manager stopped is left alone", still.status === "failed", still.status);
+  // An engine-side error moves the scenes still to be made to the next backup engine, at once.
+  const id3 = await newJob(env, 3, { kind: "customer-series", owner: "cust-1", tag: "s7c" });
+  env.DB.raw.prepare("UPDATE render_jobs SET status = 'failed', error = 'Scene 1 could not be made after 3 tries: HTTP 404 model not found', cost_cents = 300, updated_at = ? WHERE id = ?").run(Date.now() - 120000, id3);
+  await lib.recoverFailedOrders(env);
+  const moved = await lib.loadManifest(env, id3);
+  const movedRow = env.DB.raw.prepare("SELECT status, cost_cents AS c FROM render_jobs WHERE id = ?").get(id3);
+  check("7d an engine-side error moves the order to the backup engine (Wan 2.7)", moved.engine === "wan27" && moved.endpoint === lib.ENGINE_ENDPOINTS.wan27 && String(moved.inputs[0].first_frame || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
 }
 
 /* 8. Provider out of credit: production pauses, nothing fails, then continues */

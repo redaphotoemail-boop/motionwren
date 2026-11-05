@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 import { frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
-import { CROSSFADE_SECONDS } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { acquireLease, classify, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -241,7 +241,12 @@ export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?
    order is quietly resumed by the heartbeat (up to MAX_RECOVERIES times, only
    the scenes that were not made are made again), and once those are used up
    the managers are alerted and the customer still sees it in production. */
-const MAX_RECOVERIES = 2;
+/* Backups for a client order, in order: if the engine it started on cannot make a scene, the scenes still
+   to be made go to the next one. Chosen for the same natural, photo-true look at a fair price. */
+const BACKUP_ENGINES: StudioEngineKey[] = ["wan3", "wan27", "kling3"];
+const MAX_RECOVERIES = 3;
+const HARD_ERROR = /not.?found|not supported|unavailable|invalid|unprocessable|HTTP 4(00|04|22)|safety|nsfw|moderat/i;
+const WAIT_ERROR = /credit|throttl|rate limit|429|busy/i;
 const recoveryKey = (id: string) => `job_recoveries:${id}`;
 
 async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, message: string) {
@@ -615,7 +620,16 @@ export async function recoverFailedOrders(env: { DB: D1Database; BUCKET: R2Bucke
     if (!row) continue;
     const used = Number((await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(recoveryKey(row.id)).first<{ value?: string }>())?.value || 0) || 0;
     await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(recoveryKey(row.id), String(used + 1), now).run();
-    await applyJobAction(env, row, "resume", null).catch(() => undefined);
+    // Find why, then fix it: waiting problems just resume; an engine-side problem (or a second stop) moves the
+    // scenes still to be made to the next backup engine.
+    const manifest = await loadManifest(env, row.id).catch(() => null);
+    const current = (manifest?.engine || "wan3") as StudioEngineKey;
+    const at = BACKUP_ENGINES.indexOf(current);
+    const next = BACKUP_ENGINES.slice(at + 1).find((engine) => !studioEngine(engine).unavailable);
+    const reason = String(row.error || "");
+    const changeEngine = Boolean(next) && !WAIT_ERROR.test(reason) && (HARD_ERROR.test(reason) || used >= 1);
+    const done = await applyJobAction(env, row, "resume", null, changeEngine ? next : undefined).catch(() => ({ error: "failed" }));
+    if (changeEngine && "ok" in done) await alertManagers(env, "Order moved to a backup engine", `An order's scenes could not be made by ${studioEngine(current).name} (${reason.slice(0, 160)}). The scenes still to be made went to ${studioEngine(next!).name}. The customer was not told.`);
   }
 }
 

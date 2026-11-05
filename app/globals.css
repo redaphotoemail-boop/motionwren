@@ -1403,3 +1403,11 @@ p { text-wrap: pretty; }
 }
 
 .start-order { display: grid; gap: 6px; justify-items: start; margin: 4px 0 16px; }
+
+.period-list { display: grid; gap: 4px; margin-top: 12px; }
+.period > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 14px 4px; border-bottom: 1px solid var(--line); }
+.period > summary::-webkit-details-marker { display: none; }
+.period > summary > span:first-child { display: grid; gap: 3px; }
+.period > summary small { color: var(--faint); font-size: 13px; }
+.period > summary > .cell-num { text-align: right; }
+.period[open] > summary { border-bottom-color: transparent; }

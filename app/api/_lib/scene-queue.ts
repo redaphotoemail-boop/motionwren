@@ -1,4 +1,6 @@
 import { MAX_ATTEMPTS, STALE_SCENE_MS, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
+import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
+import { engineCost, filmSceneDurations, type StudioEngineKey } from "../../engine-catalog";
 import { ProviderError, acquireLease, backoff, createPrediction, maxActive, readProviderState, releaseLease, writeProviderState } from "./provider";
 
 /* The scene queue. Every multi-scene video (client orders and Studio videos)
@@ -252,7 +254,7 @@ export type JobAction = "resume" | "retry-scene" | "regenerate-scene" | "reassem
 /* Changes which scenes the queue will (re)make, under the job's lease, then
    hands the job back to the queue. Never calls the engine itself, so a
    double click cannot create duplicate engine jobs. */
-export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAction, scene: number | null): Promise<{ ok: true; redo: number } | { error: string }> {
+export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAction, scene: number | null, switchTo?: StudioEngineKey): Promise<{ ok: true; redo: number } | { error: string }> {
   const lease = await acquireLease(env, `job-lock:${row.id}`, 60 * 1000);
   if (!lease) return { error: "This video is being updated right now. Try again in a few seconds." };
   try {
@@ -266,7 +268,9 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
     }
     const now = Date.now();
     const usable = (index: number) => Boolean(segments[index]) && (now - manifest.readyAt[index] < 45 * 60 * 1000 || Boolean(manifest.saved[index]));
+    const redone: number[] = [];
     const redoScene = (index: number) => {
+      redone.push(index);
       ids[index] = ""; segments[index] = null;
       manifest.states[index] = "queued"; manifest.attempts[index] = 0; manifest.waits[index] = 0; manifest.nextAt[index] = 0; manifest.reasons[index] = "";
       manifest.outputs[index] = ""; manifest.saved[index] = ""; manifest.readyAt[index] = 0; manifest.lastErrors[index] = "";
@@ -289,12 +293,30 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
       if (!segments.every((value, index) => value && usable(index))) return { error: "Every scene must be made before the film can be joined again." };
     }
     if (["stitching", "saving"].includes(row.status)) return { error: "This video is being finished right now." };
+    // A backup engine: the scenes still to be made are asked of another engine (finished scenes are kept).
+    let newCost: number | null = null;
+    if (switchTo && action === "resume") {
+      const job = await env.DB.prepare(`SELECT aspect, cost_cents AS costCents FROM render_jobs WHERE id = ?`).bind(row.id).first<{ aspect: string; costCents: number }>();
+      const resolution = engineResolution(switchTo);
+      const seconds = filmSceneDurations(switchTo, resolution).find((option) => option >= manifest.sceneSeconds) || Math.max(...filmSceneDurations(switchTo, resolution));
+      for (const index of redone) {
+        const old = manifest.inputs[index] || {};
+        const link = manifest.photos?.[index]?.link;
+        if (!link) return { error: "This order's photos are not on record, so a backup engine cannot be used." };
+        manifest.inputs[index] = buildEngineInput(switchTo, { imageUrl: link, prompt: String(old.prompt || ""), duration: seconds, resolution, aspectRatio: job?.aspect === "vertical" ? "9:16" : "16:9" });
+        if (manifest.photos?.[index]) manifest.photos[index].file = undefined;
+      }
+      const perScene = (job?.costCents || 0) / Math.max(1, count);
+      newCost = Math.round(perScene * (count - redone.length) + engineCost(switchTo, resolution, seconds) * redone.length * 100);
+      manifest.engine = switchTo;
+      manifest.endpoint = ENGINE_ENDPOINTS[switchTo];
+    }
     manifest.stitchAttempts = 0;
     // A fresh edit (the film's music is kept, so a re-made film sounds the same).
     if (manifest.edit) manifest.edit = { ...manifest.edit, key: undefined, tries: 0, startedAt: 0, lastError: "", usedBackupJoiner: false };
     await saveManifest(env, row.id, manifest);
     // Back into production (a finished film gets a new version in History).
-    await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(JSON.stringify(ids), JSON.stringify(segments), now, row.id).run();
+    await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = COALESCE(?, cost_cents), prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(newCost, JSON.stringify(ids), JSON.stringify(segments), now, row.id).run();
     await env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE render_job_id = ? AND status IN ('failed', 'cancelled', 'completed')`).bind(now, row.id).run();
     return { ok: true, redo };
   } finally {

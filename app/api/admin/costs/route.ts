@@ -36,7 +36,7 @@ export async function GET() {
       totals(env, 0),
       env.DB.prepare(`SELECT j.id, j.kind, j.status, j.category, j.duration, j.aspect, j.cost_cents AS costCents, j.created_at AS createdAt, ${SEGMENT} AS segment, CAST(p.price AS REAL) * 100 AS priceCents, u.display_name AS name, u.email AS email
         FROM render_jobs j LEFT JOIN projects p ON p.render_job_id = j.id LEFT JOIN users u ON u.id = j.owner_id
-        WHERE j.kind IN (${KINDS}) ORDER BY j.created_at DESC LIMIT 100`).all<{ id: string; kind: string; status: string; category: string; duration: number; aspect: string; costCents: number; createdAt: number; segment: string; priceCents: number | null; name: string | null; email: string | null }>(),
+        WHERE j.kind IN (${KINDS}) ORDER BY j.created_at DESC LIMIT 1500`).all<{ id: string; kind: string; status: string; category: string; duration: number; aspect: string; costCents: number; createdAt: number; segment: string; priceCents: number | null; name: string | null; email: string | null }>(),
     ]);
     return Response.json({
       month, allTime,
