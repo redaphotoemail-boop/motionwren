@@ -28,7 +28,7 @@ export const studioEngines: StudioEngine[] = [
     firstLastFrame: true,
     realEstate: true,
     badge: "RECOMMENDED",
-    pricePerSecond: { "720p": 0.084, "1080p": 0.14 },
+    pricePerSecond: { "720p": 0.168, "1080p": 0.224 },
   },
   {
     key: "geminiOmni",
@@ -41,7 +41,7 @@ export const studioEngines: StudioEngine[] = [
     firstLastFrame: true,
     realEstate: true,
     badge: "KEYFRAMES",
-    pricePerSecond: { "720p": 0.12, "1080p": 0.23 },
+    pricePerSecond: { "720p": 0.15, "1080p": 0.23 },
   },
   {
     key: "veo31Lite",

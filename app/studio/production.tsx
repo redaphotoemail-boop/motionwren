@@ -219,7 +219,7 @@ export function sceneLabel(scene: SceneInfo, now: number) {
   return "In line";
 }
 
-export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOver, onDismiss, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onStartOver?: () => void; onDismiss?: () => void; offline?: boolean; sending?: Sending | null }) {
+export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOver, onDismiss, onDelete, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onStartOver?: () => void; onDismiss?: () => void; onDelete?: () => void; offline?: boolean; sending?: Sending | null }) {
   const [now, setNow] = useState(() => job.updatedAt || job.createdAt);
   const [broken, setBroken] = useState<number[]>([]);
   const active = isActive(job);
@@ -255,10 +255,11 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
       </div>
       {active && onStop && <button type="button" className="prod-stop" onClick={onStop}>Stop</button>}
-      {!active && (onResume || onStartOver || onDismiss) && <div className="prod-actions">
+      {!active && (onResume || onStartOver || onDismiss || onDelete) && <div className="prod-actions">
         {onResume && canResume(job) && <button type="button" className="prod-stop prod-resume" onClick={onResume} title="Keep the finished scenes and make the rest">Resume</button>}
         {onStartOver && canStartOver(job) && <button type="button" className="prod-stop" onClick={onStartOver} title="A new run with the same photos and settings">Start over</button>}
         {onDismiss && <button type="button" className="prod-stop" onClick={onDismiss}>Hide</button>}
+        {onDelete && job.status === "failed" && <button type="button" className="prod-stop" onClick={onDelete} title="Remove this stopped video so you can start a new one">Delete</button>}
       </div>}
     </header>
     {job.status !== "failed" && <div className="prod-bar" role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i style={{ width: `${percent}%` }} /></div>}
