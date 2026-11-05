@@ -2,6 +2,7 @@
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../ui-icon";
+import { drawListingOverlays, listingFactsText } from "./overlays";
 import { engineCost, scenePlan, studioEngine, studioEngines, VIDEO_LENGTHS, type StudioEngineKey, type StudioResolution, type VideoLength } from "../engine-catalog";
 import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startOverStudioJob, startStudioProduction, stopStudioJob, stoppedMessage, useStudioJobs, type Sending, type StudioJob } from "./production";
 
@@ -59,15 +60,6 @@ function realEstatePrompt(motion: MotionKey) {
   return `REAL ESTATE CAMERA-ONLY PRESET — NON-NEGOTIABLE. ${realEstateMovements[motion]}. ${realEstateBasePrompt}`;
 }
 
-function fadeWindow(time: number, start: number, end: number, fade = .65) {
-  if (time < start || time > end) return 0;
-  return Math.max(0, Math.min(1, (time - start) / fade, (end - time) / fade));
-}
-function fitText(context: CanvasRenderingContext2D, text: string, maxWidth: number, startSize: number, minSize: number) {
-  let size = startSize;
-  while (size > minSize) { context.font = `600 ${size}px Arial, sans-serif`; if (context.measureText(text).width <= maxWidth) break; size -= 2; }
-  return size;
-}
 async function loadOverlayLogo(source: string) {
   if (!source) return null;
   const image = new Image(); image.src = source;
@@ -75,7 +67,7 @@ async function loadOverlayLogo(source: string) {
   return image;
 }
 async function renderRealEstateOverlays(sourceUrl: string, branding: RealEstateBranding, opening: boolean, closing: boolean): Promise<{ url: string; blob: Blob; format: OutputFormat } | null> {
-  const listingFacts = [branding.listingBeds && `${branding.listingBeds} beds`, branding.listingBaths && `${branding.listingBaths} baths`, branding.listingSquareFeet && `${branding.listingSquareFeet} sq ft`].filter(Boolean).join(" · ");
+  const listingFacts = listingFactsText(branding);
   const showOpening = opening && branding.listingEnabled && Boolean(branding.listingTitle.trim() || listingFacts || branding.listingPrice.trim() || branding.listingMessage.trim());
   const showClosing = closing && branding.agentEnabled && Boolean(branding.agentLogo || branding.agentName.trim() || branding.agentEmail.trim() || branding.agentPhone.trim());
   if (!showOpening && !showClosing) return null;
@@ -103,24 +95,7 @@ async function renderRealEstateOverlays(sourceUrl: string, branding: RealEstateB
   const finished = new Promise<Blob>((resolve, reject) => { recorder.onerror = () => reject(new Error("The listing overlay export failed.")); recorder.onstop = () => resolve(new Blob(chunks, { type: mime })); });
   const draw = () => {
     context.clearRect(0, 0, canvas.width, canvas.height); context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const width = canvas.width; const height = canvas.height; const margin = Math.round(width * .055); const now = video.currentTime; const duration = video.duration;
-    const openingAlpha = showOpening ? fadeWindow(now, 0, Math.min(3.25, Math.max(2.4, duration * .55))) : 0;
-    if (openingAlpha > 0) {
-      context.save(); context.globalAlpha = openingAlpha; const panelWidth = Math.min(width * .68, width - margin * 2); const panelHeight = Math.min(height * .34, 260); const y = height - margin - panelHeight;
-      const gradient = context.createLinearGradient(margin, y, margin + panelWidth, y); gradient.addColorStop(0, "rgba(12,12,10,.88)"); gradient.addColorStop(1, "rgba(12,12,10,.35)"); context.fillStyle = gradient; context.fillRect(margin, y, panelWidth, panelHeight);
-      context.fillStyle = "#ffffff"; const titleSize = fitText(context, branding.listingTitle.trim(), panelWidth - margin, Math.round(width * .035), 22); context.font = `600 ${titleSize}px Arial, sans-serif`; context.fillText(branding.listingTitle.trim(), margin * 1.45, y + panelHeight * .34);
-      context.fillStyle = "rgba(255,255,255,.82)"; context.font = `400 ${Math.max(18, Math.round(width * .017))}px Arial, sans-serif`; if (listingFacts) context.fillText(listingFacts, margin * 1.45, y + panelHeight * .55);
-      context.fillStyle = "#f3b08e"; context.font = `600 ${Math.max(19, Math.round(width * .019))}px Arial, sans-serif`; if (branding.listingPrice.trim()) context.fillText(branding.listingPrice.trim(), margin * 1.45, y + panelHeight * .73);
-      context.fillStyle = "rgba(255,255,255,.82)"; context.font = `400 ${Math.max(16, Math.round(width * .014))}px Arial, sans-serif`; if (branding.listingMessage.trim()) context.fillText(branding.listingMessage.trim(), margin * 1.45, y + panelHeight * .88); context.restore();
-    }
-    const closingStart = Math.max(0, duration - Math.min(2.8, duration * .46)); const closingAlpha = showClosing ? Math.max(0, Math.min(1, (now - closingStart) / .8)) : 0;
-    if (closingAlpha > 0) {
-      context.save(); context.globalAlpha = closingAlpha; context.fillStyle = "rgba(12,12,10,.82)"; context.fillRect(0, 0, width, height);
-      const cardWidth = Math.min(width * .76, 980); const cardHeight = Math.min(height * .47, 390); const x = (width - cardWidth) / 2; const y = (height - cardHeight) / 2; context.fillStyle = "rgba(255,255,255,.96)"; context.fillRect(x, y, cardWidth, cardHeight);
-      let textX = x + cardWidth * .12; if (logo) { const box = cardHeight * .48; const scale = Math.min(box / logo.width, box / logo.height); const logoW = logo.width * scale; const logoH = logo.height * scale; context.drawImage(logo, x + cardWidth * .09, y + (cardHeight - logoH) / 2, logoW, logoH); textX = x + cardWidth * .42; }
-      context.fillStyle = "#191916"; context.font = `600 ${Math.max(24, Math.round(width * .032))}px Arial, sans-serif`; if (branding.agentName.trim()) context.fillText(branding.agentName.trim(), textX, y + cardHeight * .38);
-      context.fillStyle = "#625d54"; context.font = `400 ${Math.max(17, Math.round(width * .016))}px Arial, sans-serif`; if (branding.agentEmail.trim()) context.fillText(branding.agentEmail.trim(), textX, y + cardHeight * .58); if (branding.agentPhone.trim()) context.fillText(branding.agentPhone.trim(), textX, y + cardHeight * .72); context.restore();
-    }
+    drawListingOverlays(context, canvas.width, canvas.height, video.currentTime, video.duration, branding, showOpening, showClosing, { logo });
     if (!video.ended && !video.paused) requestAnimationFrame(draw);
   };
   recorder.start(250); await video.play(); draw(); await new Promise<void>((resolve) => { video.onended = () => { recorder.stop(); resolve(); }; });
