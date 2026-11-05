@@ -40,6 +40,8 @@ export type ProductionManifest = {
   photos?: { key: string; link: string; file?: string }[];
   /** Set for "Photo move" films: scene i is the original photo with this camera move, made by the editor (no AI clip). */
   photoMoves?: string[];
+  /** Photo move 2.0: real depth for every scene, never a flat zoom. */
+  photoStrict?: boolean;
   /** The opening property card and closing agent card, burned into the film by the editor. */
   cards?: ListingCards;
   nextAt?: number[];      // earliest time the scene may be sent (again)

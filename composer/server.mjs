@@ -312,6 +312,7 @@ function validSpec(spec) {
   const clips = Array.isArray(spec.clips) ? spec.clips : [];
   if (clips.length < 1 || clips.length > 20 || clips.some((url) => typeof url !== "string" || !/^https?:\/\//.test(url))) return "Between 1 and 20 scene links are needed.";
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
+  if (spec.strictDepth === true && Array.isArray(spec.moves) && spec.moves.some((move) => move && !DEPTH_MOVES.includes(move))) return "Photo move 2.0 uses only the depth moves.";
   if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
   if (!(spec.duration > 1 && spec.duration <= 600)) return "Film length is out of range.";
   if (!(spec.sceneSeconds > 0.5 && spec.sceneSeconds <= 60)) return "Scene length is out of range.";
@@ -344,9 +345,11 @@ async function compose(key, spec) {
             try {
               const depthFile = path.join(dir, `${name}-depth.png`);
               await depthMap(spec.clips[i], depthFile);
-              await renderParallaxClip({ image, depthImage: depthFile, move, ...shape });
+              await renderParallaxClip({ image, depthImage: depthFile, move, boost: spec.strictDepth ? 1.35 : 1, ...shape });
               job.depthScenes = (job.depthScenes || 0) + 1;
             } catch (error) {
+              // Photo move 2.0 is real 3D or nothing: no flat zoom, the film waits and says why.
+              if (spec.strictDepth) throw new Error(`Photo move 2.0 needs the depth step: ${String(error?.message || error).slice(0, 200)}`);
               // Never fail the film over depth: this scene gets the flat version of the move (a guessed depth bends straight walls, so none is used).
               job.depthFallbacks = (job.depthFallbacks || 0) + 1; job.depthError = String(error?.message || error).slice(0, 300);
               console.warn(`depth: scene ${i + 1} used a flat move; ${job.depthError}`);

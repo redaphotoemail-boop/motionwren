@@ -22,9 +22,10 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
   luma: "https://api.replicate.com/v1/models/luma/ray-2-720p/predictions",
+  photo2: "", // made by our own editor, never sent to a provider
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "luma", "photo"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "luma", "photo", "photo2"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -60,7 +61,7 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
-  if (engine === "photo") return { image: options.imageUrl };
+  if (engine === "photo" || engine === "photo2") return { image: options.imageUrl };
   if (engine === "runway4turbo") return { image: options.imageUrl, prompt, duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
   if (engine === "luma") return { start_image_url: options.imageUrl, prompt, duration: options.duration >= 9 ? 9 : 5, aspect_ratio: options.aspectRatio, loop: false };
   if (engine === "runway45") return { image: options.imageUrl, prompt, duration: options.duration, aspect_ratio: options.aspectRatio };

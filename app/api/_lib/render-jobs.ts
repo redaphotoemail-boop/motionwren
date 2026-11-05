@@ -323,7 +323,7 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
   // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
-  if (manifest?.photoMoves?.some(Boolean)) throw new Error("The editing service could not take this film. It will be tried again.");
+  if (manifest?.photoMoves?.some(Boolean)) throw new Error(manifest.photoStrict && manifest.edit?.lastError ? manifest.edit.lastError : "The editing service could not take this film. It will be tried again.");
   // One carded clip: if the editor cannot take it, the plain clip is still delivered.
   if (manifest?.cards && manifest.inputs.length === 1) {
     const single = alignedScenes(row, 1).segments[0];
@@ -385,7 +385,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";

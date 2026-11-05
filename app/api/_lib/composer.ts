@@ -24,6 +24,8 @@ export type EditSpec = {
   moves?: (string | null)[];
   /** Opening property card and closing agent card to burn in. */
   cards?: import("./production").ListingCards;
+  /** Photo move 2.0: every move needs real depth (no flat fallback) and travels further. */
+  strictDepth?: boolean;
   /** One clip only: keep its own sound (no music track is added). */
   keepAudio?: boolean;
   music?: { url?: string; prompt?: string; required?: boolean } | null;

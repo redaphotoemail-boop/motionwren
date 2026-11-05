@@ -241,6 +241,20 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   check("13d a single carded clip is made", one.status === "done" && one.cards === true, `${one.status} ${one.error || one.cardsError || ""}`);
 }
 
+/* 14. Photo move 2.0: real depth or nothing */
+{
+  mode.depth = "down";
+  await api("POST", "/jobs/film-fourteen", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["orbit-left", null, null], strictDepth: true }));
+  const strict = await waitDone("film-fourteen");
+  check("14a with depth down, a 2.0 film stops with a clear message (no flat zoom)", strict.status === "failed" && /Photo move 2\.0 needs the depth step/.test(strict.error || ""), `${strict.status} ${strict.error || ""}`);
+  mode.depth = "ok";
+  const flat = await api("POST", "/jobs/film-fourteen-flat", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["slide-left", null, null], strictDepth: true }));
+  check("14b 2.0 refuses the flat-only moves", flat.status === 400);
+  await api("POST", "/jobs/film-fourteen-ok", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["orbit-right", null, null], strictDepth: true }));
+  const ok = await waitDone("film-fourteen-ok");
+  check("14c with depth up, a 2.0 film is made with real depth", ok.status === "done" && ok.depthScenes === 1 && !ok.depthFallbacks, `${ok.status} ${ok.error || ""}`);
+}
+
 for (const server of [composer, files, eleven, replicate]) server.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

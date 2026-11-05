@@ -26,9 +26,9 @@ function wander(t) {
   const w = Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t))), 0.6);
   return { tx: 0.0045 * w * (Math.sin(2 * Math.PI * 1.1 * t + 0.6) + 0.5 * Math.sin(2 * Math.PI * 2.3 * t + 2.0)) / 1.5, ty: 0.0035 * w * Math.sin(2 * Math.PI * 1.7 * t + 1.1), yaw: 0.0025 * w * Math.sin(2 * Math.PI * 0.9 * t + 0.2) };
 }
-export function cameraAt(move, t) {
+export function cameraAt(move, t, boost = 1) {
   const base = baseCamera(move, t); const h = wander(t);
-  return { tx: base.tx + h.tx, ty: base.ty + h.ty, tz: base.tz, yaw: base.yaw + h.yaw };
+  return { tx: base.tx * boost + h.tx, ty: base.ty * boost + h.ty, tz: base.tz * boost, yaw: base.yaw * boost + h.yaw };
 }
 function baseCamera(move, t) {
   const e = smoother(t);
@@ -60,12 +60,12 @@ function project(u, v, z, cam, extraPush) {
 }
 
 /* The least extra push that keeps every output edge point inside the photo for the whole move. */
-export function framingPush(move, aspect, samples = 48) {
+export function framingPush(move, aspect, samples = 48, boost = 1) {
   const halfW = 0.5, halfH = 0.5 / aspect; // in units of width, focal ≈ 1 width
   const f = 0.9;
   let extra = 0;
   for (let step = 0; step <= samples; step += 1) {
-    const cam = cameraAt(move, step / samples);
+    const cam = cameraAt(move, step / samples, boost);
     for (const z of [1, 1.5, 2, ZFAR]) {
       for (const [cx, cy] of [[halfW, halfH], [-halfW, halfH], [halfW, -halfH], [-halfW, -halfH], [0, halfH], [0, -halfH], [halfW, 0], [-halfW, 0]]) {
         // source = out*(1 - (tz+extra)/z) + tx*f/z - yaw*f... solve for the extra push that brings source inside
@@ -201,10 +201,10 @@ export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, widt
 }
 
 /* Makes the clip: photo + depth map files → an mp4 of the camera move. */
-export async function renderParallaxClip({ image, depthImage, move, width, height, fps, seconds, output, crf = 14 }) {
+export async function renderParallaxClip({ image, depthImage, move, width, height, fps, seconds, output, crf = 14, boost = 1 }) {
   const aspect = width / height;
   // Source working size: as wide as the output needs for the deepest push (about 1:1), never bigger than the photo gives.
-  const extraPush = framingPush(move, aspect);
+  const extraPush = framingPush(move, aspect, 48, boost);
   const sw = Math.round(Math.min(2560, width * 1.45) / 2) * 2, sh = Math.round(sw / aspect / 2) * 2;
   const photo = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", image, "-vf", `scale=${sw}:${sh}:force_original_aspect_ratio=increase:flags=lanczos,crop=${sw}:${sh}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], sw * sh * 3);
   const dw = Math.round(width / 4), dh = Math.round(dw / aspect);
@@ -216,7 +216,7 @@ export async function renderParallaxClip({ image, depthImage, move, width, heigh
   const done = new Promise((resolve, reject) => { encoder.on("error", reject); encoder.on("close", (code) => code === 0 ? resolve() : reject(new Error(`Encoder failed (${code}): ${err.slice(-300)}`))); });
   const frame = Buffer.alloc(width * height * 3);
   for (let n = 0; n < frames; n += 1) {
-    renderFrame({ photo, sw, sh, depth, dw, dh, cam: cameraAt(move, frames > 1 ? n / (frames - 1) : 0), extraPush, width, height, out: frame });
+    renderFrame({ photo, sw, sh, depth, dw, dh, cam: cameraAt(move, frames > 1 ? n / (frames - 1) : 0, boost), extraPush, width, height, out: frame });
     if (!encoder.stdin.write(Buffer.from(frame))) await new Promise((resolve) => encoder.stdin.once("drain", resolve));
   }
   encoder.stdin.end();

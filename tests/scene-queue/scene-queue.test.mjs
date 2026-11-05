@@ -455,6 +455,19 @@ const stitchCreates = () => P.stitchInputs.length;
   check("15l a single clip with cards goes through the editor with its cards and sound", end.status === "succeeded" && spec?.clips.length === 1 && spec.cards?.opening?.title === "12 Maple Lane" && spec.keepAudio === true && !spec.music && !spec.moves, `${end.status} ${end.error || ""} spec=${JSON.stringify(spec)}`);
 }
 
+/* 15m. Photo move 2.0: the editor is told every move needs real depth */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s15m" }); await withEdit(env, id);
+  const m0 = await lib.loadManifest(env, id); m0.photoMoves = ["orbit-left", "push-rise"]; m0.photoStrict = true; await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("15m a Photo move 2.0 film asks the editor for strict depth", end.status === "succeeded" && spec?.strictDepth === true && scenesOf("s15m").length === 0, `${end.status} ${end.error || ""} ${JSON.stringify(spec)}`);
+}
+
 /* 15e. An engine that makes 720p: the edited film is upscaled to 1080p before it is saved */
 {
   resetProvider();
