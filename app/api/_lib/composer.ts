@@ -22,6 +22,10 @@ export type EditSpec = {
   crossfade: number;
   /** Per scene: a camera move made on the photo (the link is the photo), or null for an ordinary clip. */
   moves?: (string | null)[];
+  /** Opening property card and closing agent card to burn in. */
+  cards?: import("./production").ListingCards;
+  /** One clip only: keep its own sound (no music track is added). */
+  keepAudio?: boolean;
   music?: { url?: string; prompt?: string; required?: boolean } | null;
 };
 

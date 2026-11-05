@@ -23,6 +23,11 @@ export type StudioEngine = {
   photoMove?: boolean;
 };
 
+/** The camera moves Photo move can make (the editor knows each one). */
+export const PHOTO_MOVE_KEYS = ["push", "pull", "slide-left", "slide-right", "orbit-left", "orbit-right", "push-rise", "pull-rise", "push-left", "push-right"] as const;
+/** The Studio's Movement choice → the Photo move used for a single clip. */
+export const PHOTO_MOVE_FOR_MOTION: Record<string, (typeof PHOTO_MOVE_KEYS)[number]> = { push: "push", pull: "pull", slide: "orbit-right", orbit: "orbit-left", focus: "push-rise", mixed: "push-rise", custom: "push-right" };
+
 /** Topaz 1080p / 30 fps: $0.093 per 5 seconds of video. */
 export const UPSCALE_PER_SECOND = 0.0186;
 

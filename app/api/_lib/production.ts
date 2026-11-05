@@ -40,6 +40,8 @@ export type ProductionManifest = {
   photos?: { key: string; link: string; file?: string }[];
   /** Set for "Photo move" films: scene i is the original photo with this camera move, made by the editor (no AI clip). */
   photoMoves?: string[];
+  /** The opening property card and closing agent card, burned into the film by the editor. */
+  cards?: ListingCards;
   nextAt?: number[];      // earliest time the scene may be sent (again)
   waits?: number[];       // provider waits/hiccups since the last try (not tries)
   reasons?: WaitReason[]; // why a scene is waiting, for the progress view
@@ -233,4 +235,24 @@ export function newManifest(engine: StudioEngineKey, endpoint: string, sceneSeco
     readyAt: inputs.map(() => 0),
     saved: inputs.map(() => ""),
   };
+}
+
+export type ListingCards = {
+  opening?: { title: string; detail: string; message: string } | null;
+  closing?: { name: string; contact: string; logo: string } | null;
+};
+
+/* The cards the Studio sent, trimmed to safe sizes; undefined when there is nothing to show. */
+export function cleanCards(value: unknown): ListingCards | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const text = (input: unknown, max: number) => typeof input === "string" ? input.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
+  const raw = value as { opening?: Record<string, unknown> | null; closing?: Record<string, unknown> | null };
+  const o = raw.opening || {}, c = raw.closing || {};
+  const opening = { title: text(o.title, 80), detail: text(o.detail, 140), message: text(o.message, 120) };
+  const logo = typeof c.logo === "string" && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(c.logo) && c.logo.length < 3_000_000 ? c.logo : "";
+  const closing = { name: text(c.name, 80), contact: text(c.contact, 140), logo };
+  const hasOpening = Boolean(opening.title || opening.detail || opening.message);
+  const hasClosing = Boolean(closing.name || closing.contact || closing.logo);
+  if (!hasOpening && !hasClosing) return undefined;
+  return { opening: hasOpening ? opening : null, closing: hasClosing ? closing : null };
 }

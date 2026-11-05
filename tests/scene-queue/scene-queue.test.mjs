@@ -428,6 +428,33 @@ const stitchCreates = () => P.stitchInputs.length;
   check("15j the editor gets each photo with its camera move", spec?.clips.length === 4 && spec.clips.every((url) => url.includes("/api/job-frames/") && url.includes(".jpg")) && JSON.stringify(spec.moves) === JSON.stringify(["push", "slide-right", "pull", "slide-left"]), JSON.stringify(spec));
 }
 
+/* 15k. A single-clip "Photo move": one photo, the editor makes the move, no music, saved to History */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 1, { tag: "s15k", kind: "studio-single" });
+  const m0 = await lib.loadManifest(env, id); m0.photoMoves = ["orbit-left"]; await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  const hist = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE id = ?").get(id).n;
+  check("15k a single Photo move is made by the editor with no engine call and no music", end.status === "succeeded" && scenesOf("s15k").length === 0 && spec?.clips.length === 1 && JSON.stringify(spec.moves) === JSON.stringify(["orbit-left"]) && !spec.music && hist === 1, `${end.status} ${end.error || ""} spec=${JSON.stringify(spec)} history=${hist}`);
+}
+
+/* 15l. A single AI clip with listing cards: the editor burns them in and keeps the clip's sound */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 1, { tag: "s15l", kind: "studio-single" });
+  const m0 = await lib.loadManifest(env, id); m0.cards = { opening: { title: "12 Maple Lane", detail: "", message: "" }, closing: null }; await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("15l a single clip with cards goes through the editor with its cards and sound", end.status === "succeeded" && spec?.clips.length === 1 && spec.cards?.opening?.title === "12 Maple Lane" && spec.keepAudio === true && !spec.music && !spec.moves, `${end.status} ${end.error || ""} spec=${JSON.stringify(spec)}`);
+}
+
 /* 15e. An engine that makes 720p: the edited film is upscaled to 1080p before it is saved */
 {
   resetProvider();

@@ -295,7 +295,9 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
     assemble: async (segments: string[]) => {
       const fresh = await getRenderJob(env, row.id);
       if (!fresh || fresh.status !== "generating") return;
-      if (segments.length === 1) {
+      const loadedManifest = segments.length === 1 ? await loadManifest(env, row.id) : null;
+      const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards));
+      if (segments.length === 1 && !photoSingle) {
         const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'generating'`).bind(Date.now(), row.id).run();
         if (!claim.meta.changes) return;
         const manifest = await loadManifest(env, row.id);
@@ -317,11 +319,21 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const loaded = await loadManifest(env, row.id);
   const manifest = loaded ? normalizeManifest(loaded) : null;
   const origin = webhookUrl ? new URL(webhookUrl).origin : "";
-  if (manifest && QUEUE_KINDS.has(row.kind) && CROSSFADE_KINDS.has(row.kind) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
+  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
   // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
   if (manifest?.photoMoves?.some(Boolean)) throw new Error("The editing service could not take this film. It will be tried again.");
+  // One carded clip: if the editor cannot take it, the plain clip is still delivered.
+  if (manifest?.cards && manifest.inputs.length === 1) {
+    const single = alignedScenes(row, 1).segments[0];
+    if (single) {
+      manifest.finalUrl = single; await saveManifest(env, row.id, manifest);
+      const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(Date.now(), row.id).run();
+      if (claim.meta.changes) await saveFinishedJob(env, { ...row, status: "saving" }, single).catch(() => undefined);
+      return;
+    }
+  }
   const provider = await readProviderState(env);
   if (provider.throttledUntil > Date.now() || provider.pausedUntil > Date.now()) return;
   let segments = JSON.parse(row.segmentUrls || "[]") as (string | null)[];
@@ -356,7 +368,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const { segments } = alignedScenes(row, count);
   const moves = segments.map((_, index) => manifest.photoMoves?.[index] || null);
   const clips = segments.map((url, index) => manifest.saved[index] && !moves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
-  if (count < 2 || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  if ((count < 2 && !moves.some(Boolean) && !manifest.cards) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   const edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
@@ -368,12 +380,12 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const height = row.resolution === "1080p" ? 1080 : row.resolution === "480p" ? 480 : 720;
   const wide = Math.round(height * 16 / 9 / 2) * 2;
   const [width, tall] = row.aspect === "vertical" ? [height, wide] : [wide, height];
-  const music = edit.music?.saved
+  const music = count === 1 ? null : edit.music?.saved
     ? { url: jobFileLink(origin, row, "music.mp3") }
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";

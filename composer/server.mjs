@@ -212,6 +212,7 @@ async function getMusic(spec, dir, job) {
 }
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
+import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 
 /* The depth map of a photo (Depth Anything v2 on Replicate; near is bright). Written to `file` as an image. */
 const DEPTH_VERSION = "b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4";
@@ -258,7 +259,7 @@ export function photoClipArgs({ image, move, width, height, fps, seconds, output
 
 /* ---------- the edit ---------- */
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -275,7 +276,17 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   }
   const fadeOut = Math.min(0.8, duration / 6);
   // Sharpen: the engines' clips come out soft, so restore edge contrast on the finished film (luma only, kept subtle).
-  filters.push(`[${last}]trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS,cas=strength=0.55,unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=0.45:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=0,fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]`);
+  filters.push(`[${last}]trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS,cas=strength=0.55,unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=0.45:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=0[sharp]`);
+  // The listing cards go on after sharpening; the final fade then takes everything (cards included) to black.
+  let cardInputs = [];
+  if (cards) {
+    const base = count + (music ? 1 : 0);
+    const extra = {};
+    if (cards.vignette) { extra.vignette = base + cardInputs.length; cardInputs.push(["-loop", "1", "-framerate", String(fps), "-i", cards.vignette]); }
+    if (cards.logo) { extra.logo = base + cardInputs.length; cardInputs.push(["-i", cards.logo]); }
+    filters.push(...cardGraph(cards.plan, "sharp", "carded", extra, cards.dir));
+  } else filters.push("[sharp]null[carded]");
+  filters.push(`[carded]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]`);
   const args = ["-hide_banner", "-y", "-nostdin"];
   clips.forEach((file) => args.push("-i", file));
   if (music) {
@@ -284,8 +295,10 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     // One track for the whole film: never the scenes' own sound.
     filters.push(`[${count}:a]aresample=48000,apad,atrim=duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.8,afade=t=out:st=${(duration - tail).toFixed(3)}:d=${tail.toFixed(3)},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
   }
+  for (const input of cardInputs) args.push(...input);
   args.push("-filter_complex", filters.join(";"), "-map", "[vout]");
   if (music) args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
+  else if (keepAudio && count === 1) args.push("-map", "0:a?", "-af", `afade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`, "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
   else args.push("-an");
   args.push("-c:v", "libx264", "-preset", "fast", "-crf", "17", "-tune", "film", "-profile:v", "high", "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps * 2), "-movflags", "+faststart", "-t", duration.toFixed(3), output);
   return args;
@@ -350,7 +363,29 @@ async function compose(key, spec) {
     job.stage = "editing";
     const output = path.join(dir, "film.mp4");
     const crossfade = files.length > 1 ? spec.crossfade : 0;
-    await run("ffmpeg", editArgs({ clips: files, music, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output }), { timeoutMs: 20 * 60 * 1000 });
+    // The listing cards (opening property card, closing agent card), when asked for.
+    let cards = null;
+    if (spec.cards) {
+      try {
+        const plan = planCards(spec.cards, { width: spec.width, height: spec.height, duration: spec.duration, fps });
+        if (plan) {
+          for (const file of plan.files) await fs.writeFile(path.join(dir, file.name), file.text);
+          let vignette = null, logo = null;
+          if (plan.opening) { vignette = path.join(dir, "card-vignette.png"); await run("ffmpeg", vignetteArgs({ width: spec.width, height: spec.height, output: vignette }), { timeoutMs: 60_000 }); }
+          if (plan.logoData) { logo = path.join(dir, "card-logo.img"); await fs.writeFile(logo, Buffer.from(plan.logoData.split(",")[1], "base64")); }
+          cards = { plan, dir, vignette, logo };
+          job.cards = true;
+        }
+      } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
+    }
+    const editInput = { clips: files, music, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true };
+    try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
+    catch (error) {
+      // A card that cannot be drawn never costs the film: make it again without the cards.
+      if (!cards) throw error;
+      job.cardsError = String(error?.message || error).slice(0, 300); job.cards = false; console.warn(`cards: edit retried without them; ${job.cardsError}`);
+      await run("ffmpeg", editArgs(editInput), { timeoutMs: 20 * 60 * 1000 });
+    }
 
     job.stage = "checking";
     const check = await probe(output);

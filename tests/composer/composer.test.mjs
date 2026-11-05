@@ -226,6 +226,21 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   mode.depth = "ok";
 }
 
+/* 13. listing cards: burned in by the editor, a single clip keeps its sound, bad cards never cost the film */
+{
+  const cards = { opening: { title: "12 Maple Lane", detail: "4 beds   ·   3 baths", message: "" }, closing: { name: "Jordan Lee", contact: "617-555-0100", logo: "" } };
+  await api("POST", "/jobs/film-thirteen", spec({ cards }));
+  const done = await waitDone("film-thirteen");
+  check("13a a film with cards is made and says it drew them", done.status === "done" && done.cards === true, `${done.status} cards=${done.cards} ${done.cardsError || done.error || ""}`);
+  if (done.status === "done") { const out = await save("film-thirteen"); const info = probe(out.file); check("13b it has the right size and length", info.streams[0].width === 640 && Math.abs(Number(info.format.duration) - T) < 0.3); }
+  await api("POST", "/jobs/film-thirteen-empty", spec({ cards: { opening: { title: "", detail: "", message: "" }, closing: { name: "", contact: "", logo: "not-an-image" } } }));
+  const empty = await waitDone("film-thirteen-empty");
+  check("13c empty cards are ignored and the film is made", empty.status === "done" && !empty.cards, `${empty.status} ${empty.error || ""}`);
+  await api("POST", "/jobs/film-thirteen-one", spec({ clips: [clip(1)], duration: 4, sceneSeconds: 4, crossfade: 0, keepAudio: true, cards }));
+  const one = await waitDone("film-thirteen-one");
+  check("13d a single carded clip is made", one.status === "done" && one.cards === true, `${one.status} ${one.error || one.cardsError || ""}`);
+}
+
 for (const server of [composer, files, eleven, replicate]) server.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
