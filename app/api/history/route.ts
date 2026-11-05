@@ -60,9 +60,9 @@ export async function POST(request: Request) {
     await env.BUCKET.put(r2Key, bytes, { httpMetadata: { contentType } });
 
     const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 6000) : "";
-    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite", "seedance1fast", "studio", "fast"]);
-    const requestedEngine = typeof body.engine === "string" ? body.engine : "wan22";
-    const engine = validEngines.has(requestedEngine) ? requestedEngine : "wan22";
+    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "kling25", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite", "seedance1fast", "studio", "fast"]);
+    const requestedEngine = typeof body.engine === "string" ? body.engine : "wan3";
+    const engine = validEngines.has(requestedEngine) ? requestedEngine : "wan3";
     const category = typeof body.category === "string" ? body.category.slice(0, 40) : "single";
     const resolution = typeof body.resolution === "string" ? body.resolution.slice(0, 20) : "480p";
     const aspect = typeof body.aspect === "string" ? body.aspect.slice(0, 20) : "horizontal";

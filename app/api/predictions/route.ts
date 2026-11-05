@@ -9,14 +9,14 @@ const ENDPOINTS: Record<StudioEngineKey, string> = {
   veo31Lite: "https://api.replicate.com/v1/models/google/veo-3.1-lite/predictions",
   hailuo23: "https://api.replicate.com/v1/models/minimax/hailuo-2.3/predictions",
   runway45: "https://api.replicate.com/v1/models/runwayml/gen-4.5/predictions",
-  wan22: "https://api.replicate.com/v1/models/wan-video/wan-2.2-i2v-fast/predictions",
+  kling25: "https://api.replicate.com/v1/models/kwaivgi/kling-v2.5-turbo-pro/predictions",
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite"]);
+const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "kling25", "runway45", "wan25", "wan27", "wan3", "h3lite"]);
 
 export async function POST(request: Request) {
   try {
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     if (body.transition && (typeof body.last_image !== "string" || !body.last_image.startsWith("data:image/"))) return NextResponse.json({ error: "A valid last frame is required." }, { status: 400 });
     if (body.transition && body.last_image.length > 1_500_000) return NextResponse.json({ error: "The prepared last frame is too large. Use a smaller JPEG." }, { status: 413 });
     if (typeof body.prompt !== "string" || body.prompt.trim().length < 20) return NextResponse.json({ error: "A clear motion prompt is required." }, { status: 400 });
-    const requestedEngine = body.engine === "fast" ? "wan22" : body.engine === "studio" ? "wan25" : body.engine;
+    const requestedEngine = body.engine === "fast" ? "wan3" : body.engine === "studio" ? "wan25" : body.engine;
     const engine: StudioEngineKey = ENGINE_KEYS.has(requestedEngine) ? requestedEngine : "kling3";
     const transition = body.transition === true;
     const requestedDuration = Number(body.duration) || (body.num_frames === 121 ? 10 : 5);
@@ -84,16 +84,12 @@ export async function POST(request: Request) {
       duration,
       aspect_ratio: aspectRatio,
     };
-    else if (engine === "wan22") input = {
-      image: body.image,
+    else if (engine === "kling25") input = {
+      start_image: body.image,
       prompt: body.prompt.slice(0, 4000),
-      resolution: resolution === "1080p" ? "720p" : resolution,
+      duration: duration === 10 ? 10 : 5,
       aspect_ratio: aspectRatio,
-      num_frames: duration >= 10 ? 121 : 81,
-      frames_per_second: 16,
-      interpolate_output: false,
-      go_fast: true,
-      disable_safety_checker: false,
+      negative_prompt: negativePrompt,
     };
     else if (engine === "wan25") input = { image: body.image, prompt: body.prompt.slice(0, 4000), resolution, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };
     else if (engine === "wan27") input = { first_frame: body.image, prompt: body.prompt.slice(0, 4000), resolution: resolution === "480p" ? "720p" : resolution, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };

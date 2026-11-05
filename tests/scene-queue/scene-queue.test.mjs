@@ -252,7 +252,7 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
   await lib.recoverFailedOrders(env);
   const moved = await lib.loadManifest(env, id3);
   const movedRow = env.DB.raw.prepare("SELECT status, cost_cents AS c FROM render_jobs WHERE id = ?").get(id3);
-  check("7d an engine-side error moves the order to the backup engine (Wan 2.7)", moved.engine === "wan27" && moved.endpoint === lib.ENGINE_ENDPOINTS.wan27 && String(moved.inputs[0].first_frame || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
+  check("7d an engine-side error moves the order to the backup engine (Kling 2.5 Turbo)", moved.engine === "kling25" && moved.endpoint === lib.ENGINE_ENDPOINTS.kling25 && String(moved.inputs[0].start_image || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
 }
 
 /* 8. Provider out of credit: production pauses, nothing fails, then continues */
