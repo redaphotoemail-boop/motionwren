@@ -72,6 +72,7 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
         <p className="eyebrow">Production order</p>
         <h1>{project?.title || "Project"}</h1>
         <p className="mgr-sub">{project?.listingAddress || project?.customerName || project?.customerEmail || "Customer project"}</p>
+        {project?.createdAt ? <p className="mgr-sub">Placed {new Date(project.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</p> : null}
       </div>
       {project && <div className="mgr-head-actions"><StatusPill status={project.status} /></div>}
     </header>

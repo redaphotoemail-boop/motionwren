@@ -1412,9 +1412,9 @@ p { text-wrap: pretty; }
 .period > summary > .cell-num { text-align: right; }
 .period[open] > summary { border-bottom-color: transparent; }
 
-.history-pick { display: grid; gap: 8px; margin-top: 12px; max-height: 320px; overflow: auto; }
-.history-pick > button { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; text-align: left; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; cursor: pointer; }
-.history-pick video { width: 96px; height: 56px; object-fit: cover; border-radius: 6px; background: #000; }
+.history-pick { display: grid; gap: 10px; margin-top: 12px; max-height: 480px; overflow: auto; }
+.history-pick > button { display: grid; grid-template-columns: 168px 1fr; gap: 14px; align-items: start; text-align: left; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; cursor: pointer; }
+.history-pick video { width: 168px; height: 95px; object-fit: cover; border-radius: 6px; background: #000; }
 .history-pick span { display: grid; gap: 2px; min-width: 0; }
 .history-pick small { color: var(--faint); }
 .file-row-button { margin-top: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; cursor: pointer; font: inherit; }
