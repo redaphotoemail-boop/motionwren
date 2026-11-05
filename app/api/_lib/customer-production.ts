@@ -20,7 +20,6 @@ const MOVEMENTS = [
   "a subtle stabilized upward reveal",
   "a subtle stabilized downward reveal",
 ];
-export const SHARPNESS_LOCK = "Keep every frame tack-sharp and in crisp focus with fine, high-frequency texture detail on edges, wood grain, tile, fabric and foliage. No motion blur, soft focus, smearing, haze, glow or blur. The camera moves very slowly and steadily so detail stays sharp.";
 export const STATIC_LOCK = "Create an extremely realistic professional real-estate shot. Only the camera moves. Every wall, floor, ceiling, window, door, piece of furniture, decoration, plant, reflection, exterior element and light source remains completely motionless and geometrically identical. Preserve the exact architecture, materials, proportions, perspective and lighting from the source image. Buttery-smooth motorized movement, constant speed, locked horizon, no handheld shake, no walking bounce, no jitter, no flicker, no morphing, no warping, no invented objects, no people entering, no object interaction.";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
@@ -91,7 +90,7 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, ownerId).run();
       const imageUrl = `${origin}/api/provider-assets/${asset.id}?token=${assetToken}`;
       photos.push({ key: asset.r2Key, link: imageUrl });
-      inputs.push(buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK} ${SHARPNESS_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
+      inputs.push(buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
     }
     // Into the scene queue: scenes are made one after another as the engine
     // allows (waits and retries are automatic); the customer can leave.

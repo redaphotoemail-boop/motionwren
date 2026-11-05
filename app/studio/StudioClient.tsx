@@ -89,7 +89,6 @@ const qualityPrompts = {
   interior: "Polished architectural commercial, realistic perspective, stable straight lines, natural light and smooth professional camera movement.",
   people: "Premium lifestyle commercial, natural expression and body movement, realistic skin texture, stable facial identity and cinematic restraint.",
 };
-const sharpnessLock = "Keep every frame tack-sharp and in crisp focus with fine, high-frequency texture detail on edges, wood grain, tile, fabric and foliage. No motion blur, soft focus, smearing, haze, glow or blur. The camera moves very slowly and steadily so detail stays sharp.";
 const guardrail = "Preserve the exact subject, composition, colors, proportions, packaging, text, logo and background. No morphing, melting, warping, floating objects, added objects, flicker, sudden movement, fake text or surreal effects.";
 const realEstateMovements: Record<MotionKey, string> = {
   push: "The camera moves slowly in a straight push-in toward the property scene",
@@ -151,7 +150,7 @@ const aspectPrompts: Record<AspectKey, string> = {
 };
 function buildPrompt(motion: MotionKey, details: string, category: keyof typeof qualityPrompts, continuity = "", speed: SpeedKey = "slow", aspect: AspectKey = "horizontal", sound = "") {
   const cleanDetails = details.replace(/^Prompt for you:\s*/i, "").trim();
-  if (category === "interior") return [realEstatePrompt(motion), sound, sharpnessLock, "The audio direction must not cause or imply visual object movement. FINAL ENFORCEMENT: only the stabilized camera moves; the entire property and every object remain absolutely motionless from the first frame through the last frame."].filter(Boolean).join(" ");
+  if (category === "interior") return [realEstatePrompt(motion), sound, "The audio direction must not cause or imply visual object movement. FINAL ENFORCEMENT: only the stabilized camera moves; the entire property and every object remain absolutely motionless from the first frame through the last frame."].filter(Boolean).join(" ");
   return [cleanDetails, motions.find((item) => item.key === motion)?.prompt || "", speedPrompts[speed], aspectPrompts[aspect], qualityPrompts[category], continuity, sound, guardrail].filter(Boolean).join(" ");
 }
 

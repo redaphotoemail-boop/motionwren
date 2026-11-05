@@ -44,7 +44,6 @@ const qualityPrompts = {
   interior: "Polished architectural commercial, realistic perspective, stable straight lines, natural light and smooth professional camera movement.",
   people: "Premium lifestyle commercial, natural expression and body movement, realistic skin texture, stable facial identity and cinematic restraint.",
 };
-const sharpnessLock = "Keep every frame tack-sharp and in crisp focus with fine, high-frequency texture detail on edges, wood grain, tile, fabric and foliage. No motion blur, soft focus, smearing, haze, glow or blur. The camera moves very slowly and steadily so detail stays sharp.";
 const guardrail = "Preserve the exact subject, composition, colors, proportions, packaging, text, logo and background. No morphing, melting, warping, floating objects, added objects, flicker, sudden movement, fake text or surreal effects.";
 const multiShotStabilityLock = "MULTI-SHOT QUALITY AND STABILITY LOCK — NON-NEGOTIABLE. Match the polished commercial quality and control of the single-shot preset. The camera must move as if mounted on a precision motorized cinema dolly or stabilized robotic gimbal. Motion is perfectly smooth, level, deliberate and continuous with gentle acceleration and deceleration. Absolutely no handheld look, walking motion, footsteps, body sway, bobbing, bouncing, shake, vibration, micro-jitter, sudden correction, uneven speed or horizon drift. Allow only the selected camera movement and any subject movement explicitly requested in the scene direction; create no unintended subject, object or background movement. Preserve subject identity, geometry, proportions, materials, lighting, color grade, lens character, scale, spatial relationships and framing from the first frame through the last frame and consistently across the full series. No morphing, warping, flicker, melting, floating elements, invented objects or continuity changes. The result must feel buttery smooth, photorealistic and professionally stabilized.";
 const realEstateMovements: Record<MotionKey, string> = {
@@ -106,7 +105,7 @@ async function renderRealEstateOverlays(sourceUrl: string, branding: RealEstateB
 
 async function compressImage(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser could not prepare this image.");
@@ -134,8 +133,8 @@ const visualStyles: Array<{ key: AspectKey; label: string; note: string; icon: "
 function buildPrompt(motion: MotionKey, details: string, category: keyof typeof qualityPrompts, continuity = "", speed: SpeedKey = "slow", aspect: AspectKey = "horizontal", sound = "", seriesStability = false) {
   const cleanDetails = details.replace(/^Prompt for you:\s*/i, "").trim();
   const stylePrompt = visualStyles.find((item) => item.key === aspect)?.prompt || visualStyles[2].prompt;
-  if (category === "interior") return [realEstatePrompt(motion), stylePrompt, seriesStability ? multiShotStabilityLock : "", sound, sharpnessLock, "The audio direction must not cause or imply visual object movement. FINAL ENFORCEMENT: only the stabilized camera moves; the entire property and every object remain absolutely motionless from the first frame through the last frame."].filter(Boolean).join(" ");
-  return [cleanDetails, motions.find((item) => item.key === motion)?.prompt || "", stylePrompt, speedPrompts[speed], aspectPrompts[aspect], qualityPrompts[category], continuity, seriesStability ? multiShotStabilityLock : "", sound, sharpnessLock, guardrail].filter(Boolean).join(" ");
+  if (category === "interior") return [realEstatePrompt(motion), stylePrompt, seriesStability ? multiShotStabilityLock : "", sound, "The audio direction must not cause or imply visual object movement. FINAL ENFORCEMENT: only the stabilized camera moves; the entire property and every object remain absolutely motionless from the first frame through the last frame."].filter(Boolean).join(" ");
+  return [cleanDetails, motions.find((item) => item.key === motion)?.prompt || "", stylePrompt, speedPrompts[speed], aspectPrompts[aspect], qualityPrompts[category], continuity, seriesStability ? multiShotStabilityLock : "", sound, guardrail].filter(Boolean).join(" ");
 }
 
 function cleanGeneratedPrompt(value: string) {
