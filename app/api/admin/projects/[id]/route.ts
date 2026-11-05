@@ -1,5 +1,7 @@
 import { audit, jsonError, requireAdmin } from "../../../_lib/account";
+import { readMusicChoice } from "../../../_lib/customer-production";
 import { uploadBody } from "../../../_lib/history-owners";
+import { musicTemplate } from "../../../../music-catalog";
 
 const MAX_DELIVERY_BYTES = 100 * 1024 * 1024;
 const STATUSES = new Set(["submitted", "queued", "generating", "editing", "review", "completed", "failed", "cancelled"]);
@@ -25,7 +27,8 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const project = await projectById(env, id);
     if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
     const assets = await env.DB.prepare(`SELECT id, file_name AS fileName, content_type AS contentType, size_bytes AS sizeBytes, sort_order AS sortOrder, created_at AS createdAt FROM project_assets WHERE project_id = ? ORDER BY sort_order, created_at`).bind(id).all();
-    return Response.json({ project: { ...project, assets: assets.results } });
+    const music = musicTemplate(await readMusicChoice(env, id))?.name || null;
+    return Response.json({ project: { ...project, music, assets: assets.results } });
   } catch (error) { return jsonError(error); }
 }
 

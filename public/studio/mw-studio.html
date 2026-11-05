@@ -243,6 +243,15 @@ input[type=text],input[type=url]{width:100%;font:500 16px var(--body);color:var(
 .qtick{position:absolute;top:13px;right:13px;width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line)}
 .qcard[aria-pressed="true"] .qtick{background:var(--amber);box-shadow:none}
 .qcard:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
+.qgrid.music{grid-template-columns:repeat(2,1fr)}
+.qwrap{position:relative;display:flex}
+.qwrap .qcard{flex:1;padding-bottom:62px}
+.qblurb{color:var(--muted);font-size:14px;line-height:1.3;margin-top:-8px}
+.qplay{position:absolute;left:14px;bottom:14px;display:inline-flex;align-items:center;gap:8px;border:0;border-radius:999px;background:var(--ink);color:var(--paper);padding:8px 15px 8px 11px;font:600 13px/1 var(--display);cursor:pointer}
+.qplay svg{width:14px;height:14px;fill:var(--paper);stroke:none}
+.qplay[data-on="1"]{background:var(--amber);color:var(--amber-ink)}
+.qplay[data-on="1"] svg{fill:var(--amber-ink)}
+.qplay:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
 .qother{margin-top:12px}
 .scan{position:relative;border-radius:16px;overflow:hidden;aspect-ratio:16/9;margin-bottom:24px;background:var(--screen)}
 .scan img{width:100%;height:100%;object-fit:cover;opacity:.65}
@@ -852,7 +861,7 @@ const QS=[
  {key:'goal',multi:false,title:"What's this video for?",hint:"Pick the moment you're marketing.",opts:[['listed','Just listed','flag'],['sold','Just sold','sold'],['open','Open house','door'],['price','Price change','pricedown'],['luxury','Luxury showcase','diamond'],['rent','For rent','key'],['other','Something else','other']]},
  {key:'prop',multi:false,title:"What kind of property?",hint:"So the pacing fits the home.",opts:[['single','Single-family','home'],['condo','Condo / apartment','building'],['estate','Luxury estate','estate'],['multi','Multi-family','multi'],['land','Land / lot','land'],['commercial','Commercial','commercial'],['other','Other','other']]},
  {key:'channels',multi:true,title:"Where will you post it?",hint:"Choose all that apply — we'll size everything to fit.",opts:[['instagram','Instagram','instagram'],['tiktok','TikTok','tiktok'],['mls','MLS / listing','mls'],['youtube','YouTube','youtube'],['facebook','Facebook','facebook'],['email','Email','email'],['other','Somewhere else','other']]},
- {key:'vibe',multi:false,title:"Set the mood.",hint:"We'll match the music and motion to it.",opts:[['warm','Warm & inviting','sun'],['modern','Sleek & modern','square'],['luxe','Luxe & cinematic','film'],['bright','Bright & energetic','spark']]}];
+ {key:'vibe',multi:false,music:true,title:"Choose your music.",hint:"One track plays under your whole video. Tap Hear it to preview.",opts:[['warm','Warm & inviting','sun','Soft piano and strings'],['modern','Sleek & modern','square','Minimal, smooth electronic'],['luxe','Luxe & cinematic','film','Slow, sweeping orchestral'],['bright','Bright & energetic','spark','Upbeat, modern and fresh']]}];
 const LB={listed:'just-listed',sold:'just-sold',open:'open-house',price:'price-change',luxury:'luxury',rent:'rental',single:'single-family home',condo:'condo',estate:'luxury estate',multi:'multi-family property',land:'lot',commercial:'commercial space'};
 const CHL={instagram:'Instagram',tiktok:'TikTok',mls:'MLS',youtube:'YouTube',facebook:'Facebook',email:'Email',other:'Other'};
 function listJoin(a){return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+' and '+a.slice(-1);}
@@ -867,16 +876,30 @@ function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='lu
  if(ch.includes('email')||ch.includes('mls'))items.push({icon:'cover',title:'Listing cover image',price:9,meta:['Thumbnail','16:9'],tags:tagsFor(['email','mls'],ch,true)});
  return items;}
 const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
+/* Music samples: one clip plays at a time; any step change or closing the plan stops it. */
+let mAudio=null,mId=null;
+const M_PLAY='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',M_PAUSE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+function mLabel(b,on,text){b.dataset.on=on?'1':'0';b.innerHTML=(on?M_PAUSE:M_PLAY)+'<span>'+text+'</span>';}
+function mStop(){if(mAudio){mAudio.pause();mAudio=null;}mId=null;document.querySelectorAll('.qplay').forEach(b=>{if(b.dataset.on==='1')mLabel(b,false,'Hear it');});}
+function mPlay(id,btn){
+  if(mId===id){mStop();return;}
+  mStop();
+  const a=new Audio('/api/music-samples/'+id);mAudio=a;mId=id;mLabel(btn,true,'Pause');
+  const fail=()=>{if(mAudio===a){mStop();mLabel(btn,false,'Unavailable');}};
+  a.onended=()=>{if(mAudio===a)mStop();};a.onerror=fail;
+  a.play().catch(fail);
+}
 const planModal=document.getElementById('planModal'),planBody=document.getElementById('planBody');
-function closePlan(force){phDrop();if(!force&&(P.goal||P.prop||P.channels.length||P.vibe||P.photos.filter(p=>!p.sample).length)&&!window.confirm('Close without saving? Your answers and photos will be lost.'))return;planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
+function closePlan(force){mStop();phDrop();if(!force&&(P.goal||P.prop||P.channels.length||P.vibe||P.photos.filter(p=>!p.sample).length)&&!window.confirm('Close without saving? Your answers and photos will be lost.'))return;planModal.hidden=true;document.body.style.overflow='';toParent('mw:close');}
 function ptrack(){return '<div class="track">'+Array.from({length:7},(_,k)=>'<span class="'+(k<=P.step?'done':'')+'"></span>').join('')+'</div>';}
 function planRender(){
+  mStop();
   const $=id=>document.getElementById(id);
   if(P.step<4){
     const q=QS[P.step],ok=q.key+'Other',sel=v=>q.multi?P.channels.includes(v):P[q.key]===v,can=()=>q.multi?P.channels.length>0:!!P[q.key];
     const otherOn=()=>q.multi?P.channels.includes('other'):P[q.key]==='other';
     planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step ${P.step+1} of 7</div><h3>${q.title}</h3><p class="hint">${q.hint}</p></div>
-    <div class="qgrid">${q.opts.map(([v,label,icon])=>`<button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qtick"></span></button>`).join('')}</div>
+    <div class="qgrid${q.music?' music':''}">${q.opts.map(([v,label,icon,blurb])=>q.music?`<div class="qwrap"><button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qblurb">${blurb}</span><span class="qtick"></span></button><button type="button" class="qplay" data-play="${v}" data-on="0" aria-label="Hear a sample of ${label}">${M_PLAY}<span>Hear it</span></button></div>`:`<button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qtick"></span></button>`).join('')}</div>
     <input type="text" class="qother" id="qother" placeholder="Tell us a bit more…" value="${(P[ok]||'').replace(/"/g,'&quot;')}" ${otherOn()?'':'hidden'}>
     <div class="actions">${P.step>0?'<button class="btn ghost" id="pback" type="button">Back</button>':''}<button class="btn" id="pnext" type="button">Continue</button></div>`;
     $('pnext').disabled=!can();
@@ -886,6 +909,7 @@ function planRender(){
       else{P[q.key]=v;planBody.querySelectorAll('.qcard').forEach(x=>x.setAttribute('aria-pressed',x===c));}
       const qo=$('qother');qo.hidden=!otherOn();if(!qo.hidden&&v==='other')qo.focus();
       $('pnext').disabled=!can();});
+    planBody.querySelectorAll('.qplay').forEach(b=>b.onclick=()=>mPlay(b.dataset.play,b));
     if($('pback'))$('pback').onclick=()=>{P.step--;planRender();};
     $('pnext').onclick=()=>{if(can()){P.step++;planRender();}};
   } else if(P.step===4){

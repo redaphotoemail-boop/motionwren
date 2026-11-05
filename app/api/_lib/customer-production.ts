@@ -3,6 +3,7 @@ import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } fro
 import { HttpError } from "./account";
 import { customerSafeError } from "./customer-errors";
 import { musicPrompt } from "./composer";
+import { musicTemplate } from "../../music-catalog";
 import { newManifest, saveManifest } from "./production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
@@ -95,7 +96,7 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // allows (waits and retries are automatic); the customer can leave.
     const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos);
     // The final edit: each scene's share on screen and the film's one music track.
-    manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: project.targetDuration }) } };
+    manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: project.targetDuration, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
@@ -118,3 +119,22 @@ export async function markStartFailed(env: Env, jobId: string, projectId: string
     env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'generation_failed', 'Production could not start', ?, NULL, ?)`).bind(`${jobId}:failed`, ownerId, customerSafeError(message).slice(0, 500), now),
   ]);
 }
+
+/* The music template the customer chose in the plan, kept per order (no
+   schema change: a platform_settings row). Without one, the film's music is
+   matched to its shape (musicPrompt). */
+const musicChoiceKey = (projectId: string) => `project_music:${projectId}`;
+
+export async function saveMusicChoice(env: { DB: D1Database }, projectId: string, choice: unknown) {
+  const template = musicTemplate(choice);
+  if (!template) return null;
+  await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(musicChoiceKey(projectId), template.id, Date.now()).run();
+  return template.id;
+}
+
+export async function readMusicChoice(env: { DB: D1Database }, projectId: string) {
+  const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(musicChoiceKey(projectId)).first<{ value?: string }>();
+  return musicTemplate(row?.value)?.id || null;
+}
+
+export const dropMusicChoiceStatement = (env: { DB: D1Database }, projectId: string) => env.DB.prepare(`DELETE FROM platform_settings WHERE key = ?`).bind(musicChoiceKey(projectId));

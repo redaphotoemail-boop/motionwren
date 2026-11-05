@@ -323,7 +323,7 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
         const res = await fetch("/api/projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: entry.title, price: String(entry.price), shortMessage: summarizeItem(pkg, entry.title), aspect: entry.aspect, targetDuration: entry.targetDuration }),
+          body: JSON.stringify({ title: entry.title, price: String(entry.price), shortMessage: summarizeItem(pkg, entry.title), aspect: entry.aspect, targetDuration: entry.targetDuration, music: pkg.answers.vibe }),
         });
         if (res.status === 401) return { done: false, auth: true, errors };
         if (!res.ok) {

@@ -1,4 +1,5 @@
 import { audit, jsonError, requireAccount } from "../../_lib/account";
+import { dropMusicChoiceStatement } from "../../_lib/customer-production";
 import { deleteJobFiles } from "../../_lib/production";
 
 async function ownedProject(env: { DB: D1Database }, id: string, ownerId: string) {
@@ -34,6 +35,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
       ...(project.finalHistoryId ? [env.DB.prepare(`DELETE FROM generation_history WHERE id = ? AND owner_id = ?`).bind(project.finalHistoryId, account.id)] : []),
       ...(job?.jobId ? [env.DB.prepare(`DELETE FROM generation_history WHERE id = ? AND owner_id = ?`).bind(job.jobId, account.id), env.DB.prepare(`DELETE FROM render_jobs WHERE id = ? AND owner_id = ?`).bind(job.jobId, account.id)] : []),
       env.DB.prepare(`DELETE FROM projects WHERE id = ? AND owner_id = ?`).bind(id, account.id),
+      dropMusicChoiceStatement(env, id),
     ]);
     await audit(env, account.id, "project.deleted", "project", id);
     return Response.json({ ok: true });

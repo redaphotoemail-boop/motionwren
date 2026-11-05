@@ -121,6 +121,21 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   check("3d music check succeeds with a short track", ok.data.ok === true && calls.eleven === 1 && calls.elevenBodies.at(-1).body.music_length_ms === 5000, JSON.stringify(ok.data));
 }
 
+/* 3e. customer music samples: real ElevenLabs music, cut and faded, never the backup */
+{
+  mode.eleven = "ok"; calls.eleven = 0; calls.replicate = 0;
+  const made = await api("POST", "/music-sample", { prompt: "Warm piano for a home tour video", seconds: 8 });
+  const probeFile = path.join(dir, "sample-out.mp3"); writeFileSync(probeFile, made.data);
+  const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_name", "-of", "json", probeFile]).toString());
+  check("3e a sample is an MP3 of the asked length, made by ElevenLabs once", made.status === 200 && info.streams[0].codec_name === "mp3" && Math.abs(Number(info.format.duration) - 8) < 0.3 && calls.eleven === 1 && calls.elevenBodies.at(-1).body.music_length_ms === 10000 && calls.replicate === 0, `${made.status} ${info.format?.duration} eleven=${calls.eleven}`);
+  mode.eleven = "refused";
+  const refused = await api("POST", "/music-sample", { prompt: "Warm piano for a home tour video", seconds: 8 });
+  check("3f a refused sample is a clear error, never the backup", refused.status === 502 && /HTTP 401/.test(refused.data.error) && calls.replicate === 0, JSON.stringify(refused.data));
+  const bad = await api("POST", "/music-sample", { prompt: "x", seconds: 8 });
+  check("3g a sample needs a description", bad.status === 400);
+  mode.eleven = "ok";
+}
+
 /* 4. both music makers down */
 {
   mode.eleven = "down"; mode.replicate = "down";

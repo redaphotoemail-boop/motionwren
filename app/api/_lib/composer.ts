@@ -8,6 +8,8 @@
    runs under the whole film. If the container binding is missing (local dev,
    or before the first container deploy), films use the backup joiner. */
 
+import { SAMPLE_SECONDS, defaultMusicId, musicTemplate } from "../../music-catalog";
+
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
 type Namespace = { getByName?: (name: string) => Stub; idFromName: (name: string) => unknown; get: (id: unknown) => Stub };
 
@@ -93,6 +95,19 @@ export async function checkMusic(env: unknown): Promise<{ ok: boolean; error?: s
   return { ok: Boolean(data.ok), ...(data.error ? { error: data.error } : {}), ...(data.duration ? { duration: data.duration } : {}) };
 }
 
+/* A customer-facing sample of a music template (an MP3 Response), made in
+   its own fresh container instance. ElevenLabs only: no backup. */
+export async function makeMusicSample(env: unknown, id: string, prompt: string): Promise<Response> {
+  const response = await stub(env, `music-sample-${id}-${Date.now()}`).fetch("http://composer/music-sample", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, seconds: SAMPLE_SECONDS }),
+  });
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(data.error || `The editing service did not answer (HTTP ${response.status}).`);
+  }
+  return response;
+}
+
 export async function dropEdit(env: unknown, jobId: string, key: string) {
   try { await stub(env, jobId).fetch(url(key), { method: "DELETE" }); } catch { /* the container cleans up when it sleeps */ }
 }
@@ -113,19 +128,11 @@ export async function storeResponse(bucket: R2Bucket, key: string, response: Res
 
 /* ---------- the film's music ---------- */
 
-const MUSIC: Record<string, string> = {
-  classic: "Warm, elegant instrumental for a real estate home tour video. Soft piano melody with light strings and gentle ambient pads, calm and welcoming, steady 80 BPM, polished modern production, smooth intro and a graceful ending. No vocals.",
-  luxury: "Refined cinematic instrumental for a luxury property film. Slow evolving strings, felt piano and warm ambient textures, sophisticated and inspiring, around 70 BPM, wide cinematic sound, gentle build and an elegant ending. No vocals.",
-  social: "Bright, modern instrumental for a real estate social media reel. Light electronic beat, clean guitar plucks and airy synths, upbeat and confident, around 110 BPM, polished production and a clean ending. No vocals.",
-};
-
-/* One track per film, matched to how the film is shown: vertical social
-   videos get a modern upbeat track, long or cinematic films a luxury score,
-   everything else a warm, elegant listing-film track. */
-export function musicPrompt({ aspect, duration }: { aspect: string; duration: number }) {
-  if (aspect === "vertical") return MUSIC.social;
-  if (aspect === "cinematic" || duration >= 50) return MUSIC.luxury;
-  return MUSIC.classic;
+/* One track per film. The customer's chosen template decides it (see
+   app/music-catalog.ts); without a choice it is matched to how the film is
+   shown. */
+export function musicPrompt({ aspect, duration, choice }: { aspect: string; duration: number; choice?: string | null }) {
+  return (musicTemplate(choice) || musicTemplate(defaultMusicId({ aspect, duration })))!.prompt;
 }
 
 /* ---------- editing service health (for the manager's Production page) ---------- */

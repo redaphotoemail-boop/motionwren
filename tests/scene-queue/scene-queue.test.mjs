@@ -471,6 +471,31 @@ const stitchCreates = () => P.stitchInputs.length;
   check("22b a re-edit with the film's kept music does not hide which engine made it", !("error" in r) && end2.status === "succeeded" && second.musicSource === "stable-audio" && second.lastOkAt > first.lastOkAt, JSON.stringify(second));
 }
 
+/* 23. The client's music choice decides the film's music; no choice keeps the old matching */
+{
+  const env = env0();
+  const ids = lib.MUSIC_TEMPLATES.map((t) => t.id);
+  check("23a four templates, each with its own prompt", ids.join(",") === "warm,modern,luxe,bright" && new Set(lib.MUSIC_TEMPLATES.map((t) => t.prompt)).size === 4);
+  check("23b the chosen template's prompt is used, whatever the film's shape", lib.musicPrompt({ aspect: "vertical", duration: 20, choice: "luxe" }) === lib.musicTemplate("luxe").prompt && lib.musicPrompt({ aspect: "horizontal", duration: 30, choice: "modern" }) === lib.musicTemplate("modern").prompt);
+  check("23c without a choice it is matched to the film as before", lib.musicPrompt({ aspect: "vertical", duration: 20 }) === lib.musicTemplate("bright").prompt && lib.musicPrompt({ aspect: "horizontal", duration: 60 }) === lib.musicTemplate("luxe").prompt && lib.musicPrompt({ aspect: "horizontal", duration: 30, choice: "nonsense" }) === lib.musicTemplate("warm").prompt);
+  const saved = await lib.saveMusicChoice(env, "proj-1", "modern"); const bad = await lib.saveMusicChoice(env, "proj-2", "<script>");
+  check("23d the choice is kept per order and read back; an unknown value is ignored", saved === "modern" && await lib.readMusicChoice(env, "proj-1") === "modern" && bad === null && await lib.readMusicChoice(env, "proj-2") === null);
+}
+
+/* 24. Cost per video: engine + music + editing, from list prices */
+{
+  const film = lib.videoCosts({ kind: "customer-series", status: "succeeded", costCents: 180, duration: 15 });
+  check("24a a finished 15 s film: engine $1.80, music 16.5 s at $0.30/min = 8¢, editing 1¢", film.videoCents === 180 && film.musicCents === 8 && film.editCents === 1 && film.totalCents === 189, JSON.stringify(film));
+  const running = lib.videoCosts({ kind: "customer-series", status: "generating", costCents: 180, duration: 15 });
+  const single = lib.videoCosts({ kind: "studio-single", status: "succeeded", costCents: 50, duration: 5 });
+  check("24b music and editing are only counted once a film was edited; single clips have none", running.musicCents === 0 && running.editCents === 0 && single.totalCents === 50);
+  const sixty = lib.videoCosts({ kind: "customer-series", status: "succeeded", costCents: 700, duration: 60 });
+  check("24c a 60 s film costs more music (31¢)", sixty.musicCents === 31, JSON.stringify(sixty));
+  const sum = lib.aggregateCosts({ videos: 3, finished: 2, edited: 2, videoCents: 360, musicSeconds: 33, priceCents: 7800 });
+  check("24d totals add up and give the average per finished video", sum.musicCents === 17 && sum.editCents === 2 && sum.totalCents === 379 && sum.perFinishedCents === 190 && sum.priceCents === 7800, JSON.stringify(sum));
+  check("24e no finished videos: no divide by zero", lib.aggregateCosts({ videos: 1, finished: 0, edited: 0, videoCents: 100, musicSeconds: 0, priceCents: 0 }).perFinishedCents === 0);
+}
+
 /* 21. Same 25 films once credit is added (no burst limit, 6 at a time) */
 {
   resetProvider({ burstMs: 0 }); maxRunning = 0;

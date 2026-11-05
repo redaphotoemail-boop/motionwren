@@ -672,6 +672,10 @@ p { text-wrap: pretty; }
 .table-row:last-child { border-bottom: 0; }
 .orders .table-head, .orders .table-row { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.4fr) .8fr .8fr .8fr 1.1fr; }
 .customers .table-head, .customers .table-row { grid-template-columns: minmax(0, 2.2fr) .9fr .7fr .7fr .9fr 1fr; }
+.costs .table-head, .costs .table-row { grid-template-columns: minmax(0, 2.4fr) repeat(6, minmax(0, .8fr)); }
+.costs .table-row:hover { background: transparent; }
+.cost-mobile { display: none; }
+.panel .tabs button.active, .panel .tabs button[aria-checked="true"] { font-weight: 600; }
 .cell-main, .cell-person, .cell-time { display: grid; gap: 4px; min-width: 0; }
 .cell-main strong, .cell-person strong, .cell-time strong { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-time strong { font-weight: 500; font-size: 14px; }
@@ -770,6 +774,9 @@ p { text-wrap: pretty; }
   .orders .table-row .cell-person small { display: none; }
   .customers .table-row > span:nth-child(5) { display: block !important; grid-column: 2; grid-row: 1; text-align: right; }
   .customers .table-row > span:nth-child(2) { display: none; }
+  .costs .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding: 16px 4px; }
+  .costs .table-row > span:nth-child(5) { display: block !important; grid-column: 2; grid-row: 1; text-align: right; }
+  .cost-mobile { display: block; }
   .row { grid-template-columns: minmax(0, 1fr) auto; }
   .row .row-num { grid-column: 2; grid-row: 1; }
   .activity .row { grid-template-columns: auto minmax(0, 1fr) auto; }

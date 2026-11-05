@@ -22,6 +22,9 @@
      DELETE /jobs/:key              drop the job's files
      POST   /music-check            a 5-second ElevenLabs track, no backup:
                                     confirms the key, plan and format work
+     POST   /music-sample           {prompt, seconds}: a short, faded, evenly
+                                    loud ElevenLabs clip (an MP3) for the
+                                    customers' "hear it first" samples
 
    No dependencies beyond Node and ffmpeg. */
 
@@ -315,6 +318,29 @@ async function musicCheck() {
   }
 }
 
+/* A customer-facing sample of a music template: a few seconds of ElevenLabs
+   music (no backup — a sample must be the real thing), cut to length with a
+   gentle fade-out and the same loudness as a finished film. */
+async function musicSample(prompt, seconds) {
+  await fs.mkdir(ROOT, { recursive: true });
+  const dir = await fs.mkdtemp(path.join(ROOT, "sample-"));
+  const raw = path.join(dir, "raw.mp3");
+  const out = path.join(dir, "sample.mp3");
+  try {
+    await elevenLabsMusic(prompt, seconds + 2, raw);
+    const fade = Math.min(1.5, seconds / 3);
+    await run("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", raw, "-t", String(seconds),
+      "-af", `afade=t=in:d=0.3,afade=t=out:st=${round(seconds - fade, 2)}:d=${round(fade, 2)},loudnorm=I=-16:TP=-1.5:LRA=11`,
+      "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", "128k", out], { timeoutMs: 120_000 });
+    const info = await probe(out);
+    if (!info.audioStreams || info.duration < seconds - 1) throw new Error("The sample came out too short.");
+    return { dir, out, bytes: (await fs.stat(out)).size };
+  } catch (error) {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 function publicJob(key) {
   const job = jobs.get(key);
   if (!job) return { key, status: "unknown" };
@@ -343,6 +369,17 @@ export function createServer() {
         return send(res, 200, { ok: true, ffmpeg: stdout.split("\n")[0] || "missing", jobs: jobs.size });
       }
       if (url.pathname === "/music-check" && req.method === "POST") return send(res, 200, await musicCheck());
+      if (url.pathname === "/music-sample" && req.method === "POST") {
+        const body = await readJson(req);
+        const prompt = String(body.prompt || "").slice(0, 2000);
+        const seconds = Math.min(30, Math.max(5, Number(body.seconds) || 14));
+        if (prompt.length < 10) return send(res, 400, { error: "A music description is required." });
+        let made;
+        try { made = await musicSample(prompt, seconds); }
+        catch (error) { console.warn(`music sample: ${error.message}`); return send(res, 502, { error: String(error.message || "The sample could not be made.").slice(0, 400) }); }
+        try { return await streamFile(res, made.out, "audio/mpeg"); }
+        finally { await fs.rm(made.dir, { recursive: true, force: true }).catch(() => undefined); }
+      }
       const match = /^\/jobs\/([^/]+)(\/output|\/music)?$/.exec(url.pathname);
       if (!match || !KEY.test(match[1])) return send(res, 404, { error: "Not found." });
       const key = match[1];

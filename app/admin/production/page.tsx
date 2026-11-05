@@ -32,6 +32,7 @@ export default function ProductionPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState("");
   const [now, setNow] = useState(0);
+  const [samples, setSamples] = useState<Array<{ id: string; name: string; ready: boolean }> | null>(null);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/admin/production", { cache: "no-store" });
@@ -68,6 +69,25 @@ export default function ProductionPage() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setError(data.error || "The setting could not be saved."); return; }
     setMessage(`Up to ${value} scene${value === 1 ? "" : "s"} at once.`); await load();
+  }
+
+  const loadSamples = useCallback(async () => {
+    const response = await fetch("/api/admin/music-samples", { cache: "no-store" });
+    if (response.ok) setSamples((await response.json()).samples);
+  }, []);
+  useEffect(() => { void Promise.resolve().then(loadSamples).catch(() => undefined); }, [loadSamples]);
+
+  async function makeSamples(force: boolean) {
+    setBusy("samples"); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/admin/music-samples", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "The samples could not be made.");
+      if (data.failed?.length) setError(`${data.failed.length} sample${data.failed.length === 1 ? "" : "s"} could not be made: ${data.failed[0].error}`);
+      else setMessage(`${data.made} sample${data.made === 1 ? "" : "s"} made. Clients can hear them in the plan now.`);
+      setSamples(data.samples);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The samples could not be made."); }
+    finally { setBusy(""); }
   }
 
   async function testMusic() {
@@ -108,6 +128,14 @@ export default function ProductionPage() {
     {health && ["Backup in use", "Missing"].includes(health.music || "") && <section className="prodm-setting">
       <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents of ElevenLabs credit).</small></div>
       <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
+    </section>}
+
+    {samples && <section className="prodm-setting">
+      <div><strong>Music samples for clients</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a 14-second sample clients can play in the plan.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready. Making them uses about a minute of ElevenLabs music in total.`}</small></div>
+      <div className="prod-actions">
+        {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
+        {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
+      </div>
     </section>}
 
     <section className="prodm-setting">
