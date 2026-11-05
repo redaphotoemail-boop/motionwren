@@ -320,6 +320,8 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   if (manifest && QUEUE_KINDS.has(row.kind) && CROSSFADE_KINDS.has(row.kind) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
+  // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
+  if (manifest?.photoMoves?.some(Boolean)) throw new Error("The editing service could not take this film. It will be tried again.");
   const provider = await readProviderState(env);
   if (provider.throttledUntil > Date.now() || provider.pausedUntil > Date.now()) return;
   let segments = JSON.parse(row.segmentUrls || "[]") as (string | null)[];
@@ -352,7 +354,8 @@ const jobFileLink = (origin: string, row: RenderJobRow, file: string) => `${orig
 async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, origin: string) {
   const count = manifest.inputs.length;
   const { segments } = alignedScenes(row, count);
-  const clips = segments.map((url, index) => manifest.saved[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
+  const moves = segments.map((_, index) => manifest.photoMoves?.[index] || null);
+  const clips = segments.map((url, index) => manifest.saved[index] && !moves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
   if (count < 2 || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   const edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
@@ -370,7 +373,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";

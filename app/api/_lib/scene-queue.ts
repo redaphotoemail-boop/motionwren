@@ -132,10 +132,17 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
       if (failed || stale) failScene(index, failed ? String(result.error || "The scene did not finish.") : "The scene took too long and was started again.");
     }));
 
+    // Photo-move scenes need no engine: the photo itself is the scene and the editor makes the move.
+    manifest.photoMoves?.forEach((move, index) => {
+      const photo = manifest.photos?.[index];
+      if (!move || !photo || segments[index]) return;
+      ids[index] = ""; segments[index] = photo.link; manifest.states[index] = "ready"; manifest.reasons[index] = ""; manifest.outputs[index] = photo.link; manifest.readyAt[index] = now;
+    });
+
     // Keep our own copy of finished scenes (at most two per step).
     let copies = 0;
     for (let index = 0; index < count && copies < 2; index += 1) {
-      if (manifest.states[index] !== "ready" || manifest.saved[index] || !manifest.outputs[index] || now - manifest.readyAt[index] > COPY_WINDOW_MS) continue;
+      if (manifest.photoMoves?.[index] || manifest.states[index] !== "ready" || manifest.saved[index] || !manifest.outputs[index] || now - manifest.readyAt[index] > COPY_WINDOW_MS) continue;
       copies += 1;
       try { manifest.saved[index] = await keepScene(env, jobId, index, manifest.outputs[index]); } catch { /* tried again next step */ }
     }
@@ -267,7 +274,7 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
       for (let index = 0; index < count; index += 1) if (!await env.BUCKET.head(frameKey(row.id, index))) return { error: "This video's photos are no longer stored. Please start a new one." };
     }
     const now = Date.now();
-    const usable = (index: number) => Boolean(segments[index]) && (now - manifest.readyAt[index] < 45 * 60 * 1000 || Boolean(manifest.saved[index]));
+    const usable = (index: number) => Boolean(segments[index]) && (Boolean(manifest.photoMoves?.[index])) || Boolean(segments[index]) && (now - manifest.readyAt[index] < 45 * 60 * 1000 || Boolean(manifest.saved[index]));
     const redone: number[] = [];
     const redoScene = (index: number) => {
       redone.push(index);
@@ -305,6 +312,7 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
         if (!link) return { error: "This order's photos are not on record, so a backup engine cannot be used." };
         manifest.inputs[index] = buildEngineInput(switchTo, { imageUrl: link, prompt: String(old.prompt || ""), duration: seconds, resolution, aspectRatio: job?.aspect === "vertical" ? "9:16" : "16:9" });
         if (manifest.photos?.[index]) manifest.photos[index].file = undefined;
+        if (manifest.photoMoves) manifest.photoMoves[index] = ""; // this scene is now an engine clip
       }
       const perScene = (job?.costCents || 0) / Math.max(1, count);
       newCost = Math.round(perScene * (count - redone.length) + engineCost(switchTo, resolution, seconds) * redone.length * 100);

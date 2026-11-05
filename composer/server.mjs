@@ -211,6 +211,20 @@ async function getMusic(spec, dir, job) {
   return null;
 }
 
+/* ---------- photo moves: a slow push, pull or slide on the original photo (no AI, so no softness) ---------- */
+
+export const PHOTO_MOVES = ["push", "pull", "slide-left", "slide-right"];
+
+export function photoClipArgs({ image, move, width, height, fps, seconds, output }) {
+  const frames = Math.max(2, Math.ceil(seconds * fps));
+  const ease = `(0.5-0.5*cos(PI*on/${frames}))`; // gentle start and stop
+  const zoom = { push: `1+0.14*${ease}`, pull: `1.14-0.14*${ease}`, "slide-left": "1.14", "slide-right": "1.14" }[move];
+  const x = { push: "iw/2-iw/zoom/2", pull: "iw/2-iw/zoom/2", "slide-left": `(iw-iw/zoom)*(1-${ease})`, "slide-right": `(iw-iw/zoom)*${ease}` }[move];
+  // Work at twice the size so the move stays smooth to the pixel, then come down to the film's size.
+  const vf = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2},zoompan=z='${zoom}':x='${x}':y='ih/2-ih/zoom/2':d=${frames}:s=${width}x${height}:fps=${fps},setsar=1,format=yuv420p`;
+  return ["-hide_banner", "-y", "-nostdin", "-i", image, "-vf", vf, "-frames:v", String(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "14", "-pix_fmt", "yuv420p", "-an", output];
+}
+
 /* ---------- the edit ---------- */
 
 export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output }) {
@@ -229,7 +243,8 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     last = `x${i}`;
   }
   const fadeOut = Math.min(0.8, duration / 6);
-  filters.push(`[${last}]trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]`);
+  // Sharpen: the engines' clips come out soft, so restore edge contrast on the finished film (luma only, kept subtle).
+  filters.push(`[${last}]trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS,cas=strength=0.55,unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=0.45:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=0,fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]`);
   const args = ["-hide_banner", "-y", "-nostdin"];
   clips.forEach((file) => args.push("-i", file));
   if (music) {
@@ -241,7 +256,7 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   args.push("-filter_complex", filters.join(";"), "-map", "[vout]");
   if (music) args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
   else args.push("-an");
-  args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps * 2), "-movflags", "+faststart", "-t", duration.toFixed(3), output);
+  args.push("-c:v", "libx264", "-preset", "fast", "-crf", "17", "-tune", "film", "-profile:v", "high", "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps * 2), "-movflags", "+faststart", "-t", duration.toFixed(3), output);
   return args;
 }
 
@@ -249,6 +264,7 @@ function validSpec(spec) {
   const clips = Array.isArray(spec.clips) ? spec.clips : [];
   if (clips.length < 1 || clips.length > 20 || clips.some((url) => typeof url !== "string" || !/^https?:\/\//.test(url))) return "Between 1 and 20 scene links are needed.";
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
+  if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
   if (!(spec.duration > 1 && spec.duration <= 600)) return "Film length is out of range.";
   if (!(spec.sceneSeconds > 0.5 && spec.sceneSeconds <= 60)) return "Scene length is out of range.";
   if (!(spec.crossfade >= 0 && spec.crossfade < spec.sceneSeconds / 2)) return "Crossfade is out of range.";
@@ -268,8 +284,15 @@ async function compose(key, spec) {
     await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
       while (queue.length) {
         const i = queue.shift();
-        const file = path.join(dir, `scene-${String(i + 1).padStart(2, "0")}.mp4`);
-        await download(spec.clips[i], file, MAX_CLIP_BYTES, `Scene ${i + 1}`);
+        const name = `scene-${String(i + 1).padStart(2, "0")}`;
+        const file = path.join(dir, `${name}.mp4`);
+        const move = Array.isArray(spec.moves) ? spec.moves[i] : null;
+        if (move) {
+          // A photo move: the link is the original photo; the camera move is made here.
+          const image = path.join(dir, `${name}.img`);
+          await download(spec.clips[i], image, MAX_CLIP_BYTES, `Scene ${i + 1}`);
+          await run("ffmpeg", photoClipArgs({ image, move, width: spec.width, height: spec.height, fps: spec.photoFps || 24, seconds: spec.sceneSeconds + 2, output: file }), { timeoutMs: 5 * 60 * 1000 });
+        } else await download(spec.clips[i], file, MAX_CLIP_BYTES, `Scene ${i + 1}`);
         files[i] = file;
       }
     }));

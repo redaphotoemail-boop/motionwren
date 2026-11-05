@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     const transition = body.transition === true;
     const requestedDuration = Number(body.duration) || (body.num_frames === 121 ? 10 : 5);
     const resolution = body.resolution === "1080p" ? "1080p" : body.resolution === "720p" ? "720p" : "480p";
+    if (engine === "photo") return NextResponse.json({ error: "Photo move makes whole films. Use Create film, or choose a video engine for a single clip." }, { status: 400 });
     if (engineUpscales(engine, resolution)) return NextResponse.json({ error: "This engine reaches 1080p in Create film (the finished film is upscaled). For a single clip, choose 720p." }, { status: 400 });
     const duration = preferredDurationForEngine(engine, Math.max(3, Math.min(15, Math.round(requestedDuration))), resolution);
     const aspectRatio = body.aspect_ratio === "9:16" ? "9:16" : "16:9";

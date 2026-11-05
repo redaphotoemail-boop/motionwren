@@ -20,6 +20,8 @@ export type EditSpec = {
   duration: number;
   sceneSeconds: number;
   crossfade: number;
+  /** Per scene: a camera move made on the photo (the link is the photo), or null for an ordinary clip. */
+  moves?: (string | null)[];
   music?: { url?: string; prompt?: string; required?: boolean } | null;
 };
 

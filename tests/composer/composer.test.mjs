@@ -192,7 +192,21 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   const args = editArgs({ clips: ["a", "b", "c", "d"], music: "m", width: 1920, height: 1080, fps: 24, crossfade: 0.5, duration: 18, sceneSeconds: 4.875, output: "o.mp4" });
   const graph = args[args.indexOf("-filter_complex") + 1];
   check("10c offsets: each join starts where the previous scene's share ends minus the crossfade", graph.includes("offset=4.375") && graph.includes("offset=8.750") && graph.includes("offset=13.125"), graph.match(/offset=[\d.]+/g)?.join(","));
+  check("10e the finished film is sharpened", graph.includes("cas=") && graph.includes("unsharp="));
   check("10d only the music is mapped as sound", !/\[\d:a\]/.test(graph.replace("[4:a]", "")) && graph.includes("[4:a]"));
+}
+
+/* 11. photo moves: the original photo becomes a scene, no AI clip */
+{
+  ff(["-f", "lavfi", "-i", "testsrc2=s=1920x1080:d=1", "-frames:v", "1", path.join(dir, "photo.jpg")]);
+  const bad = await api("POST", "/jobs/film-eleven-bad", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["spin", null, null] }));
+  check("11a an unknown move is refused", bad.status === 400);
+  const short = await api("POST", "/jobs/film-eleven-short", spec({ moves: ["push"] }));
+  check("11b moves must match the scenes", short.status === 400);
+  await api("POST", "/jobs/film-eleven", spec({ clips: [`${base(files)}/photo.jpg`, `${base(files)}/photo.jpg`, clip(3)], moves: ["push", "slide-left", null] }));
+  const done = await waitDone("film-eleven");
+  check("11c a film mixing photo moves and clips is made", done.status === "done", done.error);
+  if (done.status === "done") { const out = await save("film-eleven"); const info = probe(out.file); check("11d it has the right size and length", info.streams[0].width === 640 && Math.abs(Number(info.format.duration) - T) < 0.3); }
 }
 
 for (const server of [composer, files, eleven, replicate]) server.close();

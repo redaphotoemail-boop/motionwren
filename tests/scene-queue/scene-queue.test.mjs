@@ -414,6 +414,20 @@ const stitchCreates = () => P.stitchInputs.length;
   check("16b the re-edit reuses the film's music (no new music)", Boolean(spec2?.music?.url?.includes(`/api/job-frames/${id}/music.mp3?token=`)) && !spec2.music.prompt && key2 !== C.starts[0], JSON.stringify(spec2?.music));
 }
 
+/* 15i. A "Photo move" film: no engine is called; the editor gets the photos and a move per scene */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 4, { tag: "s15i" }); await withEdit(env, id);
+  const m0 = await lib.loadManifest(env, id); m0.photoMoves = ["push", "slide-right", "pull", "slide-left"]; await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("15i a Photo-move film is made without calling the engine", end.status === "succeeded" && scenesOf("s15i").length === 0 && C.starts.length === 1, `${end.status} engineCalls=${scenesOf("s15i").length} edits=${C.starts.length} ${end.error || ""}`);
+  check("15j the editor gets each photo with its camera move", spec?.clips.length === 4 && spec.clips.every((url) => url.includes("/api/job-frames/") && url.includes(".jpg")) && JSON.stringify(spec.moves) === JSON.stringify(["push", "slide-right", "pull", "slide-left"]), JSON.stringify(spec));
+}
+
 /* 15e. An engine that makes 720p: the edited film is upscaled to 1080p before it is saved */
 {
   resetProvider();

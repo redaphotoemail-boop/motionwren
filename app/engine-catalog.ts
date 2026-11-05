@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "photo";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 10 | 15;
 
@@ -19,6 +19,8 @@ export type StudioEngine = {
   /** Makes 720p natively. For a film, the finished film is upscaled to 1080p
       (Topaz) and the 1080p price already includes that step. */
   upscaleTo1080?: boolean;
+  /** No AI video: a slow camera move made on the original photo. Always as sharp as the photo. */
+  photoMove?: boolean;
 };
 
 /** Topaz 1080p / 30 fps: $0.093 per 5 seconds of video. */
@@ -155,6 +157,20 @@ export const studioEngines: StudioEngine[] = [
     realEstate: true,
     pricePerSecond: { "720p": 0.1, "1080p": 0.15 },
   },
+  {
+    key: "photo",
+    name: "Photo move",
+    shortName: "Photo move",
+    description: "A slow push, pull or slide on your original photo. No AI video, so it is as sharp as the photo.",
+    bestFor: "Sharpest result",
+    resolutions: ["720p", "1080p"],
+    audio: false,
+    firstLastFrame: false,
+    realEstate: true,
+    badge: "SHARPEST",
+    pricePerSecond: { "720p": 0, "1080p": 0 },
+    photoMove: true,
+  },
 ];
 
 export function studioEngine(key: StudioEngineKey) {
@@ -195,6 +211,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "wan25": return [3, 5, 6, 8, 10];
     case "wan27": return [3, 5, 6, 8, 10, 15];
     case "wan3": return [3, 5, 6, 8, 10, 15];
+    case "photo": return [3, 4, 5, 6, 8, 10, 15];
   }
 }
 
@@ -219,7 +236,7 @@ export const CROSSFADE_SECONDS = 0.5;
     number of seconds (2–30 per its published schema); others use their
     Studio options. */
 export function filmSceneDurations(key: StudioEngineKey, resolution: StudioResolution): number[] {
-  if (key === "wan3") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
+  if (key === "wan3" || key === "photo") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
   if (key === "h3lite") return [4, 5, 6, 7, 8, 9, 10, 12, 15]; // the model takes 4–15 whole seconds
   return [...engineDurationOptions(key, resolution)].sort((a, b) => a - b);
 }

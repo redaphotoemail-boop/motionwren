@@ -15,6 +15,7 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   veo31Lite: "https://api.replicate.com/v1/models/google/veo-3.1-lite/predictions",
   hailuo23: "https://api.replicate.com/v1/models/minimax/hailuo-2.3/predictions",
   runway4turbo: "https://api.replicate.com/v1/models/runwayml/gen4-turbo/predictions",
+  photo: "", // made by our own editor, never sent to a provider
   runway45: "https://api.replicate.com/v1/models/runwayml/gen-4.5/predictions",
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
@@ -22,7 +23,7 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "photo"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -58,6 +59,7 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
+  if (engine === "photo") return { image: options.imageUrl };
   if (engine === "runway4turbo") return { image: options.imageUrl, prompt, duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
   if (engine === "runway45") return { image: options.imageUrl, prompt, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };

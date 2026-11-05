@@ -19,6 +19,9 @@ export const STALE_SCENE_MS = 20 * 60 * 1000; // a scene running this long is ca
 export type SceneState = "queued" | "submitting" | "creating" | "retry" | "ready" | "failed" | "waiting" | "retrying";
 export type WaitReason = "" | "throttle" | "credit" | "retry";
 
+/** The camera moves a "Photo move" film cycles through, one per scene. */
+export const PHOTO_MOVE_CYCLE = ["push", "slide-right", "pull", "slide-left"] as const;
+
 export type ProductionManifest = {
   version: 1;
   engine: StudioEngineKey;
@@ -35,6 +38,8 @@ export type ProductionManifest = {
      is written in the scene's input, and its copy in the engine's own file
      storage once uploaded. */
   photos?: { key: string; link: string; file?: string }[];
+  /** Set for "Photo move" films: scene i is the original photo with this camera move, made by the editor (no AI clip). */
+  photoMoves?: string[];
   nextAt?: number[];      // earliest time the scene may be sent (again)
   waits?: number[];       // provider waits/hiccups since the last try (not tries)
   reasons?: WaitReason[]; // why a scene is waiting, for the progress view
