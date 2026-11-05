@@ -23,8 +23,8 @@ ff(["-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100:duration=14", "-c
 const musicBytes = readFileSync(path.join(dir, "music.mp3"));
 
 // Stand-ins: file host, ElevenLabs, Replicate.
-const calls = { eleven: 0, replicate: 0, elevenBodies: [] };
-const mode = { eleven: "ok", replicate: "ok" };
+const calls = { eleven: 0, replicate: 0, depth: 0, elevenBodies: [] };
+const mode = { eleven: "ok", replicate: "ok", depth: "ok" };
 const files = http.createServer((req, res) => {
   const name = req.url.slice(1).split("?")[0];
   if (name === "missing.mp4") { res.writeHead(404); return res.end(); }
@@ -41,8 +41,10 @@ const eleven = http.createServer(async (req, res) => {
   res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": musicBytes.length }); res.end(musicBytes);
 });
 const replicate = http.createServer(async (req, res) => {
-  for await (const chunk of req) void chunk;
+  let raw = ""; for await (const chunk of req) raw += chunk;
   const json = (status, data) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(data)); };
+  if (req.method === "POST" && raw.includes('"version"')) { calls.depth += 1; if (mode.depth === "down") return json(500, { detail: "depth down" }); return json(201, { id: "dp1", status: "starting" }); }
+  if (req.url.endsWith("/dp1")) return json(200, { id: "dp1", status: "succeeded", output: { grey_depth: `${base(files)}/depth.png` } });
   if (req.method === "POST") { calls.replicate += 1; if (mode.replicate === "down") return json(500, { detail: "down" }); return json(201, { id: "sa1", status: "starting" }); }
   return json(200, { id: "sa1", status: "succeeded", output: `${base(files)}/music.mp3` });
 });
@@ -207,6 +209,21 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   const done = await waitDone("film-eleven");
   check("11c a film mixing photo moves and clips is made", done.status === "done", done.error);
   if (done.status === "done") { const out = await save("film-eleven"); const info = probe(out.file); check("11d it has the right size and length", info.streams[0].width === 640 && Math.abs(Number(info.format.duration) - T) < 0.3); }
+}
+
+/* 12. depth moves: real parallax from a depth map; if depth is down, the flat move is used and the film still gets made */
+{
+  ff(["-f", "lavfi", "-i", "gradients=s=800x450:d=1:n=3", "-frames:v", "1", path.join(dir, "depth.png")]);
+  calls.depth = 0;
+  await api("POST", "/jobs/film-twelve", spec({ clips: [`${base(files)}/photo.jpg`, `${base(files)}/photo.jpg`, clip(3)], moves: ["orbit-left", "push-rise", null] }));
+  const done = await waitDone("film-twelve");
+  check("12a depth moves are rendered with a depth map for each photo", done.status === "done" && calls.depth === 2 && done.depthScenes === 2 && !done.depthFallbacks, `${done.status} depthCalls=${calls.depth} scenes=${done.depthScenes} fallbacks=${done.depthFallbacks} ${done.error || done.depthError || ""}`);
+  if (done.status === "done") { const out = await save("film-twelve"); const info = probe(out.file); check("12b the film is the right size and length", info.streams[0].width === 640 && Math.abs(Number(info.format.duration) - T) < 0.3); }
+  mode.depth = "down";
+  await api("POST", "/jobs/film-twelve-down", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["pull", null, null] }));
+  const down = await waitDone("film-twelve-down");
+  check("12c if depth is down, that scene uses the flat move and the film is still made", down.status === "done" && down.depthFallbacks === 1 && !down.depthScenes, `${down.status} fallbacks=${down.depthFallbacks} ${down.error || ""}`);
+  mode.depth = "ok";
 }
 
 for (const server of [composer, files, eleven, replicate]) server.close();

@@ -20,7 +20,7 @@ export type SceneState = "queued" | "submitting" | "creating" | "retry" | "ready
 export type WaitReason = "" | "throttle" | "credit" | "retry";
 
 /** The camera moves a "Photo move" film cycles through, one per scene. */
-export const PHOTO_MOVE_CYCLE = ["push", "slide-right", "pull", "slide-left"] as const;
+export const PHOTO_MOVE_CYCLE = ["push-rise", "orbit-right", "pull", "orbit-left", "push-right", "pull-rise", "push-left", "push"] as const;
 
 export type ProductionManifest = {
   version: 1;

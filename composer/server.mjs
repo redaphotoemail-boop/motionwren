@@ -211,9 +211,40 @@ async function getMusic(spec, dir, job) {
   return null;
 }
 
+import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
+
+/* The depth map of a photo (Depth Anything v2 on Replicate; near is bright). Written to `file` as an image. */
+const DEPTH_VERSION = "b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4";
+async function depthMap(imageUrl, file) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error("The depth service is not connected.");
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  let prediction;
+  for (let attempt = 1; attempt <= 4 && !prediction; attempt += 1) {
+    const response = await fetch(`${REPLICATE_BASE}/v1/predictions`, { method: "POST", headers: { ...headers, Prefer: "wait=30" }, body: JSON.stringify({ version: DEPTH_VERSION, input: { image: imageUrl, model_size: "Large" } }), signal: AbortSignal.timeout(60_000) });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 429) { await sleep(Math.max(2000, (Number(response.headers.get("retry-after")) || 8) * 1000)); continue; }
+    if (!response.ok || !data.id) throw new Error(`Depth could not start (HTTP ${response.status}) ${String(data.detail || "").slice(0, 160)}`.trim());
+    prediction = data;
+  }
+  if (!prediction) throw new Error("The depth service stayed busy.");
+  const deadline = Date.now() + 3 * 60 * 1000;
+  while (!["succeeded", "failed", "canceled"].includes(prediction.status) && Date.now() < deadline) {
+    await sleep(1500);
+    const poll = await fetch(`${REPLICATE_BASE}/v1/predictions/${prediction.id}`, { headers, signal: AbortSignal.timeout(30_000) });
+    if (poll.ok) prediction = await poll.json();
+  }
+  const out = prediction.output;
+  const url = typeof out === "string" ? out : out?.grey_depth || out?.gray_depth;
+  if (prediction.status !== "succeeded" || typeof url !== "string") throw new Error(`Depth did not finish (${prediction.status}).`);
+  await download(url, file, 40 * 1024 * 1024, "The depth map");
+}
+
 /* ---------- photo moves: a slow push, pull or slide on the original photo (no AI, so no softness) ---------- */
 
-export const PHOTO_MOVES = ["push", "pull", "slide-left", "slide-right"];
+/* Flat moves (no depth) and the depth moves. If depth is not available, a depth move falls back to its flat look. */
+export const PHOTO_MOVES = ["push", "pull", "slide-left", "slide-right", ...DEPTH_MOVES];
+const FLAT_FALLBACK = { push: "push", pull: "pull", "slide-left": "slide-left", "slide-right": "slide-right", "orbit-left": "slide-left", "orbit-right": "slide-right", "push-rise": "push", "pull-rise": "pull", "push-left": "slide-left", "push-right": "slide-right" };
 
 export function photoClipArgs({ image, move, width, height, fps, seconds, output }) {
   const frames = Math.max(2, Math.ceil(seconds * fps));
@@ -291,7 +322,20 @@ async function compose(key, spec) {
           // A photo move: the link is the original photo; the camera move is made here.
           const image = path.join(dir, `${name}.img`);
           await download(spec.clips[i], image, MAX_CLIP_BYTES, `Scene ${i + 1}`);
-          await run("ffmpeg", photoClipArgs({ image, move, width: spec.width, height: spec.height, fps: spec.photoFps || 24, seconds: spec.sceneSeconds + 2, output: file }), { timeoutMs: 5 * 60 * 1000 });
+          const shape = { width: spec.width, height: spec.height, fps: spec.photoFps || 24, seconds: spec.sceneSeconds + 2, output: file };
+          if (DEPTH_MOVES.includes(move)) {
+            try {
+              const depthFile = path.join(dir, `${name}-depth.png`);
+              await depthMap(spec.clips[i], depthFile);
+              await renderParallaxClip({ image, depthImage: depthFile, move, ...shape });
+              job.depthScenes = (job.depthScenes || 0) + 1;
+            } catch (error) {
+              // Never fail the film over depth: this scene gets the flat version of the move.
+              job.depthFallbacks = (job.depthFallbacks || 0) + 1; job.depthError = String(error?.message || error).slice(0, 300);
+              console.warn(`depth: scene ${i + 1} used a flat move; ${job.depthError}`);
+              await run("ffmpeg", photoClipArgs({ image, move: FLAT_FALLBACK[move], ...shape }), { timeoutMs: 5 * 60 * 1000 });
+            }
+          } else await run("ffmpeg", photoClipArgs({ image, move, ...shape }), { timeoutMs: 5 * 60 * 1000 });
         } else await download(spec.clips[i], file, MAX_CLIP_BYTES, `Scene ${i + 1}`);
         files[i] = file;
       }

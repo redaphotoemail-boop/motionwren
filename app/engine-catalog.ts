@@ -161,7 +161,7 @@ export const studioEngines: StudioEngine[] = [
     key: "photo",
     name: "Photo move",
     shortName: "Photo move",
-    description: "Experimental: a slow push, pull or slide on your original photo. No AI, so nothing can move or change, but it is a flat camera move without depth.",
+    description: "Experimental: a real camera move (orbit, pull-back, push-and-rise) on your original photo, with depth. Nothing in the scene can move or change.",
     bestFor: "Exact photo, no AI",
     resolutions: ["720p", "1080p"],
     audio: false,
