@@ -6,12 +6,14 @@ import { audit, jsonError, requireAdmin } from "../../_lib/account";
    removing each project's render job clears the attention banner and the
    recorded cost totals. Real client orders are untouched: the scope is
    owner_id = the admin's own account AND status in draft/failed. */
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     const admin = await requireAdmin(env);
+    // ?only=failed: leave saved drafts alone and delete just the failed ones.
+    const statuses = new URL(request.url).searchParams.get("only") === "failed" ? "'failed'" : "'draft', 'failed'";
     const projects = await env.DB.prepare(
-      `SELECT id, render_job_id AS renderJobId FROM projects WHERE owner_id = ? AND status IN ('draft', 'failed')`
+      `SELECT id, render_job_id AS renderJobId FROM projects WHERE owner_id = ? AND status IN (${statuses})`
     ).bind(admin.id).all<{ id: string; renderJobId: string | null }>();
     let deletedAssets = 0;
     for (const project of projects.results) {

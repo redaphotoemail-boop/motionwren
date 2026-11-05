@@ -216,7 +216,7 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   return historyId;
 }
 
-async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string) {
+export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.FRAME_MOTION_FROM_EMAIL;
   if (!apiKey || !from) return;

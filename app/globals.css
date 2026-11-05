@@ -651,6 +651,7 @@ p { text-wrap: pretty; }
 .maintenance { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .maintenance > div { display: grid; gap: 4px; }
 .maintenance strong { font: 600 16px/1.2 var(--display); }
+.maintenance .actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .maintenance small { color: var(--muted); font-size: 14px; }
 .maintenance .btn { margin: 0; flex: none; }
 

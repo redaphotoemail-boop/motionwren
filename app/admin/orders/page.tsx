@@ -70,11 +70,11 @@ export default function OrdersPage() {
     finally { setLoadingMore(false); }
   }
 
-  async function clearTestRows() {
-    if (!window.confirm("Delete all of your own draft and failed test projects? Real client orders are untouched. This cannot be undone.")) return;
+  async function clearTestRows(only?: "failed") {
+    if (!window.confirm(only === "failed" ? "Delete all of your own failed projects? Saved drafts and real client orders are untouched. This cannot be undone." : "Delete all of your own draft and failed test projects? Real client orders are untouched. This cannot be undone.")) return;
     setClearing(true); setCleanupMessage("");
     try {
-      const response = await fetch("/api/admin/cleanup-tests", { method: "POST" });
+      const response = await fetch(`/api/admin/cleanup-tests${only ? `?only=${only}` : ""}`, { method: "POST" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Test rows could not be cleared.");
       setCleanupMessage(`Cleared ${result.deletedProjects} test project${result.deletedProjects === 1 ? "" : "s"} and ${result.deletedAssets} stored file${result.deletedAssets === 1 ? "" : "s"}.`);
@@ -142,8 +142,8 @@ export default function OrdersPage() {
     </section>
 
     <section className="panel maintenance">
-      <div><strong>Clear test rows</strong><small>Deletes only your own saved and failed test projects. Real client orders are untouched.</small>{cleanupMessage && <small className="note" role="status">{cleanupMessage}</small>}</div>
-      <button type="button" className="btn btn-danger btn-sm" onClick={clearTestRows} disabled={clearing}>{clearing ? "Clearing…" : "Clear test rows"}</button>
+      <div><strong>Clean up</strong><small>Delete failed removes only your own failed projects. Clear test rows removes your saved and failed tests. Real client orders are never touched.</small>{cleanupMessage && <small className="note" role="status">{cleanupMessage}</small>}</div>
+      <span className="actions"><button type="button" className="btn btn-danger btn-sm" onClick={() => clearTestRows("failed")} disabled={clearing}>{clearing ? "Clearing…" : "Delete failed"}</button><button type="button" className="btn btn-danger btn-sm" onClick={() => clearTestRows()} disabled={clearing}>{clearing ? "Clearing…" : "Clear test rows"}</button></span>
     </section>
   </div>;
 }
