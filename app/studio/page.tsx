@@ -208,6 +208,7 @@ async function waitForPrompt(id: string): Promise<string> {
 function engineName(engine: string) {
   if (engine === "fast" || engine === "wan22") return "Wan 2.2 Fast";
   if (engine === "seedance1fast") return "Seedance Fast";
+  if (engine === "upscale") return "Topaz upscaler";
   if (engine === "slideshow") return "Clean dissolve";
   if (engine === "stitched") return "Joined";
   if (engine === "studio") return "Studio";
@@ -248,7 +249,7 @@ export default function Home() {
   const [starting, setStarting] = useState<ProductionTab | "">("");
   const [branded, setBranded] = useState<Record<string, { url: string; format: OutputFormat }>>({});
   const [overlayWork, setOverlayWork] = useState<{ id: string; message: string; busy: boolean } | null>(null);
-  const [historyFilter, setHistoryFilter] = useState<"all" | "film" | "clip">("all");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "film" | "clip" | "upscale">("all");
   const [localThumbs, setLocalThumbs] = useState<Record<string, string[]>>({});
   const [sending, setSending] = useState<Sending | null>(null);
   const [dismissed, setDismissed] = useState<string[]>([]);
@@ -386,13 +387,13 @@ export default function Home() {
     catch { setHistoryMessage("History could not be loaded right now."); }
     finally { setHistoryLoading(false); }
   }
-  async function saveHistory(sourceUrl: string, prompt: string, itemCategory: string = category, finishedBlob?: Blob, durationOverride?: number, costCentsOverride?: number) {
+  async function saveHistory(sourceUrl: string, prompt: string, itemCategory: string = category, finishedBlob?: Blob, durationOverride?: number, costCentsOverride?: number, override?: { engine?: string; resolution?: string }) {
     setHistoryMessage("Saving this video to your private history…");
     try {
       let response: Response;
       const savedDuration = durationOverride || (frames === 121 ? 10 : 5); const savedCost = costCentsOverride ?? Math.round(price * 100);
-      if (finishedBlob) { const meta = encodeURIComponent(JSON.stringify({ prompt: prompt.slice(0, 6000), engine, category: itemCategory, resolution, aspect, duration: savedDuration, costCents: savedCost })); response = await fetch("/api/history", { method: "POST", headers: { "Content-Type": finishedBlob.type || "video/webm", "X-MotionWren-Meta": meta }, body: finishedBlob }); }
-      else response = await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceUrl, prompt, engine, category: itemCategory, resolution, aspect, duration: savedDuration, costCents: savedCost }) });
+      if (finishedBlob) { const meta = encodeURIComponent(JSON.stringify({ prompt: prompt.slice(0, 6000), engine: override?.engine ?? engine, category: itemCategory, resolution: override?.resolution ?? resolution, aspect, duration: savedDuration, costCents: savedCost })); response = await fetch("/api/history", { method: "POST", headers: { "Content-Type": finishedBlob.type || "video/webm", "X-MotionWren-Meta": meta }, body: finishedBlob }); }
+      else response = await fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceUrl, prompt, engine: override?.engine ?? engine, category: itemCategory, resolution: override?.resolution ?? resolution, aspect, duration: savedDuration, costCents: savedCost }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error);
       setHistory((current) => [data.item, ...current.filter((item) => item.id !== data.item.id)]); setHistoryMessage("Saved to history.");
     } catch { setHistoryMessage("The video generated, but its history copy could not be saved. Download it now."); }
@@ -535,7 +536,7 @@ export default function Home() {
   async function upscaleVideo() {
     if (!upscaleSource) return setUpscaleError("Upload a video to upscale first.");
     setUpscaleError(""); setUpscaleOutput(""); setUpscaleStatus("starting");
-    try { const response = await fetch("/api/upscale", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video: upscaleSource, targetResolution: upscaleTarget, targetFps: upscaleFps }) }); const job = await response.json(); if (!response.ok) throw new Error(job.error || "Could not start the upscaler."); const result = job.status === "succeeded" ? (Array.isArray(job.output) ? job.output[0] : job.output) : await waitForPrediction(job.id, () => setUpscaleStatus("processing")); setUpscaleOutput(result); setUpscaleStatus("succeeded"); }
+    try { const response = await fetch("/api/upscale", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video: upscaleSource, targetResolution: upscaleTarget, targetFps: upscaleFps }) }); const job = await response.json(); if (!response.ok) throw new Error(job.error || "Could not start the upscaler."); const result = job.status === "succeeded" ? (Array.isArray(job.output) ? job.output[0] : job.output) : await waitForPrediction(job.id, () => setUpscaleStatus("processing")); setUpscaleOutput(result); setUpscaleStatus("succeeded"); void saveHistory(result, `Upscaled · ${upscaleName || "video"}`, `upscale · ${upscaleTarget === "4k" ? "4K" : "1080p"} · ${upscaleFps}fps`, undefined, Math.max(1, Math.round(upscaleDuration)), Math.round(upscalePer5 * Math.max(1, Math.ceil(upscaleDuration / 5)) * 100), { engine: "upscale", resolution: upscaleTarget === "4k" ? "4K" : "1080p" }); }
     catch (err) { setUpscaleStatus("failed"); setUpscaleError(err instanceof Error ? err.message : "The video could not be upscaled."); }
   }
   function updateShot(id: string, change: Partial<SeriesShot>) { setShots((current) => current.map((shot) => shot.id === id ? { ...shot, ...change } : shot)); }
@@ -672,7 +673,7 @@ export default function Home() {
     </section> : mode === "history" ? <section className="history-area" aria-live="polite">
       <div className="history-heading"><div><span className="label">HISTORY</span><h2>Your videos</h2><p>Everything you have made, newest first. Videos still being made are at the top.</p></div><button onClick={loadHistory} disabled={historyLoading}>{historyLoading ? "Refreshing…" : "Refresh"}</button></div>
       {(activeJobs.length > 0 || stoppedJobs.length > 0) && <div className="history-live"><p className="eyebrow">In process</p>{[...activeJobs, ...stoppedJobs].map((job) => <ProductionView key={job.id} job={job} title={job.category.replace(/^Studio · /, "") || "Video"} thumbs={localThumbs[job.id]} onStop={() => stopById(job.id)} onResume={() => resumeJob(job.id)} onStartOver={() => startOver(job.id)} onDismiss={() => setDismissed((list) => [...list, job.id])} onDelete={() => deleteJob(job.id)} offline={production.offline} sending={sending}/>)}</div>}
-      {history.length > 0 && <div className="tabs history-filter" role="tablist" aria-label="Show">{(["all", "film", "clip"] as const).map((key) => <button type="button" role="tab" key={key} aria-selected={historyFilter === key} className={historyFilter === key ? "active" : ""} onClick={() => setHistoryFilter(key)}>{key === "all" ? "All" : key === "film" ? "Finished videos" : "Clips"}<span>{key === "all" ? history.length : history.filter((item) => historyKind(item.category).group === key).length}</span></button>)}</div>}
+      {history.length > 0 && <div className="tabs history-filter" role="tablist" aria-label="Show">{(["all", "film", "clip", "upscale"] as const).map((key) => <button type="button" role="tab" key={key} aria-selected={historyFilter === key} className={historyFilter === key ? "active" : ""} onClick={() => setHistoryFilter(key)}>{key === "all" ? "All" : key === "film" ? "Finished videos" : key === "upscale" ? "Upscaled" : "Clips"}<span>{key === "all" ? history.length : history.filter((item) => historyKind(item.category).group === key).length}</span></button>)}</div>}
       {historyMessage && <p className="history-message history-wide">{historyMessage}</p>}
       {historyLoading && !history.length ? <div className="history-empty">Loading saved videos…</div> : history.length ? <div className="history-grid">{history.filter((item) => historyFilter === "all" || historyKind(item.category).group === historyFilter).map((item) => <article className="history-card" key={item.id}><video src={item.videoUrl} controls preload="metadata" playsInline/><div className="history-card-body"><strong className="history-title">{historyKind(item.category).label}</strong><div className="history-meta"><span>{engineName(item.engine)}</span><span>{item.duration}s</span><span>{item.aspect === "vertical" ? "9:16" : item.aspect === "cinematic" ? "2.39:1" : "16:9"}</span><span>{item.resolution}</span></div>{item.prompt && <details className="history-prompt"><summary>Prompt</summary><p>{item.prompt}</p></details>}<div className="history-card-footer"><div><strong>{item.costCents ? `$${(item.costCents / 100).toFixed(2)}` : "—"}</strong><small>{new Date(item.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div><div><a href={item.downloadUrl}>Download</a><button onClick={() => sendToClient(item.id)}>Send to client</button><button onClick={() => removeHistoryItem(item.id)}>Remove</button></div></div></div></article>)}</div> : <div className="history-empty"><strong>No saved videos yet.</strong><span>Your next video will appear here automatically.</span></div>}
     </section> : <section className="workspace upscale-workspace">

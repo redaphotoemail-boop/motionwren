@@ -292,8 +292,9 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
 }
 
 /* History labels: what a saved video is, in plain words. */
-export function historyKind(category: string): { label: string; group: "film" | "clip" } {
+export function historyKind(category: string): { label: string; group: "film" | "clip" | "upscale" } {
   const value = (category || "").toLowerCase();
+  if (value.startsWith("upscale")) return { label: `Upscaled${category.slice(7).trim() ? ` ${category.slice(7).trim()}` : ""}`, group: "upscale" };
   if (value.startsWith("studio · ")) return { label: category.slice(9), group: /film/i.test(category) ? "film" : "clip" };
   if (value.startsWith("stitched series")) return { label: "Finished series", group: "film" };
   if (value.startsWith("series · ")) return { label: "Scene clip", group: "clip" };
