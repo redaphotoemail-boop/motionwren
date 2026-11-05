@@ -140,7 +140,7 @@ export const studioEngines: StudioEngine[] = [
     audio: false,
     firstLastFrame: false,
     realEstate: true,
-    pricePerSecond: { "480p": 0.025, "720p": 0.05, "1080p": 0.1 },
+    pricePerSecond: { "480p": 0.035, "720p": 0.07, "1080p": 0.14 },
   },
 ];
 
