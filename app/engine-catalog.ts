@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "kling25" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 10 | 15;
 
@@ -58,19 +58,6 @@ export const studioEngines: StudioEngine[] = [
     badge: "VALUE PRO",
     pricePerSecond: { "720p": 0.05, "1080p": 0.08 },
     unavailable: "Google removed the model Replicate points to (404) on Nov 5, 2026.",
-  },
-  {
-    key: "kling25",
-    name: "Kling 2.5 Turbo Pro",
-    shortName: "Kling 2.5 Turbo",
-    description: "Kling quality at half the price: smooth, stable camera motion at 1080p.",
-    bestFor: "Real estate · 1080p value",
-    resolutions: ["1080p"],
-    audio: false,
-    firstLastFrame: true,
-    realEstate: true,
-    badge: "BEST VALUE",
-    pricePerSecond: { "1080p": 0.07 },
   },
   {
     key: "hailuo23",
@@ -171,7 +158,6 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "veo31Lite": return resolution === "1080p" ? [8] : [4, 6, 8];
     case "hailuo23": return resolution === "1080p" ? [6] : [6, 10];
     case "runway45": return [5, 10];
-    case "kling25": return [5, 10];
     case "h3lite": return [4, 5, 6, 8, 10, 15];
     case "kling3": return [3, 5, 6, 8, 10, 15];
     case "wan25": return [3, 5, 6, 8, 10];

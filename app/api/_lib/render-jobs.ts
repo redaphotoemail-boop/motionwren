@@ -243,7 +243,7 @@ export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?
    the managers are alerted and the customer still sees it in production. */
 /* Backups for a client order, in order: if the engine it started on cannot make a scene, the scenes still
    to be made go to the next one. Chosen for the same natural, photo-true look at a fair price. */
-const BACKUP_ENGINES: StudioEngineKey[] = ["wan3", "kling25", "hailuo23", "wan27"];
+const BACKUP_ENGINES: StudioEngineKey[] = ["wan3", "hailuo23", "wan27", "kling3"];
 const MAX_RECOVERIES = 3;
 const HARD_ERROR = /not.?found|not supported|unavailable|invalid|unprocessable|HTTP 4(00|04|22)|safety|nsfw|moderat/i;
 const WAIT_ERROR = /credit|throttl|rate limit|429|busy/i;

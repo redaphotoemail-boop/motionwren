@@ -15,14 +15,13 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   veo31Lite: "https://api.replicate.com/v1/models/google/veo-3.1-lite/predictions",
   hailuo23: "https://api.replicate.com/v1/models/minimax/hailuo-2.3/predictions",
   runway45: "https://api.replicate.com/v1/models/runwayml/gen-4.5/predictions",
-  kling25: "https://api.replicate.com/v1/models/kwaivgi/kling-v2.5-turbo-pro/predictions",
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "kling25", "runway45", "wan25", "wan27", "wan3", "h3lite"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan25", "wan27", "wan3", "h3lite"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -59,7 +58,6 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
   if (engine === "runway45") return { image: options.imageUrl, prompt, duration: options.duration, aspect_ratio: options.aspectRatio };
-  if (engine === "kling25") return { start_image: options.imageUrl, prompt, duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio, negative_prompt: KLING_NEGATIVE };
   if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan27") return { first_frame: options.imageUrl, prompt, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan3") return { image: options.imageUrl, prompt, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };

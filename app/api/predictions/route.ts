@@ -9,14 +9,13 @@ const ENDPOINTS: Record<StudioEngineKey, string> = {
   veo31Lite: "https://api.replicate.com/v1/models/google/veo-3.1-lite/predictions",
   hailuo23: "https://api.replicate.com/v1/models/minimax/hailuo-2.3/predictions",
   runway45: "https://api.replicate.com/v1/models/runwayml/gen-4.5/predictions",
-  kling25: "https://api.replicate.com/v1/models/kwaivgi/kling-v2.5-turbo-pro/predictions",
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "kling25", "runway45", "wan25", "wan27", "wan3", "h3lite"]);
+const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan25", "wan27", "wan3", "h3lite"]);
 
 export async function POST(request: Request) {
   try {
@@ -83,13 +82,6 @@ export async function POST(request: Request) {
       prompt: body.prompt.slice(0, 4000),
       duration,
       aspect_ratio: aspectRatio,
-    };
-    else if (engine === "kling25") input = {
-      start_image: body.image,
-      prompt: body.prompt.slice(0, 4000),
-      duration: duration === 10 ? 10 : 5,
-      aspect_ratio: aspectRatio,
-      negative_prompt: negativePrompt,
     };
     else if (engine === "wan25") input = { image: body.image, prompt: body.prompt.slice(0, 4000), resolution, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };
     else if (engine === "wan27") input = { first_frame: body.image, prompt: body.prompt.slice(0, 4000), resolution: resolution === "480p" ? "720p" : resolution, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };
