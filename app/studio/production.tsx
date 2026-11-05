@@ -197,6 +197,7 @@ function clock(seconds: number) {
    message (that stays in the manager's Production page detail). */
 export function stoppedMessage(job: Pick<StudioJob, "error" | "status">) {
   const error = String(job.error || "");
+  if (/not.?found|not supported|unavailable|HTTP 40[34]/i.test(error)) return "The video engine rejected this request. Its model looks unavailable right now. Start over with a different engine.";
   if (/throttl|rate limit|burst|429/i.test(error)) return "Stopped while the video engine was busy. Resume finishes it.";
   if (/credit/i.test(error)) return "Paused: the video engine account needs credit. Resume once it's topped up.";
   if (/photos did not finish|no photo/i.test(error)) return "The photos didn't finish uploading. Start over to make it.";
@@ -253,6 +254,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         <span className="prod-eyebrow">{active ? <><i className="prod-dot" />In production</> : job.status === "succeeded" ? "Ready" : "Stopped"}</span>
         <strong>{title}</strong>
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
+        {!active && job.status === "failed" && job.error && <small className="prod-reason prod-raw">Why: {String(job.error).slice(0, 400)}</small>}
       </div>
       {active && onStop && <button type="button" className="prod-stop" onClick={onStop}>Stop</button>}
       {!active && (onResume || onStartOver || onDismiss || onDelete) && <div className="prod-actions">

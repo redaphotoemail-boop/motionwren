@@ -14,6 +14,8 @@ export type StudioEngine = {
   realEstate: boolean;
   badge?: string;
   pricePerSecond: Partial<Record<StudioResolution, number>>;
+  /** Set when the provider cannot run this model right now: it is hidden from the engine choices. */
+  unavailable?: string;
 };
 
 export const studioEngines: StudioEngine[] = [
@@ -55,6 +57,7 @@ export const studioEngines: StudioEngine[] = [
     realEstate: true,
     badge: "VALUE PRO",
     pricePerSecond: { "720p": 0.05, "1080p": 0.08 },
+    unavailable: "Google removed the model Replicate points to (404) on Nov 5, 2026.",
   },
   {
     key: "hailuo23",

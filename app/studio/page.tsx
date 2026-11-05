@@ -284,8 +284,8 @@ export default function Home() {
   const transitionJob = jobIds.transition ? production.jobs[jobIds.transition] : undefined;
   const activeJobs = Object.values(production.jobs).filter(isActive).sort((a, b) => b.createdAt - a.createdAt);
   // Studio videos that stopped in the last few hours stay visible (with "Pick up where it stopped").
-  const stoppedJobs = Object.values(production.jobs).filter((job) => canResume(job) && !dismissed.includes(job.id)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 3);
-  const seriesGenerating = isActive(seriesJob) || starting === "series";
+  const stoppedJobs = Object.values(production.jobs).filter((job) => !isActive(job) && job.status === "failed" && !dismissed.includes(job.id)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 8);
+  const seriesGenerating = starting === "series";
   const output = singleJob?.status === "succeeded" ? branded[singleJob.id]?.url || singleJob.videoUrl || "" : "";
   const outputFormat: OutputFormat = singleJob && branded[singleJob.id] ? branded[singleJob.id].format : "mp4";
   const extendOutput = extendJob?.status === "succeeded" ? branded[extendJob.id]?.url || extendJob.videoUrl || "" : "";
@@ -313,14 +313,9 @@ export default function Home() {
     // Each tab gets its newest video back: one still being made first,
     // otherwise the latest that finished or stopped (shown with its result).
     const newestFirst = [...found].sort((a, b) => b.createdAt - a.createdAt);
-    const pick: Partial<Record<ProductionTab, StudioJob>> = {};
-    for (const job of newestFirst) { const tab = jobMode(job); if (isActive(job) && !isActive(pick[tab])) pick[tab] = job; }
-    for (const job of newestFirst) { const tab = jobMode(job); if (!pick[tab]) pick[tab] = job; }
-    setJobIds((current) => { const next = { ...current }; for (const [tab, job] of Object.entries(pick)) if (job && !current[tab as ProductionTab]) next[tab as ProductionTab] = job.id; return next; });
     if (new URLSearchParams(window.location.search).get("mode")) return;
-    const live = newestFirst.find(isActive);
-    const recent = newestFirst.find((job) => Date.now() - job.updatedAt < 30 * 60 * 1000);
-    if (live || recent) setMode(jobMode((live || recent) as StudioJob));
+    // A video still being made is found in History's "In process" list; the production pages stay fresh.
+    if (newestFirst.some(isActive)) setMode("history");
   }
   async function resumeJob(id: string) {
     const job = production.jobs[id]; if (!job) return;
@@ -338,7 +333,7 @@ export default function Home() {
       const next = await startOverStudioJob(id);
       production.track(next);
       const tab = jobMode(job);
-      setJobIds((current) => ({ ...current, [tab]: next.id }));
+      setMode("history");
       setLocalThumbs((current) => current[id] ? { ...current, [next.id]: current[id] } : current);
       setDismissed((list) => [...list, id]);
     } catch (reason) { window.alert(reason instanceof Error ? reason.message : "This video could not be started over."); }
@@ -349,7 +344,7 @@ export default function Home() {
     let created: StudioJob | null = null;
     try {
       const job = await startStudioProduction(body, photos, {
-        onCreated: (job) => { created = job; production.track({ ...job, scenes: job.scenes || null }); setJobIds((current) => ({ ...current, [tab]: job.id })); extra?.(job); },
+        onCreated: (job) => { created = job; production.track({ ...job, scenes: job.scenes || null }); extra?.(job); setMode("history"); },
         onProgress: setSending,
       });
       production.track(job);
@@ -689,7 +684,7 @@ export default function Home() {
       <div className="panel output-panel"><Heading number="03" title="Generate transitions" note="Every frame is treated as an exact destination"/>{renderStage("transition", transitionJob, transitionOutput, <div className="empty-output"><span>1 → 2 → 3</span><strong>Your multi-frame video will appear here</strong><small>Add frames in order. Every adjacent pair becomes one controlled transition.</small></div>, transitionMode === "clean" ? "Making a clean dissolve" : "Making your transitions", transitionStatus === "preparing")}{transitionError && <div className="error">{transitionError}</div>}<button className="generate" onClick={generateTransition} disabled={!connected || !firstFrame || !lastFrame || middleFrames.some((frame) => !frame.source) || transitionStatus === "preparing" || starting === "transition" || isActive(transitionJob)}>{!connected ? "Connect Replicate first" : starting === "transition" ? "Starting…" : isActive(transitionJob) ? "Making your transitions…" : transitionMode === "clean" ? `Create clean ${middleFrames.length + 2}-frame dissolve` : `Generate ${middleFrames.length + 2}-frame sequence`}<span>→</span></button>{downloadLink(transitionOutput, transitionJob, "mp4", "motionwren-transition")}{historyMessage && <p className="history-message">{historyMessage}</p>}<div className="cost-line"><span>Estimated generation cost</span><strong>{transitionMode === "clean" ? "Less than $0.01 processing" : `$${(((middleFrames.length + 1) * (frames === 121 ? 10 : 5) * .15)).toFixed(2)} total · ${middleFrames.length + 1} transition${middleFrames.length === 0 ? "" : "s"}`}</strong></div></div>
     </section> : mode === "history" ? <section className="history-area" aria-live="polite">
       <div className="history-heading"><div><span className="label">HISTORY</span><h2>Your videos</h2><p>Everything you have made, newest first. Videos still being made are at the top.</p></div><button onClick={loadHistory} disabled={historyLoading}>{historyLoading ? "Refreshing…" : "Refresh"}</button></div>
-      {(activeJobs.length > 0 || stoppedJobs.length > 0) && <div className="history-live">{[...activeJobs, ...stoppedJobs].map((job) => <ProductionView key={job.id} job={job} title={job.category.replace(/^Studio · /, "") || "Video"} thumbs={localThumbs[job.id]} onStop={() => stopById(job.id)} onResume={() => resumeJob(job.id)} onStartOver={() => startOver(job.id)} onDismiss={() => setDismissed((list) => [...list, job.id])} onDelete={() => deleteJob(job.id)} offline={production.offline} sending={sending}/>)}</div>}
+      {(activeJobs.length > 0 || stoppedJobs.length > 0) && <div className="history-live"><p className="eyebrow">In process</p>{[...activeJobs, ...stoppedJobs].map((job) => <ProductionView key={job.id} job={job} title={job.category.replace(/^Studio · /, "") || "Video"} thumbs={localThumbs[job.id]} onStop={() => stopById(job.id)} onResume={() => resumeJob(job.id)} onStartOver={() => startOver(job.id)} onDismiss={() => setDismissed((list) => [...list, job.id])} onDelete={() => deleteJob(job.id)} offline={production.offline} sending={sending}/>)}</div>}
       {history.length > 0 && <div className="tabs history-filter" role="tablist" aria-label="Show">{(["all", "film", "clip"] as const).map((key) => <button type="button" role="tab" key={key} aria-selected={historyFilter === key} className={historyFilter === key ? "active" : ""} onClick={() => setHistoryFilter(key)}>{key === "all" ? "All" : key === "film" ? "Finished videos" : "Clips"}<span>{key === "all" ? history.length : history.filter((item) => historyKind(item.category).group === key).length}</span></button>)}</div>}
       {historyMessage && <p className="history-message history-wide">{historyMessage}</p>}
       {historyLoading && !history.length ? <div className="history-empty">Loading saved videos…</div> : history.length ? <div className="history-grid">{history.filter((item) => historyFilter === "all" || historyKind(item.category).group === historyFilter).map((item) => <article className="history-card" key={item.id}><video src={item.videoUrl} controls preload="metadata" playsInline/><div className="history-card-body"><strong className="history-title">{historyKind(item.category).label}</strong><div className="history-meta"><span>{engineName(item.engine)}</span><span>{item.duration}s</span><span>{item.aspect === "vertical" ? "9:16" : item.aspect === "cinematic" ? "2.39:1" : "16:9"}</span><span>{item.resolution}</span></div>{item.prompt && <details className="history-prompt"><summary>Prompt</summary><p>{item.prompt}</p></details>}<div className="history-card-footer"><div><strong>{item.costCents ? `$${(item.costCents / 100).toFixed(2)}` : "—"}</strong><small>{new Date(item.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div><div><a href={item.downloadUrl}>Download</a><button onClick={() => sendToClient(item.id)}>Send to client</button><button onClick={() => removeHistoryItem(item.id)}>Remove</button></div></div></div></article>)}</div> : <div className="history-empty"><strong>No saved videos yet.</strong><span>Your next video will appear here automatically.</span></div>}
@@ -722,7 +717,7 @@ function EngineSelector({ engine, setEngine, resolution, setResolution }: { engi
   return <section className="studio-engine-selector" id="generation-settings">
     <div className="engine-selector-heading"><div><span className="label">ENGINE · OWNER ONLY</span><strong>Generation model</strong></div></div>
     <label className="engine-select"><select value={engine} onChange={(event) => choose(event.target.value as EngineKey)} aria-label="Actual generation engine">{studioEngines.map((item) => <option key={item.key} value={item.key}>{item.name}{item.badge ? ` · ${item.badge}` : ""}</option>)}</select></label>
-    <div className="engine-model-grid" aria-label="Available generation engines">{studioEngines.map((item) => <button type="button" key={item.key} className={item.key === engine ? "engine-model active" : "engine-model"} onClick={() => choose(item.key)} aria-pressed={item.key === engine}><span><strong>{item.shortName}</strong>{item.badge && <em>{item.badge}</em>}</span><p>{item.description}</p><div><small>{item.resolutions.join(" · ")}</small><small>{item.audio ? "Native audio" : "Video only"}</small></div><b>{item.bestFor}</b></button>)}</div>
+    <div className="engine-model-grid" aria-label="Available generation engines">{studioEngines.filter((item) => !item.unavailable).map((item) => <button type="button" key={item.key} className={item.key === engine ? "engine-model active" : "engine-model"} onClick={() => choose(item.key)} aria-pressed={item.key === engine}><span><strong>{item.shortName}</strong>{item.badge && <em>{item.badge}</em>}</span><p>{item.description}</p><div><small>{item.resolutions.join(" · ")}</small><small>{item.audio ? "Native audio" : "Video only"}</small></div><b>{item.bestFor}</b></button>)}</div>
     <div className="selected-engine-summary"><div><strong>{selected.shortName}</strong>{selected.badge && <em>{selected.badge}</em>}</div><p>{selected.description}</p><small>{selected.resolutions.join(" · ")} · {selected.audio ? "native audio" : "video only"} · {selected.bestFor}</small></div>
   </section>;
 }

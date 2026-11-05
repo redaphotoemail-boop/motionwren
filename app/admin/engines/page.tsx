@@ -66,7 +66,7 @@ export default function EnginesPage() {
   }
 
   const current = studioEngine(defaultEngine);
-  const others = studioEngines.filter((engine) => engine.key !== defaultEngine);
+  const others = studioEngines.filter((engine) => engine.key !== defaultEngine && !engine.unavailable);
 
   return <div className="mgr-page">
     <PageHead eyebrow="Engines" title="Choose the right model" sub="Pick the engine every new video renders with. Every model below uses its connected production endpoint.">

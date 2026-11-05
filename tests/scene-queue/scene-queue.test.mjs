@@ -229,11 +229,23 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
   await lib.advanceRenderJob(env, end, "r8_test"); // a late duplicate callback
   const refunds = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM credit_ledger WHERE type = 'automatic_refund'").get().n;
   const balance = env.DB.raw.prepare("SELECT credit_balance AS b FROM users WHERE id='cust-1'").get().b;
-  check("7a final failure restores the client's credit exactly once", end.status === "failed" && refunds === 1 && balance === 1, `refunds=${refunds} balance=${balance}`);
+  const stopped = env.DB.raw.prepare("SELECT status FROM render_jobs WHERE id = ?").get(id);
   const project = env.DB.raw.prepare("SELECT status FROM projects WHERE id='proj-1'").get();
-  check("7b the client's order shows it needs attention (not stuck)", project.status === "failed", project.status);
   const note = env.DB.raw.prepare("SELECT message FROM notifications WHERE owner_id='cust-1' AND type='generation_failed'").get();
-  check("7c the client sees plain language, not provider details", note && !/Engine error|replicate|prediction/i.test(note.message), note?.message);
+  check("7a a stopped client order is not shown to the client as failed", end.status === "failed" && project.status !== "failed" && !note && refunds === 0, `job=${end.status} project=${project.status} note=${note?.message} refunds=${refunds}`);
+  void balance; void stopped;
+  // The heartbeat quietly resumes it (once the stop is a minute and a half old), at most twice.
+  env.DB.raw.prepare("UPDATE render_jobs SET updated_at = ? WHERE id = ?").run(Date.now() - 120000, id);
+  await lib.recoverFailedOrders(env);
+  const resumed = env.DB.raw.prepare("SELECT status FROM render_jobs WHERE id = ?").get(id);
+  const used = env.DB.raw.prepare("SELECT value FROM platform_settings WHERE key = ?").get(`job_recoveries:${id}`);
+  check("7b the stopped order is quietly resumed and the retry is counted", resumed.status === "generating" && used?.value === "1", `${resumed.status} ${used?.value}`);
+  // A stop made by the manager is never undone by the heartbeat.
+  const id2 = await newJob(env, 3, { kind: "customer-series", owner: "cust-1", tag: "s7b" });
+  env.DB.raw.prepare("UPDATE render_jobs SET status = 'failed', error = 'Stopped by user.', updated_at = ? WHERE id = ?").run(Date.now() - 120000, id2);
+  await lib.recoverFailedOrders(env);
+  const still = env.DB.raw.prepare("SELECT status FROM render_jobs WHERE id = ?").get(id2);
+  check("7c an order the manager stopped is left alone", still.status === "failed", still.status);
 }
 
 /* 8. Provider out of credit: production pauses, nothing fails, then continues */

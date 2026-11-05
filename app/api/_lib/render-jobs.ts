@@ -237,8 +237,21 @@ export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?
   return ownerId ? env.DB.prepare(query).bind(id, ownerId).first<RenderJobRow>() : env.DB.prepare(query).bind(id).first<RenderJobRow>();
 }
 
-async function failRenderJob(env: { DB: D1Database }, row: RenderJobRow, message: string) {
+/* A customer's order is never left failed for the customer to see: a stopped
+   order is quietly resumed by the heartbeat (up to MAX_RECOVERIES times, only
+   the scenes that were not made are made again), and once those are used up
+   the managers are alerted and the customer still sees it in production. */
+const MAX_RECOVERIES = 2;
+const recoveryKey = (id: string) => `job_recoveries:${id}`;
+
+async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, message: string) {
   const now = Date.now();
+  if (row.kind === "customer-series") {
+    await env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status NOT IN ('succeeded','failed')`).bind(message.slice(0, 1000), now, row.id).run();
+    const used = Number((await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(recoveryKey(row.id)).first<{ value?: string }>())?.value || 0) || 0;
+    if (used >= MAX_RECOVERIES) await alertManagers(env, "An order needs you", `A client order stopped even after ${MAX_RECOVERIES} automatic retries (${message.slice(0, 200)}). The customer has not been told. Open Production to resume or fix it.`);
+    return;
+  }
   await env.DB.batch([
     env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status NOT IN ('succeeded','failed')`).bind(message.slice(0, 1000), now, row.id),
     env.DB.prepare(`UPDATE projects SET status = 'failed', updated_at = ? WHERE render_job_id = ? AND owner_id = ? AND status != 'completed'`).bind(now, row.id, row.ownerId),
@@ -593,9 +606,23 @@ export async function providerNote(env: { DB: D1Database }) {
 /* Moves along videos nothing has touched for 45 s, oldest first (so the
    earliest orders finish first). The heartbeat passes a larger limit and a
    time budget so every waiting video is reached each minute, a few at a time. */
+/* Quietly resumes stopped client orders (see failRenderJob). Run by the heartbeat. */
+export async function recoverFailedOrders(env: { DB: D1Database; BUCKET: R2Bucket }) {
+  const now = Date.now();
+  const stopped = await env.DB.prepare(`SELECT j.id FROM render_jobs j WHERE j.kind = 'customer-series' AND j.status = 'failed' AND j.updated_at < ? AND j.updated_at > ? AND COALESCE(j.error, '') NOT LIKE 'Stopped%' AND COALESCE((SELECT CAST(value AS INTEGER) FROM platform_settings WHERE key = 'job_recoveries:' || j.id), 0) < ? ORDER BY j.updated_at ASC LIMIT 2`).bind(now - 90 * 1000, now - 6 * 60 * 60 * 1000, MAX_RECOVERIES).all<{ id: string }>();
+  for (const item of stopped.results) {
+    const row = await getRenderJob(env, item.id);
+    if (!row) continue;
+    const used = Number((await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(recoveryKey(row.id)).first<{ value?: string }>())?.value || 0) || 0;
+    await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(recoveryKey(row.id), String(used + 1), now).run();
+    await applyJobAction(env, row, "resume", null).catch(() => undefined);
+  }
+}
+
 export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }, origin: string, ownerId: string | null, limit = 3, { parallel = 1, budgetMs = 0 } = {}) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return 0;
+  if (!ownerId) await recoverFailedOrders(env).catch(() => undefined);
   const query = `SELECT id FROM render_jobs WHERE status IN ('starting','generating','stitching','saving') AND updated_at < ?${ownerId ? " AND owner_id = ?" : ""} ORDER BY created_at ASC LIMIT ?`;
   const cutoff = Date.now() - 45 * 1000;
   const stale = ownerId
