@@ -187,6 +187,7 @@ export const studioEngines: StudioEngine[] = [
     firstLastFrame: false,
     realEstate: true,
     badge: "EXPERIMENTAL",
+    unavailable: "Replaced by Photo move 2.0", // hidden from the picker; films already made with it still open
     pricePerSecond: { "720p": 0.0012, "1080p": 0.0012 }, // only the depth map costs (about half a cent a photo, estimated)
     photoMove: true,
   },
@@ -194,7 +195,7 @@ export const studioEngines: StudioEngine[] = [
     key: "photo2",
     name: "Photo move 2.0",
     shortName: "Photo move 2.0",
-    description: "Always real 3D: every scene gets its own depth map and a longer orbit, pull-back or push-and-rise. Never a flat zoom; if the depth step fails, it stops and says why.",
+    description: "Always real 3D: every scene gets its own depth map, with edges kept straight, for an orbit, pull-back or push-and-rise. Never a flat zoom; if the depth step fails, it stops and says why.",
     bestFor: "Real depth · your exact photo",
     resolutions: ["720p", "1080p"],
     audio: false,

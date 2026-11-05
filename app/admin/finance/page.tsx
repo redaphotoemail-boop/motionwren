@@ -17,7 +17,7 @@ const placed = (value: number) => new Date(value).toLocaleString(undefined, { mo
 export default function FinancePage() {
   const [costs, setCosts] = useState<CostData | null>(null);
   const [error, setError] = useState("");
-  const [who, setWho] = useState<"customer" | "studio">("customer");
+  const [who, setWho] = useState<"customer" | "studio">(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("who") === "studio" ? "studio" : "customer");
   const [period, setPeriod] = useState<"month" | "allTime">("month");
   const [span, setSpan] = useState<"day" | "week" | "month">("day");
 

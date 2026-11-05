@@ -95,12 +95,43 @@ function blur(src, w, h, r, out) {
 }
 
 /* gray8 depth (near bright) → Float32 0..1 (1 near): stretched, edge-safe, smooth. Works at depth-map size. */
-export function prepareDepth(gray, w, h) {
+/* Box mean over a (2r+1) window, edges clamped (integral image). */
+function boxMean(src, w, h, r) {
+  const W = w + 1, ii = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y += 1) { let row = 0; for (let x = 0; x < w; x += 1) { row += src[y * w + x]; ii[(y + 1) * W + x + 1] = ii[y * W + x + 1] + row; } }
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y += 1) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x += 1) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      out[y * w + x] = (ii[y1 * W + x1] - ii[y0 * W + x1] - ii[y1 * W + x0] + ii[y0 * W + x0]) / ((x1 - x0) * (y1 - y0));
+    }
+  }
+  return out;
+}
+
+/* Guided filter (He et al.): makes the depth's edges follow the photo's own edges, so a building's corner or a door frame
+   stays one clean straight line instead of a ragged one. guide and input are 0..1, w*h. */
+export function guidedFilter(guide, input, w, h, r, eps) {
+  const mI = boxMean(guide, w, h, r), mP = boxMean(input, w, h, r);
+  const ip = new Float32Array(w * h), ii2 = new Float32Array(w * h);
+  for (let i = 0; i < ip.length; i += 1) { ip[i] = guide[i] * input[i]; ii2[i] = guide[i] * guide[i]; }
+  const mIP = boxMean(ip, w, h, r), mII = boxMean(ii2, w, h, r);
+  const a = new Float32Array(w * h), b = new Float32Array(w * h);
+  for (let i = 0; i < a.length; i += 1) { const varI = mII[i] - mI[i] * mI[i]; const cov = mIP[i] - mI[i] * mP[i]; a[i] = cov / (varI + eps); b[i] = mP[i] - a[i] * mI[i]; }
+  const mA = boxMean(a, w, h, r), mB = boxMean(b, w, h, r);
+  const out = new Float32Array(w * h);
+  for (let i = 0; i < out.length; i += 1) out[i] = Math.max(0, Math.min(1, mA[i] * guide[i] + mB[i]));
+  return out;
+}
+
+export function prepareDepth(gray, w, h, guide = null) {
   const values = Float32Array.from(gray, (v) => v / 255);
   const sorted = Float32Array.from(values).sort();
   const lo = sorted[Math.floor(sorted.length * 0.02)], hi = sorted[Math.floor(sorted.length * 0.98)];
   const span = Math.max(hi - lo, 0.05);
-  const d = values.map((v) => Math.max(0, Math.min(1, (v - lo) / span)));
+  let d = values.map((v) => Math.max(0, Math.min(1, (v - lo) / span)));
+  if (guide) d = guidedFilter(guide, d, w, h, Math.max(3, Math.round(w / 60)), 0.0008);
   // Gentler overall depth: interiors read better with the extremes pulled in a little.
   for (let i = 0; i < d.length; i += 1) d[i] = d[i] * 0.9 + 0.05;
   const r = Math.max(1, Math.round(w / 500));
@@ -201,7 +232,7 @@ export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, widt
 }
 
 /* Makes the clip: photo + depth map files → an mp4 of the camera move. */
-export async function renderParallaxClip({ image, depthImage, move, width, height, fps, seconds, output, crf = 14, boost = 1 }) {
+export async function renderParallaxClip({ image, depthImage, move, width, height, fps, seconds, output, crf = 14, boost = 1, edgeAware = false }) {
   const aspect = width / height;
   // Source working size: as wide as the output needs for the deepest push (about 1:1), never bigger than the photo gives.
   const extraPush = framingPush(move, aspect, 48, boost);
@@ -209,7 +240,9 @@ export async function renderParallaxClip({ image, depthImage, move, width, heigh
   const photo = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", image, "-vf", `scale=${sw}:${sh}:force_original_aspect_ratio=increase:flags=lanczos,crop=${sw}:${sh}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], sw * sh * 3);
   const dw = Math.round(width / 4), dh = Math.round(dw / aspect);
   const grayRaw = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", depthImage, "-vf", `scale=${dw}:${dh}:force_original_aspect_ratio=increase:flags=bicubic,crop=${dw}:${dh},format=gray`, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], dw * dh);
-  const depth = prepareDepth(grayRaw, dw, dh);
+  let guide = null;
+  if (edgeAware) { const g = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", image, "-vf", `scale=${dw}:${dh}:force_original_aspect_ratio=increase:flags=area,crop=${dw}:${dh},format=gray`, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], dw * dh); guide = Float32Array.from(g, (v) => v / 255); }
+  const depth = prepareDepth(grayRaw, dw, dh, guide);
   const frames = Math.max(2, Math.ceil(seconds * fps));
   const encoder = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${width}x${height}`, "-r", String(fps), "-i", "pipe:0", "-c:v", "libx264", "-preset", "fast", "-crf", String(crf), "-pix_fmt", "yuv420p", "-an", output], { stdio: ["pipe", "ignore", "pipe"] });
   let err = ""; encoder.stderr.on("data", (c) => { err += c; if (err.length > 4000) err = err.slice(-4000); });

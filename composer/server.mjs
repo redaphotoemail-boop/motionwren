@@ -345,7 +345,7 @@ async function compose(key, spec) {
             try {
               const depthFile = path.join(dir, `${name}-depth.png`);
               await depthMap(spec.clips[i], depthFile);
-              await renderParallaxClip({ image, depthImage: depthFile, move, boost: spec.strictDepth ? 1.35 : 1, ...shape });
+              await renderParallaxClip({ image, depthImage: depthFile, move, boost: spec.strictDepth ? 1.2 : 1, edgeAware: spec.strictDepth === true, ...shape });
               job.depthScenes = (job.depthScenes || 0) + 1;
             } catch (error) {
               // Photo move 2.0 is real 3D or nothing: no flat zoom, the film waits and says why.
