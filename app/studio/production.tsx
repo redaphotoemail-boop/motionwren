@@ -259,7 +259,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         {onResume && canResume(job) && <button type="button" className="prod-stop prod-resume" onClick={onResume} title="Keep the finished scenes and make the rest">Resume</button>}
         {onStartOver && canStartOver(job) && <button type="button" className="prod-stop" onClick={onStartOver} title="A new run with the same photos and settings">Start over</button>}
         {onDismiss && <button type="button" className="prod-stop" onClick={onDismiss}>Hide</button>}
-        {onDelete && job.status === "failed" && <button type="button" className="prod-stop" onClick={onDelete} title="Remove this stopped video so you can start a new one">Delete</button>}
+        {onDelete && job.status === "failed" && <button type="button" className="prod-stop" onClick={onDelete} title="Erase this stopped video for good">Delete</button>}
       </div>}
     </header>
     {job.status !== "failed" && <div className="prod-bar" role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i style={{ width: `${percent}%` }} /></div>}

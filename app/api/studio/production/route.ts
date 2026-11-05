@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   const inputs = scenes.map((scene, index) => buildEngineInput(engine, {
     imageUrl: links[index],
     prompt: String(scene.prompt), duration: sceneSeconds, resolution, aspectRatio: aspect === "vertical" ? "9:16" : "16:9",
-    audio: scene.audio === true, seed: seed === undefined ? undefined : seed + index,
+    audio: mode === "series" ? false : scene.audio === true, seed: seed === undefined ? undefined : seed + index,
   }));
   // One soundtrack across the joined film (when the scenes have sound), never a different track per scene.
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;

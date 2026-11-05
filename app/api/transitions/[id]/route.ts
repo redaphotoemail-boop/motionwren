@@ -33,13 +33,22 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const token = process.env.REPLICATE_API_TOKEN || store.get("wan_replicate_token")?.value;
   const row = await getRenderJob(env, id, ownerId);
   if (!row) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-  // ?remove=1: take a STOPPED Studio video out of the Studio so a new one can start.
-  // The row stays (marked removed) so its cost still counts in Finance; client orders and
-  // finished or running videos are never removed here.
+  // ?remove=1: permanently delete a STOPPED Studio video (its database row and every stored
+  // file) so nothing piles up. Client orders and finished or running videos are never deleted here.
   if (new URL(request.url).searchParams.get("remove") === "1") {
     const linked = await env.DB.prepare(`SELECT id FROM projects WHERE render_job_id = ? LIMIT 1`).bind(id).first();
     if (row.status !== "failed" || !String(row.kind).startsWith("studio") || linked) return NextResponse.json({ error: "Only a stopped Studio video can be deleted." }, { status: 409 });
-    await env.DB.prepare(`UPDATE render_jobs SET error = 'Removed by you.', updated_at = ? WHERE id = ? AND owner_id = ? AND status = 'failed'`).bind(Date.now(), id, ownerId).run();
+    const prefix = `render-jobs/${id}/`;
+    let cursor: string | undefined;
+    do {
+      const page = await env.BUCKET.list({ prefix, cursor });
+      if (page.objects.length) await env.BUCKET.delete(page.objects.map((object) => object.key));
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM notifications WHERE id = ?`).bind(`${id}:failed`),
+      env.DB.prepare(`DELETE FROM render_jobs WHERE id = ? AND owner_id = ? AND status = 'failed'`).bind(id, ownerId),
+    ]);
     return NextResponse.json({ ok: true });
   }
   if (token) {

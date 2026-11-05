@@ -385,9 +385,9 @@ export default function Home() {
   function clearResult(tab: ProductionTab) {
     setJobIds((current) => current[tab] && !isActive(production.jobs[current[tab]]) ? { ...current, [tab]: "" } : current);
   }
-  /* Removes a stopped video from the Studio (its cost stays in the manager's Finance numbers). */
+  /* Permanently deletes a stopped video and its stored files. */
   async function deleteJob(id: string) {
-    if (!window.confirm("Delete this stopped video? Its photos and scenes are removed from the Studio. You can then start a new one.")) return;
+    if (!window.confirm("Delete this stopped video for good? Its photos and scenes are erased. This cannot be undone.")) return;
     const response = await fetch(`/api/transitions/${id}?remove=1`, { method: "DELETE" }).catch(() => null);
     if (!response || !response.ok) { setError("That video could not be deleted. Try again."); return; }
     production.forget(id);
