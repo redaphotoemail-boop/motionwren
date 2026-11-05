@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { requireAdmin, jsonError } from "../_lib/account";
-import { preferredDurationForEngine, type StudioEngineKey } from "../../engine-catalog";
+import { engineUpscales, preferredDurationForEngine, type StudioEngineKey } from "../../engine-catalog";
 
 const ENDPOINTS: Record<StudioEngineKey, string> = {
   kling3: "https://api.replicate.com/v1/models/kwaivgi/kling-v3-video/predictions",
   geminiOmni: "https://api.replicate.com/v1/models/google/gemini-omni-1.1/predictions",
   veo31Lite: "https://api.replicate.com/v1/models/google/veo-3.1-lite/predictions",
   hailuo23: "https://api.replicate.com/v1/models/minimax/hailuo-2.3/predictions",
+  runway4turbo: "https://api.replicate.com/v1/models/runwayml/gen4-turbo/predictions",
   runway45: "https://api.replicate.com/v1/models/runwayml/gen-4.5/predictions",
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
@@ -15,7 +16,7 @@ const ENDPOINTS: Record<StudioEngineKey, string> = {
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan25", "wan27", "wan3", "h3lite"]);
+const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite"]);
 
 export async function POST(request: Request) {
   try {
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
     const transition = body.transition === true;
     const requestedDuration = Number(body.duration) || (body.num_frames === 121 ? 10 : 5);
     const resolution = body.resolution === "1080p" ? "1080p" : body.resolution === "720p" ? "720p" : "480p";
+    if (engineUpscales(engine, resolution)) return NextResponse.json({ error: "This engine reaches 1080p in Create film (the finished film is upscaled). For a single clip, choose 720p." }, { status: 400 });
     const duration = preferredDurationForEngine(engine, Math.max(3, Math.min(15, Math.round(requestedDuration))), resolution);
     const aspectRatio = body.aspect_ratio === "9:16" ? "9:16" : "16:9";
     const negativePrompt = "warping, morphing, flicker, unstable geometry, fake text, distorted hands, broken continuity, invented objects, unwanted object movement, shake, jitter";
@@ -77,6 +79,7 @@ export async function POST(request: Request) {
       resolution: resolution === "1080p" ? "1080p" : "768p",
       prompt_optimizer: false,
     };
+    else if (engine === "runway4turbo") input = { image: body.image, prompt: body.prompt.slice(0, 4000), duration: duration === 10 ? 10 : 5, aspect_ratio: aspectRatio };
     else if (engine === "runway45") input = {
       image: body.image,
       prompt: body.prompt.slice(0, 4000),

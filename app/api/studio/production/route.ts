@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
-import { CROSSFADE_SECONDS, engineCost, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
+import { CROSSFADE_SECONDS, engineCost, engineUpscales, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, isEngineKey } from "../../../engine-providers";
 import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_lib/render-jobs";
 import { frameKey, newManifest, saveManifest, storeFrame } from "../../_lib/production";
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
   if (valid.length !== scenesIn.length || !valid.length || valid.length > 12) return NextResponse.json({ error: "Every scene needs a clear prompt (and at most 12 scenes)." }, { status: 400 });
+  if (mode === "single" && engineUpscales(engine, resolution)) return NextResponse.json({ error: "This engine reaches 1080p in Create film. For a single clip, choose 720p." }, { status: 400 });
   if (mode === "series" && valid.length < 2) return NextResponse.json({ error: "Add at least two scenes." }, { status: 400 });
 
   // How many scenes and how long each, so the film lands on the chosen length.
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;
   const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio, links.map((link, index) => ({ key: frameKey(id, index), link })));
   // The final edit: each scene's share on screen and the film's one music track.
+  if (mode === "series" && engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
   if (mode === "series") manifest.edit = { shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect, duration }) } };
   try {
     await saveManifest(env, id, manifest);

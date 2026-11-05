@@ -1,4 +1,4 @@
-import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, sceneTimingSetting, scenePlan } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
 import { HttpError } from "./account";
 import { customerSafeError } from "./customer-errors";
@@ -96,6 +96,7 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // allows (waits and retries are automatic); the customer can leave.
     const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos);
     // The final edit: each scene's share on screen and the film's one music track.
+    if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: project.targetDuration, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }

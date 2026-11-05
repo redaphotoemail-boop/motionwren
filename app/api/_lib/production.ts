@@ -42,6 +42,10 @@ export type ProductionManifest = {
   readyAt?: number[];     // when the scene finished (engine copies expire after ~1 hour)
   saved?: string[];       // our durable copy of the finished scene (R2 key)
   finalUrl?: string;      // the joined film, while it is being saved to History
+  /* Engines that make 720p: the edited film is upscaled to 1080p before it is saved.
+     stored: our copy of the edited film (the upscaler reads it) · predictionId: the upscale in progress ·
+     skipped: why the 720p film was kept instead. */
+  upscale?: { to: "1080p"; stored?: boolean; predictionId?: string; startedAt?: number; tries?: number; done?: boolean; skipped?: string; lastError?: string };
   /* The final edit by our composer (composer.ts): each scene's share of the
      film on screen, the crossfade, and the film's ONE music track — its
      prompt, and once made, our stored copy (so a re-edit keeps the same

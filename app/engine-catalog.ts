@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 10 | 15;
 
@@ -16,7 +16,13 @@ export type StudioEngine = {
   pricePerSecond: Partial<Record<StudioResolution, number>>;
   /** Set when the provider cannot run this model right now: it is hidden from the engine choices. */
   unavailable?: string;
+  /** Makes 720p natively. For a film, the finished film is upscaled to 1080p
+      (Topaz) and the 1080p price already includes that step. */
+  upscaleTo1080?: boolean;
 };
+
+/** Topaz 1080p / 30 fps: $0.093 per 5 seconds of video. */
+export const UPSCALE_PER_SECOND = 0.0186;
 
 export const studioEngines: StudioEngine[] = [
   {
@@ -37,11 +43,12 @@ export const studioEngines: StudioEngine[] = [
     shortName: "H3 Lite",
     description: "Lower-cost MiniMax H3 at 768p. New: being tested against Wan 3.0 for real estate.",
     bestFor: "Lowest cost",
-    resolutions: ["480p", "720p"],
+    resolutions: ["480p", "720p", "1080p"],
     audio: false,
     firstLastFrame: true,
     realEstate: true,
-    pricePerSecond: { "480p": 0.0125, "720p": 0.02 },
+    pricePerSecond: { "480p": 0.0125, "720p": 0.02, "1080p": 0.0386 },
+    upscaleTo1080: true,
   },
   {
     key: "hailuo23",
@@ -97,17 +104,32 @@ export const studioEngines: StudioEngine[] = [
     unavailable: "Google removed the model Replicate points to (404) on Nov 5, 2026.",
   },
   {
+    key: "runway4turbo",
+    name: "Runway Gen-4 Turbo",
+    shortName: "Runway Turbo",
+    description: "Runway's fast, low-cost image-to-video. Made at 720p, then upscaled to 1080p.",
+    bestFor: "Real estate · 1080p for less",
+    resolutions: ["720p", "1080p"],
+    audio: false,
+    firstLastFrame: false,
+    realEstate: true,
+    badge: "UPSCALED 1080P",
+    pricePerSecond: { "720p": 0.05, "1080p": 0.0686 },
+    upscaleTo1080: true,
+  },
+  {
     key: "runway45",
     name: "Runway Gen-4.5",
     shortName: "Runway 4.5",
     description: "Precise image-to-video motion with strong scene consistency.",
     bestFor: "Lifestyle · cinematic control",
-    resolutions: ["720p"],
+    resolutions: ["720p", "1080p"],
     audio: false,
     firstLastFrame: false,
     realEstate: true,
     badge: "CONSISTENCY",
-    pricePerSecond: { "720p": 0.12 },
+    pricePerSecond: { "720p": 0.12, "1080p": 0.1386 },
+    upscaleTo1080: true,
   },
   {
     key: "wan25",
@@ -139,6 +161,15 @@ export function studioEngine(key: StudioEngineKey) {
   return studioEngines.find((engine) => engine.key === key) || studioEngines[0];
 }
 
+/** The resolution the engine itself makes: 1080p on an upscaled engine is made at 720p. */
+export function nativeResolution(key: StudioEngineKey, resolution: StudioResolution): StudioResolution {
+  return studioEngine(key).upscaleTo1080 && resolution === "1080p" ? "720p" : resolution;
+}
+/** True when a film at this resolution is upscaled after it is edited. */
+export function engineUpscales(key: StudioEngineKey, resolution: StudioResolution) {
+  return Boolean(studioEngine(key).upscaleTo1080) && resolution === "1080p";
+}
+
 export function engineSupportsResolution(key: StudioEngineKey, resolution: StudioResolution) {
   return studioEngine(key).resolutions.includes(resolution);
 }
@@ -158,6 +189,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "veo31Lite": return resolution === "1080p" ? [8] : [4, 6, 8];
     case "hailuo23": return resolution === "1080p" ? [6] : [6, 10];
     case "runway45": return [5, 10];
+    case "runway4turbo": return [5, 10];
     case "h3lite": return [4, 5, 6, 8, 10, 15];
     case "kling3": return [3, 5, 6, 8, 10, 15];
     case "wan25": return [3, 5, 6, 8, 10];

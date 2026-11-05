@@ -7,7 +7,7 @@ export async function GET(request: Request, context: { params: Promise<{ jobId: 
   const { jobId, file } = await context.params;
   const token = new URL(request.url).searchParams.get("token") || "";
   // scene-NN.jpg: a scene's photo · out-NN.mp4: our copy of a finished scene · music.mp3: the film's one music track (for the edit)
-  if (!/^[0-9a-f-]{36}$/i.test(jobId) || !/^(scene-\d{2}\.jpg|out-\d{2}\.mp4|music\.mp3)$/.test(file)) return Response.json({ error: "Not found." }, { status: 404 });
+  if (!/^[0-9a-f-]{36}$/i.test(jobId) || !/^(scene-\d{2}\.jpg|out-\d{2}\.mp4|music\.mp3|composed\.mp4)$/.test(file)) return Response.json({ error: "Not found." }, { status: 404 });
   const { env } = await import("cloudflare:workers");
   const row = await env.DB.prepare(`SELECT owner_id AS ownerId, webhook_token AS webhookToken FROM render_jobs WHERE id = ? LIMIT 1`).bind(jobId).first<{ ownerId: string; webhookToken: string | null }>();
   if (!row) return Response.json({ error: "Not found." }, { status: 404 });

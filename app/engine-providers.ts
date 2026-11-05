@@ -1,4 +1,4 @@
-import { studioEngine, type StudioEngineKey, type StudioResolution } from "./engine-catalog";
+import { nativeResolution, studioEngine, type StudioEngineKey, type StudioResolution } from "./engine-catalog";
 
 /* Replicate endpoints and per-engine input shapes for customer production.
    These mirror app/api/predictions/route.ts (the owner studio lab), which
@@ -14,6 +14,7 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   geminiOmni: "https://api.replicate.com/v1/models/google/gemini-omni-1.1/predictions",
   veo31Lite: "https://api.replicate.com/v1/models/google/veo-3.1-lite/predictions",
   hailuo23: "https://api.replicate.com/v1/models/minimax/hailuo-2.3/predictions",
+  runway4turbo: "https://api.replicate.com/v1/models/runwayml/gen4-turbo/predictions",
   runway45: "https://api.replicate.com/v1/models/runwayml/gen-4.5/predictions",
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
@@ -21,7 +22,7 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan25", "wan27", "wan3", "h3lite"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -45,7 +46,7 @@ export function engineResolution(engine: StudioEngineKey): StudioResolution {
 export type EngineInputOptions = { imageUrl: string; prompt: string; duration: number; resolution: StudioResolution; aspectRatio: "16:9" | "9:16"; audio?: boolean; seed?: number };
 
 export function buildEngineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
-  const input = engineInput(engine, options);
+  const input = engineInput(engine, { ...options, resolution: nativeResolution(engine, options.resolution) });
   if (Number.isInteger(options.seed) && Number(options.seed) >= 0) input.seed = options.seed;
   return input;
 }
@@ -57,6 +58,7 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
+  if (engine === "runway4turbo") return { image: options.imageUrl, prompt, duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
   if (engine === "runway45") return { image: options.imageUrl, prompt, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan27") return { first_frame: options.imageUrl, prompt, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };

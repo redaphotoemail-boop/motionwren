@@ -1,6 +1,6 @@
 import { MAX_ATTEMPTS, STALE_SCENE_MS, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
-import { engineCost, filmSceneDurations, type StudioEngineKey } from "../../engine-catalog";
+import { engineCost, engineUpscales, filmSceneDurations, type StudioEngineKey } from "../../engine-catalog";
 import { ProviderError, acquireLease, backoff, createPrediction, maxActive, readProviderState, releaseLease, writeProviderState } from "./provider";
 
 /* The scene queue. Every multi-scene video (client orders and Studio videos)
@@ -309,9 +309,11 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
       const perScene = (job?.costCents || 0) / Math.max(1, count);
       newCost = Math.round(perScene * (count - redone.length) + engineCost(switchTo, resolution, seconds) * redone.length * 100);
       manifest.engine = switchTo;
+      if (engineUpscales(switchTo, resolution)) manifest.upscale = { to: "1080p" }; else delete manifest.upscale;
       manifest.endpoint = ENGINE_ENDPOINTS[switchTo];
     }
     manifest.stitchAttempts = 0;
+    if (manifest.upscale) manifest.upscale = { to: "1080p" }; // a re-made film is upscaled again
     // A fresh edit (the film's music is kept, so a re-made film sounds the same).
     if (manifest.edit) manifest.edit = { ...manifest.edit, key: undefined, tries: 0, startedAt: 0, lastError: "", usedBackupJoiner: false };
     await saveManifest(env, row.id, manifest);

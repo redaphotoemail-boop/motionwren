@@ -49,8 +49,8 @@ function makeBucket() {
 }
 
 /* ---------- simulated Replicate ---------- */
-const P = { preds: new Map(), n: 0, creates: [], throttled: 0, lastCreate: -1e15, burstMs: 10_000, credit: true, script: new Map(), sceneMs: 60_000, stitchFails: 0, stitchInputs: [], files: 0 };
-function resetProvider(opts = {}) { Object.assign(P, { preds: new Map(), n: 0, creates: [], throttled: 0, lastCreate: -1e15, burstMs: 10_000, credit: true, script: new Map(), sceneMs: 60_000, stitchFails: 0, stitchInputs: [], files: 0 }, opts); }
+const P = { preds: new Map(), n: 0, creates: [], throttled: 0, lastCreate: -1e15, burstMs: 10_000, credit: true, script: new Map(), sceneMs: 60_000, stitchFails: 0, stitchInputs: [], files: 0, upscales: [], upscaleFails: 0 };
+function resetProvider(opts = {}) { Object.assign(P, { preds: new Map(), n: 0, creates: [], throttled: 0, lastCreate: -1e15, burstMs: 10_000, credit: true, script: new Map(), sceneMs: 60_000, stitchFails: 0, stitchInputs: [], files: 0, upscales: [], upscaleFails: 0 }, opts); }
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", ...headers } });
 function running() { return [...P.preds.values()].filter((p) => !p.stitch && p.status === "processing" && clock < p.doneAt).length; }
 let maxRunning = 0;
@@ -65,7 +65,10 @@ globalThis.fetch = async (url, init = {}) => {
     P.lastCreate = clock;
     const body = JSON.parse(init.body);
     const id = `p${++P.n}`;
-    if (url === "https://api.replicate.com/v1/predictions") {
+    if (/topazlabs\/video-upscale\/predictions$/.test(url)) {
+      P.upscales.push(body.input);
+      P.preds.set(id, { upscale: true, status: "processing", doneAt: clock + 30_000, fail: P.upscaleFails-- > 0 });
+    } else if (url === "https://api.replicate.com/v1/predictions") {
       // The crossfade model's published schema: "task" and "input_file" (a URI) are required.
       if (!body.input?.task) return json({ detail: "- input: task is required\n" }, 422);
       if (!/^https?:\/\//.test(String(body.input?.input_file || ""))) return json({ detail: "- input: input_file is required\n" }, 422);
@@ -87,7 +90,7 @@ globalThis.fetch = async (url, init = {}) => {
   const get = /\/predictions\/([^/]+)$/.exec(url);
   if (get && method === "GET") {
     const p = P.preds.get(get[1]); if (!p) return json({ detail: "Not found" }, 404);
-    if (p.status === "processing" && clock >= p.doneAt) p.status = p.stitch ? (p.fail ? "failed" : "succeeded") : p.outcome === "fail" ? "failed" : "succeeded";
+    if (p.status === "processing" && clock >= p.doneAt) p.status = p.stitch || p.upscale ? (p.fail ? "failed" : "succeeded") : p.outcome === "fail" ? "failed" : "succeeded";
     return json({ id: get[1], status: p.status, output: p.status === "succeeded" ? `https://replicate.delivery/${get[1]}.mp4` : null, error: p.status === "failed" ? "Engine error" : null });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
@@ -409,6 +412,32 @@ const stitchCreates = () => P.stitchInputs.length;
   const versions = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE owner_id='owner-1'").get().n;
   check("16a a re-made scene gives a new film version, edited again", !("error" in r) && end2.status === "succeeded" && versions === 2 && C.starts.length === 2, `${end2.status} versions=${versions} edits=${C.starts.length}`);
   check("16b the re-edit reuses the film's music (no new music)", Boolean(spec2?.music?.url?.includes(`/api/job-frames/${id}/music.mp3?token=`)) && !spec2.music.prompt && key2 !== C.starts[0], JSON.stringify(spec2?.music));
+}
+
+/* 15e. An engine that makes 720p: the edited film is upscaled to 1080p before it is saved */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 4, { tag: "s15e" }); await withEdit(env, id);
+  const m0 = await lib.loadManifest(env, id); m0.upscale = { to: "1080p" }; await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const m = await lib.loadManifest(env, id);
+  const hist = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE id = ?").get(id).n;
+  check("15e the edited film is upscaled to 1080p once, then saved", end.status === "succeeded" && P.upscales.length === 1 && P.upscales[0].target_resolution === "1080p" && P.upscales[0].target_fps === 30 && /\/api\/job-frames\/[0-9a-f-]+\/composed\.mp4\?token=/.test(String(P.upscales[0].video)) && m.upscale?.done === true && !m.upscale.skipped && hist === 1, `${end.status} upscales=${P.upscales.length} done=${m.upscale?.done} skipped=${m.upscale?.skipped || ""} history=${hist} ${end.error || ""}`);
+  check("15f our temporary copy of the edited film is removed afterwards", !env.BUCKET.store.has(`render-jobs/${id}/composed.mp4`) && C.jobs.size === 0, `composed=${env.BUCKET.store.has(`render-jobs/${id}/composed.mp4`)} containerJobs=${C.jobs.size}`);
+
+  env.DB.raw.prepare("INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('admin-up','up@x.test','U','admin','active','internal',0,0,0)").run();
+  resetProvider({ upscaleFails: 99 });
+  const id2 = await newJob(env, 4, { tag: "s15g" }); await withEdit(env, id2);
+  const m2 = await lib.loadManifest(env, id2); m2.upscale = { to: "1080p" }; await lib.saveManifest(env, id2, m2);
+  await start(env, id2);
+  const end2 = await runToEnd(env, id2);
+  const mm2 = await lib.loadManifest(env, id2);
+  const notes = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM notifications WHERE owner_id = 'admin-up' AND title = 'A film was kept at 720p'").get().n;
+  check("15g if the upscale fails three times the 720p film is delivered, never a failed order", end2.status === "succeeded" && P.upscales.length === 3 && Boolean(mm2.upscale?.skipped) && !end2.error, `${end2.status} upscales=${P.upscales.length} skipped=${mm2.upscale?.skipped || ""} ${end2.error || ""}`);
+  check("15h the managers are told the film was kept at 720p", notes >= 1, `notes=${notes}`);
 }
 
 /* 17. One failed edit is tried again with a new key */

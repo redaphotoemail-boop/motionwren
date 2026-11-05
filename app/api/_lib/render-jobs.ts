@@ -4,7 +4,7 @@ import { customerSafeError } from "./customer-errors";
 import { frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, studioEngine, type StudioEngineKey } from "../../engine-catalog";
-import { acquireLease, classify, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
+import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
 /* Kinds whose scenes are joined with one-second cross-dissolves. */
@@ -424,32 +424,103 @@ async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   }
   manifest.finalUrl = `composer:${key}`;
   await saveManifest(env, row.id, manifest);
-  await saveComposedFilm(env, { ...row, status: "saving" }, key).catch(() => undefined); // stays "saving"; retried on the next step
+  await saveComposedFilm(env, { ...row, status: "saving" }, key, { token, origin: webhookUrl ? new URL(webhookUrl).origin : "" }).catch(() => undefined); // stays "saving"; retried on the next step
 }
 
-async function saveComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string) {
+async function saveComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string, ctx?: FinishContext) {
   // One save at a time (a callback and the heartbeat can arrive together).
   const lease = await acquireLease(env, `save-lock:${row.id}`, 3 * 60 * 1000);
   if (!lease) return null;
-  try { return await collectComposedFilm(env, row, key); }
+  try { return await collectComposedFilm(env, row, key, ctx); }
   finally { await releaseLease(env, `save-lock:${row.id}`, lease); }
 }
 
-async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string) {
+type FinishContext = { token: string; origin: string };
+
+const UPSCALE_ENDPOINT = "https://api.replicate.com/v1/models/topazlabs/video-upscale/predictions";
+const UPSCALE_TRIES = 3;
+const UPSCALE_TIME_LIMIT_MS = 40 * 60 * 1000;
+const composedKey = (jobId: string) => `render-jobs/${jobId}/composed.mp4`;
+
+/* Engines that make 720p: the edited film is upscaled to 1080p (Topaz) before
+   it is saved. It never fails the order: on any trouble the 720p film is kept
+   and the managers are told. Returns the film to save, or null to wait. */
+async function upscaleFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: ProductionManifest, film: Response | null, ctx: FinishContext): Promise<{ response: Response } | null> {
+  const up = manifest.upscale!;
+  const persist = () => saveManifest(env, row.id, manifest);
+  const keep = async (why: string) => {
+    up.done = true; up.skipped = why.slice(0, 300); await persist();
+    await alertManagers(env, "A film was kept at 720p", `The 1080p upscale did not finish (${up.skipped}). The film was delivered at 720p.`);
+    const stored = up.stored ? await env.BUCKET.get(composedKey(row.id)) : null;
+    return { response: stored?.body ? new Response(stored.body, { headers: { "content-type": "video/mp4", "content-length": String(stored.size) } }) : film! };
+  };
+  if (!ctx.origin || !row.webhookToken) return keep("no link to give the upscaler");
+  if (!up.stored) {
+    if (!film) return null;
+    await storeResponse(env.BUCKET, composedKey(row.id), film, "video/mp4");
+    up.stored = true; up.startedAt = Date.now(); await persist();
+    return null;
+  }
+  if (Date.now() - (up.startedAt || 0) > UPSCALE_TIME_LIMIT_MS) {
+    if (up.predictionId) await cancelProviderJob(ctx.token, up.predictionId).catch(() => undefined);
+    return keep(up.lastError || "it took too long");
+  }
+  if (!up.predictionId) {
+    if ((up.tries || 0) >= UPSCALE_TRIES) return keep(up.lastError || "tried three times");
+    const provider = await readProviderState(env);
+    if (provider.throttledUntil > Date.now() || provider.pausedUntil > Date.now()) return null;
+    try {
+      up.predictionId = await createPrediction(ctx.token, UPSCALE_ENDPOINT, { video: jobFileLink(ctx.origin, row, "composed.mp4"), target_resolution: "1080p", target_fps: 30 });
+      up.tries = (up.tries || 0) + 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The upscaler could not be reached.";
+      up.lastError = message.slice(0, 200);
+      if (!(error instanceof ProviderError && ["throttled", "credit", "transient"].includes(error.kind))) up.tries = (up.tries || 0) + 1;
+    }
+    await persist();
+    return null;
+  }
+  let result: Record<string, unknown>;
+  try { result = await replicatePrediction(ctx.token, up.predictionId); } catch { return null; }
+  if (result.status === "failed" || result.status === "canceled") {
+    up.lastError = String(result.error || "The upscale failed.").slice(0, 200); up.predictionId = undefined; await persist();
+    return null;
+  }
+  if (result.status !== "succeeded") return null;
+  const url = outputUrl(result.output);
+  if (!url) { up.lastError = "The upscale finished without a video."; up.predictionId = undefined; await persist(); return null; }
+  const download = await fetch(url);
+  if (!download.ok) return null; // the file may not be ready to fetch yet: try again on the next step
+  up.done = true; await persist();
+  return { response: download };
+}
+
+async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string, ctx?: FinishContext) {
   const fresh = await getRenderJob(env, row.id);
   if (!fresh || fresh.historyId || fresh.status !== "saving") return fresh?.historyId || null;
-  let film: Response;
-  try { film = await editFile(env, row.id, key, "output"); }
-  catch (error) {
-    // The container no longer has the film (restarted or asleep): edit it again.
-    const state = await editState(env, row.id, key).catch(() => null);
-    if (!state || state.status !== "done") {
-      await env.DB.prepare(`UPDATE render_jobs SET status = 'stitching', stitch_prediction_id = NULL, updated_at = ? WHERE id = ? AND status = 'saving'`).bind(Date.now(), row.id).run();
-      return null;
+  const loaded = QUEUE_KINDS.has(row.kind) ? await loadManifest(env, row.id) : null;
+  const manifest = loaded ? normalizeManifest(loaded) : null;
+  const upscaling = Boolean(manifest?.upscale && !manifest.upscale.done && ctx);
+  let film: Response | null = null;
+  if (!(upscaling && manifest!.upscale!.stored)) {
+    try { film = await editFile(env, row.id, key, "output"); }
+    catch (error) {
+      // The container no longer has the film (restarted or asleep): edit it again.
+      const state = await editState(env, row.id, key).catch(() => null);
+      if (!state || state.status !== "done") {
+        await env.DB.prepare(`UPDATE render_jobs SET status = 'stitching', stitch_prediction_id = NULL, updated_at = ? WHERE id = ? AND status = 'saving'`).bind(Date.now(), row.id).run();
+        return null;
+      }
+      throw error;
     }
-    throw error;
   }
-  const historyId = await storeFinishedFilm(env, fresh, film, `composer:${key}`);
+  if (upscaling) {
+    const out = await upscaleFilm(env, fresh, manifest!, film, ctx!);
+    if (!out) return null;
+    film = out.response;
+  }
+  const historyId = await storeFinishedFilm(env, fresh, film!, `composer:${key}`);
+  if (manifest?.upscale?.stored) await env.BUCKET.delete(composedKey(row.id)).catch(() => undefined);
   await dropEdit(env, row.id, key);
   return historyId;
 }
@@ -531,7 +602,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
       const manifest = QUEUE_KINDS.has(row.kind) ? await loadManifest(env, row.id) : null;
       const finalUrl = manifest?.finalUrl || (JSON.parse(row.segmentUrls || "[]") as string[])[0];
       if (!finalUrl) throw new Error("The finished video could not be recovered for storage.");
-      if (finalUrl.startsWith("composer:")) { if (Date.now() - row.updatedAt > 20 * 1000) await saveComposedFilm(env, row, finalUrl.slice("composer:".length)); return getRenderJob(env, row.id); }
+      if (finalUrl.startsWith("composer:")) { if (Date.now() - row.updatedAt > 20 * 1000) await saveComposedFilm(env, row, finalUrl.slice("composer:".length), { token, origin: webhookUrl ? new URL(webhookUrl).origin : "" }); return getRenderJob(env, row.id); }
       try { await saveFinishedJob(env, row, finalUrl); }
       catch (error) {
         // The engine keeps finished files for about an hour: keep trying to
