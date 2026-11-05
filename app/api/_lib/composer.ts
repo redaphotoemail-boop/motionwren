@@ -85,7 +85,9 @@ export async function editFile(env: unknown, jobId: string, key: string, which: 
 /* The manager's music check (Production page): a 5-second ElevenLabs track
    made in its own container instance, with no backup. */
 export async function checkMusic(env: unknown): Promise<{ ok: boolean; error?: string; duration?: number }> {
-  const response = await stub(env, "music-check").fetch("http://composer/music-check", { method: "POST" });
+  // A fresh instance every time: a running container keeps the keys it
+  // started with, so a just-changed key is only seen by a new one.
+  const response = await stub(env, `music-check-${Date.now()}`).fetch("http://composer/music-check", { method: "POST" });
   const data = await response.json().catch(() => null) as { ok?: boolean; error?: string; duration?: number } | null;
   if (!response.ok || !data) throw new Error(`The editing service did not answer (HTTP ${response.status}).`);
   return { ok: Boolean(data.ok), ...(data.error ? { error: data.error } : {}), ...(data.duration ? { duration: data.duration } : {}) };
