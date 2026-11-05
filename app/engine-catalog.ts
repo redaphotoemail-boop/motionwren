@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "luma" | "photo" | "photo2";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "luma" | "photo" | "photo2" | "photo3";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 9 | 10 | 15;
 
@@ -176,6 +176,20 @@ export const studioEngines: StudioEngine[] = [
     pricePerSecond: { "480p": 0.05, "720p": 0.1, "1080p": 0.15 },
   },
   {
+    key: "photo3",
+    name: "Photo move 3.0",
+    shortName: "Photo move 3.0",
+    description: "Real 3D from true distances: each photo's depth is measured in metres, so straight edges stay straight through pulls, orbits and push-and-rise. Your exact photo pixels, no AI video. Commercially licensed depth model.",
+    bestFor: "Straight lines · exact photo",
+    resolutions: ["720p", "1080p"],
+    audio: false,
+    firstLastFrame: false,
+    realEstate: true,
+    badge: "NEW · TRUE 3D",
+    pricePerSecond: { "720p": 0.0015, "1080p": 0.0015 }, // the depth map only (estimated, confirm after one run)
+    photoMove: true,
+  },
+  {
     key: "photo2",
     name: "Photo move 2.0",
     shortName: "Photo move 2.0",
@@ -245,6 +259,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "wan25": return [3, 5, 6, 8, 10];
     case "wan27": return [3, 5, 6, 8, 10, 15];
     case "wan3": return [3, 5, 6, 8, 10, 15];
+    case "photo3":
     case "photo2":
     case "photo": return [3, 4, 5, 6, 8, 10, 15];
   }
@@ -271,7 +286,7 @@ export const CROSSFADE_SECONDS = 0.5;
     number of seconds (2–30 per its published schema); others use their
     Studio options. */
 export function filmSceneDurations(key: StudioEngineKey, resolution: StudioResolution): number[] {
-  if (key === "wan3" || key === "photo" || key === "photo2") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
+  if (key === "wan3" || key === "photo" || key === "photo2" || key === "photo3") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
   if (key === "h3lite") return [4, 5, 6, 7, 8, 9, 10, 12, 15]; // the model takes 4–15 whole seconds
   return [...engineDurationOptions(key, resolution)].sort((a, b) => a - b);
 }

@@ -42,6 +42,8 @@ export type ProductionManifest = {
   photoMoves?: string[];
   /** Photo move 2.0: real depth for every scene, never a flat zoom. */
   photoStrict?: boolean;
+  /** Photo move 3.0: metric depth. */
+  photoMetric?: boolean;
   /** The opening property card and closing agent card, burned into the film by the editor. */
   cards?: ListingCards;
   nextAt?: number[];      // earliest time the scene may be sent (again)

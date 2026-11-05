@@ -23,9 +23,10 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
   luma: "https://api.replicate.com/v1/models/luma/ray-3.2/predictions",
   photo2: "", // made by our own editor, never sent to a provider
+  photo3: "",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "luma", "photo", "photo2"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "luma", "photo", "photo2", "photo3"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -61,7 +62,7 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
-  if (engine === "photo" || engine === "photo2") return { image: options.imageUrl };
+  if (engine === "photo" || engine === "photo2" || engine === "photo3") return { image: options.imageUrl };
   if (engine === "runway4turbo") return { image: options.imageUrl, prompt, duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
   if (engine === "luma") return { start_image: options.imageUrl, prompt, duration: 5, resolution: options.resolution === "1080p" ? "1080p" : "720p", aspect_ratio: options.aspectRatio };
   if (engine === "runway45") return { image: options.imageUrl, prompt, duration: options.duration, aspect_ratio: options.aspectRatio };

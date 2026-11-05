@@ -26,6 +26,8 @@ export type EditSpec = {
   cards?: import("./production").ListingCards;
   /** Photo move 2.0: every move needs real depth (no flat fallback) and travels further. */
   strictDepth?: boolean;
+  /** Photo move 3.0: depth in true distances (metres) from a metric model. */
+  depthMode?: "metric";
   /** One clip only: keep its own sound (no music track is added). */
   keepAudio?: boolean;
   music?: { url?: string; prompt?: string; required?: boolean } | null;

@@ -385,7 +385,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";

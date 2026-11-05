@@ -216,13 +216,15 @@ import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 
 /* The depth map of a photo (Depth Anything v2 on Replicate; near is bright). Written to `file` as an image. */
 const DEPTH_VERSION = "b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4";
-async function depthMap(imageUrl, file) {
+/* Photo move 3.0: metric depth (true distances in metres) from Depth Anything 3 Metric-Large (Apache-2.0). */
+const DEPTH3_VERSION = "e3523ab17a5e6f0e279933a6afdde67efe130bb9e7753cafc52a4b082257f46b";
+async function depthMap(imageUrl, file, metric = false) {
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) throw new Error("The depth service is not connected.");
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   let prediction;
   for (let attempt = 1; attempt <= 4 && !prediction; attempt += 1) {
-    const response = await fetch(`${REPLICATE_BASE}/v1/predictions`, { method: "POST", headers: { ...headers, Prefer: "wait=30" }, body: JSON.stringify({ version: DEPTH_VERSION, input: { image: imageUrl, model_size: "Large" } }), signal: AbortSignal.timeout(60_000) });
+    const response = await fetch(`${REPLICATE_BASE}/v1/predictions`, { method: "POST", headers: { ...headers, Prefer: "wait=30" }, body: JSON.stringify(metric ? { version: DEPTH3_VERSION, input: { image: imageUrl, return_raw_depth: false, include_base64: false } } : { version: DEPTH_VERSION, input: { image: imageUrl, model_size: "Large" } }), signal: AbortSignal.timeout(60_000) });
     const data = await response.json().catch(() => ({}));
     if (response.status === 429) { await sleep(Math.max(2000, (Number(response.headers.get("retry-after")) || 8) * 1000)); continue; }
     if (!response.ok || !data.id) throw new Error(`Depth could not start (HTTP ${response.status}) ${String(data.detail || "").slice(0, 160)}`.trim());
@@ -236,9 +238,13 @@ async function depthMap(imageUrl, file) {
     if (poll.ok) prediction = await poll.json();
   }
   const out = prediction.output;
-  const url = typeof out === "string" ? out : out?.grey_depth || out?.gray_depth;
+  const url = typeof out === "string" ? out : metric ? out?.depth_png || out?.image : out?.grey_depth || out?.gray_depth;
   if (prediction.status !== "succeeded" || typeof url !== "string") throw new Error(`Depth did not finish (${prediction.status}).`);
   await download(url, file, 40 * 1024 * 1024, "The depth map");
+  if (!metric) return null;
+  // Pixel value × scale + offset = metres. Without them the values are still linear distances up to scale, which is all the renderer needs.
+  const scale = Number(out?.scale_m_per_unit), offset = Number(out?.offset_m);
+  return Number.isFinite(scale) && scale > 0 ? { scale, offset: Number.isFinite(offset) ? offset : 0 } : { scale: 0.001, offset: 0 };
 }
 
 /* ---------- photo moves: a slow push, pull or slide on the original photo (no AI, so no softness) ---------- */
@@ -312,6 +318,7 @@ function validSpec(spec) {
   const clips = Array.isArray(spec.clips) ? spec.clips : [];
   if (clips.length < 1 || clips.length > 20 || clips.some((url) => typeof url !== "string" || !/^https?:\/\//.test(url))) return "Between 1 and 20 scene links are needed.";
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
+  if (spec.depthMode !== undefined && spec.depthMode !== "metric") return "Unknown depth mode.";
   if (spec.strictDepth === true && Array.isArray(spec.moves) && spec.moves.some((move) => move && !DEPTH_MOVES.includes(move))) return "Photo move 2.0 uses only the depth moves.";
   if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
   if (!(spec.duration > 1 && spec.duration <= 600)) return "Film length is out of range.";
@@ -344,8 +351,8 @@ async function compose(key, spec) {
           if (DEPTH_MOVES.includes(move)) {
             try {
               const depthFile = path.join(dir, `${name}-depth.png`);
-              await depthMap(spec.clips[i], depthFile);
-              await renderParallaxClip({ image, depthImage: depthFile, move, boost: spec.strictDepth ? 1.2 : 1, edgeAware: spec.strictDepth === true, ...shape });
+              const metric = spec.depthMode === "metric" ? await depthMap(spec.clips[i], depthFile, true) : (await depthMap(spec.clips[i], depthFile), null);
+              await renderParallaxClip({ image, depthImage: depthFile, move, boost: spec.strictDepth ? 1.2 : 1, edgeAware: spec.strictDepth === true, metric, ...shape });
               job.depthScenes = (job.depthScenes || 0) + 1;
             } catch (error) {
               // Photo move 2.0 is real 3D or nothing: no flat zoom, the film waits and says why.

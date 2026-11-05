@@ -43,8 +43,8 @@ const eleven = http.createServer(async (req, res) => {
 const replicate = http.createServer(async (req, res) => {
   let raw = ""; for await (const chunk of req) raw += chunk;
   const json = (status, data) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(data)); };
-  if (req.method === "POST" && raw.includes('"version"')) { calls.depth += 1; if (mode.depth === "down") return json(500, { detail: "depth down" }); return json(201, { id: "dp1", status: "starting" }); }
-  if (req.url.endsWith("/dp1")) return json(200, { id: "dp1", status: "succeeded", output: { grey_depth: `${base(files)}/depth.png` } });
+  if (req.method === "POST" && raw.includes('"version"')) { calls.depth += 1; if (mode.depth === "down") return json(500, { detail: "depth down" }); if (raw.includes("return_raw_depth")) calls.metric = (calls.metric || 0) + 1; return json(201, { id: "dp1", status: "starting" }); }
+  if (req.url.endsWith("/dp1")) return json(200, { id: "dp1", status: "succeeded", output: { grey_depth: `${base(files)}/depth.png`, depth_png: `${base(files)}/depth16.png`, scale_m_per_unit: 0.001, offset_m: 0 } });
   if (req.method === "POST") { calls.replicate += 1; if (mode.replicate === "down") return json(500, { detail: "down" }); return json(201, { id: "sa1", status: "starting" }); }
   return json(200, { id: "sa1", status: "succeeded", output: `${base(files)}/music.mp3` });
 });
@@ -253,6 +253,17 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   await api("POST", "/jobs/film-fourteen-ok", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["orbit-right", null, null], strictDepth: true }));
   const ok = await waitDone("film-fourteen-ok");
   check("14c with depth up, a 2.0 film is made with real depth", ok.status === "done" && ok.depthScenes === 1 && !ok.depthFallbacks, `${ok.status} ${ok.error || ""}`);
+}
+
+/* 15. Photo move 3.0: metric depth (true distances) */
+{
+  ff(["-f", "lavfi", "-i", "gradients=s=800x450:d=1:n=3", "-frames:v", "1", "-vf", "format=gray16be,lutyuv=y=val*0.5+8000", "-pix_fmt", "gray16be", path.join(dir, "depth16.png")]);
+  calls.metric = 0;
+  await api("POST", "/jobs/film-fifteen", spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["pull-rise", null, null], strictDepth: true, depthMode: "metric" }));
+  const done = await waitDone("film-fifteen");
+  check("15a a 3.0 film asks the metric depth model and renders with true distances", done.status === "done" && calls.metric === 1 && done.depthScenes === 1 && !done.depthFallbacks, `${done.status} metric=${calls.metric} ${done.error || done.depthError || ""}`);
+  const bad = await api("POST", "/jobs/film-fifteen-bad", spec({ depthMode: "other" }));
+  check("15b an unknown depth mode is refused", bad.status === 400);
 }
 
 for (const server of [composer, files, eleven, replicate]) server.close();

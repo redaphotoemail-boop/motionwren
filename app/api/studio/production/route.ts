@@ -80,8 +80,9 @@ export async function POST(request: Request) {
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;
   const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio, links.map((link, index) => ({ key: frameKey(id, index), link })));
   // The final edit: each scene's share on screen and the film's one music track.
-  if (engine === "photo" || engine === "photo2") {
-    if (engine === "photo2") manifest.photoStrict = true;
+  if (engine === "photo" || engine === "photo2" || engine === "photo3") {
+    if (engine !== "photo") manifest.photoStrict = true;
+    if (engine === "photo3") manifest.photoMetric = true;
     const asked = (PHOTO_MOVE_KEYS as readonly string[]).includes(String(body.photoMove)) ? String(body.photoMove) : "push-rise";
     manifest.photoMoves = mode === "single" ? [asked] : scenes.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
   }

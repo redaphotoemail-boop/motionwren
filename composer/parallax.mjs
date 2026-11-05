@@ -50,7 +50,7 @@ function baseCamera(move, t) {
 }
 
 /* z of a pixel from its normalised depth d (1 = nearest). */
-const zOf = (d) => 1 + (1 - d) * (ZFAR - 1);
+const zOf = (d, zfar = ZFAR) => 1 + (1 - d) * (zfar - 1);
 
 /* Where the camera sees a source point (u,v centred, in focal-length-normalised units) for the given depth. */
 function project(u, v, z, cam, extraPush) {
@@ -60,13 +60,13 @@ function project(u, v, z, cam, extraPush) {
 }
 
 /* The least extra push that keeps every output edge point inside the photo for the whole move. */
-export function framingPush(move, aspect, samples = 48, boost = 1) {
+export function framingPush(move, aspect, samples = 48, boost = 1, zfar = ZFAR) {
   const halfW = 0.5, halfH = 0.5 / aspect; // in units of width, focal ≈ 1 width
   const f = 0.9;
   let extra = 0;
   for (let step = 0; step <= samples; step += 1) {
     const cam = cameraAt(move, step / samples, boost);
-    for (const z of [1, 1.5, 2, ZFAR]) {
+    for (const z of [1, 1.5, 2, zfar]) {
       for (const [cx, cy] of [[halfW, halfH], [-halfW, halfH], [halfW, -halfH], [-halfW, -halfH], [0, halfH], [0, -halfH], [halfW, 0], [-halfW, 0]]) {
         // source = out*(1 - (tz+extra)/z) + tx*f/z - yaw*f... solve for the extra push that brings source inside
         const sx = cx * (1 - cam.tz / z) + cam.tx * f / z - cam.yaw * f;
@@ -125,6 +125,20 @@ export function guidedFilter(guide, input, w, h, r, eps) {
   return out;
 }
 
+/* True distances (metres, from a metric depth model) → what the renderer needs: depth 0..1 (1 = nearest) and how far the
+   far end is, as a multiple of the nearest distance. Distances are kept linear, so straight edges stay straight. */
+export function prepareMetricDepth(meters, w, h, guide = null) {
+  const sorted = Float32Array.from(meters).sort();
+  const near = Math.max(0.05, sorted[Math.floor(sorted.length * 0.02)]), far = Math.max(near * 1.4, sorted[Math.floor(sorted.length * 0.98)]);
+  const zfar = Math.max(1.8, Math.min(6, far / near));
+  let d = Float32Array.from(meters, (m) => { const z = Math.max(1, Math.min(zfar, m / near)); return 1 - (z - 1) / (zfar - 1); });
+  if (guide) d = guidedFilter(guide, d, w, h, Math.max(3, Math.round(w / 60)), 0.0008);
+  const r = Math.max(1, Math.round(w / 500));
+  const eroded = new Float32Array(w * h); boxMin(d, w, h, r * 2, eroded);
+  const smooth = new Float32Array(w * h); blur(eroded, w, h, r * 3, smooth); blur(smooth, w, h, r * 3, eroded);
+  return { depth: eroded, zfar };
+}
+
 export function prepareDepth(gray, w, h, guide = null) {
   const values = Float32Array.from(gray, (v) => v / 255);
   const sorted = Float32Array.from(values).sort();
@@ -161,7 +175,7 @@ function weights(f, out, o) {
 /* One frame: for each output pixel, where the moved camera finds it in the photo. The mapping is worked out on a coarse grid
    (it is smooth) and blended across, then the colour is taken with a sharp (bicubic) lookup. */
 const STEPS = 20;
-export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, width, height, out }) {
+export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, width, height, out, zfar = ZFAR }) {
   const f = 0.9; // focal length in widths
   const grid = 8;
   const gw = Math.ceil(width / grid) + 1, gh = Math.ceil(height / grid) + 1;
@@ -176,13 +190,13 @@ export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, widt
       const tz = cam.tz + extraPush;
       let su = u, sv = v, prevDiff = 0, prevZ = 1, prevU = u, prevV = v;
       for (let i = 0; i <= STEPS; i += 1) {
-        const z = 1 + (ZFAR - 1) * (i / STEPS);
+        const z = 1 + (zfar - 1) * (i / STEPS);
         const k = 1 - tz / z;
         const cu = u * k + (cam.tx * f) / z - cam.yaw * f, cv = v * k + (cam.ty * f) / z;
         const fx = Math.min(dw - 1, Math.max(0, (cu + 0.5) * (dw - 1))), fy = Math.min(dh - 1, Math.max(0, (cv * aspect + 0.5) * (dh - 1)));
         const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(dw - 1, x0 + 1), y1 = Math.min(dh - 1, y0 + 1), ax = fx - x0, ay = fy - y0;
         const dd = (depth[y0 * dw + x0] * (1 - ax) + depth[y0 * dw + x1] * ax) * (1 - ay) + (depth[y1 * dw + x0] * (1 - ax) + depth[y1 * dw + x1] * ax) * ay;
-        const diff = zOf(dd) - z;
+        const diff = zOf(dd, zfar) - z;
         if (diff <= 0 || i === STEPS) {
           const a = i === 0 || prevDiff <= 0 ? 1 : prevDiff / (prevDiff - diff); // where between the two steps the surface is
           su = prevU + (cu - prevU) * a; sv = prevV + (cv - prevV) * a;
@@ -232,24 +246,31 @@ export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, widt
 }
 
 /* Makes the clip: photo + depth map files → an mp4 of the camera move. */
-export async function renderParallaxClip({ image, depthImage, move, width, height, fps, seconds, output, crf = 14, boost = 1, edgeAware = false }) {
+export async function renderParallaxClip({ image, depthImage, move, width, height, fps, seconds, output, crf = 14, boost = 1, edgeAware = false, metric = null }) {
   const aspect = width / height;
   // Source working size: as wide as the output needs for the deepest push (about 1:1), never bigger than the photo gives.
-  const extraPush = framingPush(move, aspect, 48, boost);
+  let zfar = ZFAR;
   const sw = Math.round(Math.min(2560, width * 1.45) / 2) * 2, sh = Math.round(sw / aspect / 2) * 2;
   const photo = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", image, "-vf", `scale=${sw}:${sh}:force_original_aspect_ratio=increase:flags=lanczos,crop=${sw}:${sh}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], sw * sh * 3);
   const dw = Math.round(width / 4), dh = Math.round(dw / aspect);
-  const grayRaw = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", depthImage, "-vf", `scale=${dw}:${dh}:force_original_aspect_ratio=increase:flags=bicubic,crop=${dw}:${dh},format=gray`, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], dw * dh);
+  const grayRaw = metric ? null : await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", depthImage, "-vf", `scale=${dw}:${dh}:force_original_aspect_ratio=increase:flags=bicubic,crop=${dw}:${dh},format=gray`, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], dw * dh);
+  const rawMeters = metric ? await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", depthImage, "-vf", `scale=${dw}:${dh}:force_original_aspect_ratio=increase:flags=bicubic,crop=${dw}:${dh},format=gray16le`, "-f", "rawvideo", "-pix_fmt", "gray16le", "pipe:1"], dw * dh * 2) : null;
   let guide = null;
   if (edgeAware) { const g = await ffmpegBuffer(["-hide_banner", "-loglevel", "error", "-i", image, "-vf", `scale=${dw}:${dh}:force_original_aspect_ratio=increase:flags=area,crop=${dw}:${dh},format=gray`, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], dw * dh); guide = Float32Array.from(g, (v) => v / 255); }
-  const depth = prepareDepth(grayRaw, dw, dh, guide);
+  let depth;
+  if (metric) {
+    const meters = new Float32Array(dw * dh);
+    for (let i = 0; i < meters.length; i += 1) meters[i] = rawMeters.readUInt16LE(i * 2) * metric.scale + metric.offset;
+    const prepared = prepareMetricDepth(meters, dw, dh, guide); depth = prepared.depth; zfar = prepared.zfar;
+  } else depth = prepareDepth(grayRaw, dw, dh, guide);
+  const extraPush = framingPush(move, aspect, 48, boost, zfar);
   const frames = Math.max(2, Math.ceil(seconds * fps));
   const encoder = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${width}x${height}`, "-r", String(fps), "-i", "pipe:0", "-c:v", "libx264", "-preset", "fast", "-crf", String(crf), "-pix_fmt", "yuv420p", "-an", output], { stdio: ["pipe", "ignore", "pipe"] });
   let err = ""; encoder.stderr.on("data", (c) => { err += c; if (err.length > 4000) err = err.slice(-4000); });
   const done = new Promise((resolve, reject) => { encoder.on("error", reject); encoder.on("close", (code) => code === 0 ? resolve() : reject(new Error(`Encoder failed (${code}): ${err.slice(-300)}`))); });
   const frame = Buffer.alloc(width * height * 3);
   for (let n = 0; n < frames; n += 1) {
-    renderFrame({ photo, sw, sh, depth, dw, dh, cam: cameraAt(move, frames > 1 ? n / (frames - 1) : 0, boost), extraPush, width, height, out: frame });
+    renderFrame({ photo, sw, sh, depth, dw, dh, cam: cameraAt(move, frames > 1 ? n / (frames - 1) : 0, boost), extraPush, width, height, out: frame, zfar });
     if (!encoder.stdin.write(Buffer.from(frame))) await new Promise((resolve) => encoder.stdin.once("drain", resolve));
   }
   encoder.stdin.end();
