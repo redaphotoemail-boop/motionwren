@@ -52,7 +52,7 @@ const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace
 /* Everything the editor needs to draw the cards:
    - files: small files to write (the texts, and the logo) and the extra inputs to add;
    - build(inLabel, outLabel, firstExtraInput): the filter graph pieces. */
-export function planCards(cards, { width, height, duration, fps }) {
+export function planCards(cards, { width, height, duration, fps, single = false }) {
   const texts = cardTexts(cards);
   if (!texts) return null;
   const u = width / (width >= height ? 1280 : 800);
@@ -115,13 +115,13 @@ export function planCards(cards, { width, height, duration, fps }) {
       const alpha = smoothEnv(at, at + 0.9);
       if (row.kind === "logo") { filters.push({ logo: { y: row.y, size: row.size, at } }); return; }
       if (row.kind === "rule") { filters.push({ rule: { y: row.y, at, end: D + 1, h: row.size } }); return; }
-      if (row.kind === "eyebrow") filters.push({ text: addText(row.text, { font: sans, size: row.size, color: "white@0.66", alpha, y: row.y - row.size * 0.15, riseAt: at }) });
-      else if (row.kind === "title") { const size = fitSize(row.text, row.size, 30 * u, 0.5, maxWidth); filters.push({ text: addText(row.text, { font: serif, size, color: "white", alpha, y: row.y - size * 0.15, riseAt: at }) }); }
-      else { const size = fitSize(row.text, row.size, 11 * u, 0.5, maxWidth); filters.push({ text: addText(row.text, { font: sans, size, color: "white@0.62", alpha, y: row.y - size * 0.15, riseAt: at }) }); }
+      if (row.kind === "eyebrow") filters.push({ text: addText(row.text, { font: sans, size: row.size, color: "white@0.66", alpha, y: row.y - row.size * 0.15, riseAt: at, shadow: single }) });
+      else if (row.kind === "title") { const size = fitSize(row.text, row.size, 30 * u, 0.5, maxWidth); filters.push({ text: addText(row.text, { font: serif, size, color: "white", alpha, y: row.y - size * 0.15, riseAt: at, shadow: single }) }); }
+      else { const size = fitSize(row.text, row.size, 11 * u, 0.5, maxWidth); filters.push({ text: addText(row.text, { font: sans, size, color: single ? "white@0.85" : "white@0.62", alpha, y: row.y - size * 0.15, riseAt: at, shadow: single }) }); }
     });
   }
 
-  return { texts, files, opening: Boolean(opening), closing: Boolean(closing), openingEnd, closeStart, parts: filters, u, width, height, duration: D, fps, logoData: closing?.logo || "" };
+  return { texts, files, opening: Boolean(opening), closing: Boolean(closing), openingEnd, closeStart, parts: filters, u, width, height, duration: D, fps, logoData: closing?.logo || "", single };
 }
 
 /* The ffmpeg filter graph pieces for the cards, applied to `inLabel` giving `outLabel`.
@@ -132,13 +132,20 @@ export function cardGraph(plan, inLabel, outLabel, extra, dir) {
   let current = inLabel; let n = 0;
   const next = () => `cd${n++}`;
   // vignette under the opening
+  const softClose = plan.single && plan.closing && extra.vignette !== undefined; // a single clip never goes dark: the agent card sits on a soft vignette
+  if (softClose && plan.opening) pieces.push(`[${extra.vignette}:v]format=rgba,split=2[vgA][vgB]`);
   if (plan.opening && extra.vignette !== undefined) {
     const out = next();
-    pieces.push(`[${extra.vignette}:v]format=rgba,fade=t=in:st=0.5:d=1:alpha=1,fade=t=out:st=${fmt(plan.openingEnd - 0.9)}:d=0.9:alpha=1[vg${out}]`);
+    pieces.push(`${softClose && plan.opening ? "[vgA]" : `[${extra.vignette}:v]`}format=rgba,fade=t=in:st=0.5:d=1:alpha=1,fade=t=out:st=${fmt(plan.openingEnd - 0.9)}:d=0.9:alpha=1[vg${out}]`);
     pieces.push(`[${current}][vg${out}]overlay=shortest=1:format=auto[${out}]`); current = out;
   }
-  // dim to dark under the closing
-  if (plan.closing) {
+  if (softClose) {
+    const out = next();
+    pieces.push(`${plan.opening ? "[vgB]" : `[${extra.vignette}:v]`}format=rgba,fade=t=in:st=${fmt(plan.closeStart)}:d=1.2:alpha=1[vc${out}]`);
+    pieces.push(`[${current}][vc${out}]overlay=shortest=1:format=auto[${out}]`); current = out;
+  }
+  // dim to dark under the closing (films only)
+  if (plan.closing && !plan.single) {
     const out = next();
     pieces.push(`color=c=0x060607:s=${width}x${height}:r=${fps}:d=${fmt(D + 1)},format=rgba,fade=t=in:st=${fmt(plan.closeStart)}:d=1.2:alpha=1,colorchannelmixer=aa=0.95[dm${out}]`);
     pieces.push(`[${current}][dm${out}]overlay=shortest=1:format=auto[${out}]`); current = out;

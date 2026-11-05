@@ -21,7 +21,16 @@ const seg = (t, a, b) => smoother((t - a) / (b - a));
 /* The camera at time t (0..1), in units where the nearest thing is 1 away and the farthest ZFAR away.
    tz: forward (+) / back (-), tx: right (+), ty: up (+), yaw: turn right (+) in radians. */
 export const ZFAR = 3;
+/* A gimbal's tiny, slow wander: it dies away at both ends so the move starts and stops cleanly. */
+function wander(t) {
+  const w = Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t))), 0.6);
+  return { tx: 0.0045 * w * (Math.sin(2 * Math.PI * 1.1 * t + 0.6) + 0.5 * Math.sin(2 * Math.PI * 2.3 * t + 2.0)) / 1.5, ty: 0.0035 * w * Math.sin(2 * Math.PI * 1.7 * t + 1.1), yaw: 0.0025 * w * Math.sin(2 * Math.PI * 0.9 * t + 0.2) };
+}
 export function cameraAt(move, t) {
+  const base = baseCamera(move, t); const h = wander(t);
+  return { tx: base.tx + h.tx, ty: base.ty + h.ty, tz: base.tz, yaw: base.yaw + h.yaw };
+}
+function baseCamera(move, t) {
   const e = smoother(t);
   switch (move) {
     case "push": return { tx: 0, ty: 0, tz: 0.30 * e, yaw: 0 };

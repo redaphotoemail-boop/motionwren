@@ -1,6 +1,6 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "photo";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "luma" | "photo";
 export type StudioResolution = "480p" | "720p" | "1080p";
-export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 10 | 15;
+export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 9 | 10 | 15;
 
 export type StudioEngine = {
   key: StudioEngineKey;
@@ -125,6 +125,20 @@ export const studioEngines: StudioEngine[] = [
     upscaleTo1080: true,
   },
   {
+    key: "luma",
+    name: "Luma Ray 2 (Dream Machine)",
+    shortName: "Luma Ray 2",
+    description: "Luma's Dream Machine model: smooth, natural camera motion. Made at 720p, then upscaled to 1080p.",
+    bestFor: "Natural camera moves · to test",
+    resolutions: ["720p", "1080p"],
+    audio: false,
+    firstLastFrame: false,
+    realEstate: true,
+    badge: "NEW · UPSCALED 1080P",
+    pricePerSecond: { "720p": 0.18, "1080p": 0.1986 },
+    upscaleTo1080: true,
+  },
+  {
     key: "runway45",
     name: "Runway Gen-4.5",
     shortName: "Runway 4.5",
@@ -211,6 +225,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "hailuo23": return resolution === "1080p" ? [6] : [6, 10];
     case "runway45": return [5, 10];
     case "runway4turbo": return [5, 10];
+    case "luma": return [5, 9];
     case "h3lite": return [4, 5, 6, 8, 10, 15];
     case "kling3": return [3, 5, 6, 8, 10, 15];
     case "wan25": return [3, 5, 6, 8, 10];

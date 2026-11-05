@@ -250,10 +250,13 @@ const FLAT_FALLBACK = { push: "push", pull: "pull", "slide-left": "slide-left", 
 export function photoClipArgs({ image, move, width, height, fps, seconds, output }) {
   const frames = Math.max(2, Math.ceil(seconds * fps));
   const ease = `(0.5-0.5*cos(PI*on/${frames}))`; // gentle start and stop
-  const zoom = { push: `1+0.14*${ease}`, pull: `1.14-0.14*${ease}`, "slide-left": "1.14", "slide-right": "1.14" }[move];
-  const x = { push: "iw/2-iw/zoom/2", pull: "iw/2-iw/zoom/2", "slide-left": `(iw-iw/zoom)*(1-${ease})`, "slide-right": `(iw-iw/zoom)*${ease}` }[move];
+  const zoom = { push: `1.04+0.14*${ease}`, pull: `1.18-0.14*${ease}`, "slide-left": "1.14", "slide-right": "1.14" }[move];
+  // The gimbal's tiny slow wander (dies away at both ends), in source pixels.
+  const life = `sin(PI*on/${frames})`;
+  const dx = `iw*0.0045*pow(${life},0.6)*sin(2*PI*1.1*on/${frames}+0.6)`, dy = `ih*0.0035*pow(${life},0.6)*sin(2*PI*1.7*on/${frames}+1.1)`;
+  const x = { push: `iw/2-iw/zoom/2+${dx}`, pull: `iw/2-iw/zoom/2+${dx}`, "slide-left": `(iw-iw/zoom)*(1-${ease})+${dx}`, "slide-right": `(iw-iw/zoom)*${ease}+${dx}` }[move];
   // Work at twice the size so the move stays smooth to the pixel, then come down to the film's size.
-  const vf = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2},zoompan=z='${zoom}':x='${x}':y='ih/2-ih/zoom/2':d=${frames}:s=${width}x${height}:fps=${fps},setsar=1,format=yuv420p`;
+  const vf = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2},zoompan=z='${zoom}':x='${x}':y='ih/2-ih/zoom/2+${dy}':d=${frames}:s=${width}x${height}:fps=${fps},setsar=1,format=yuv420p`;
   return ["-hide_banner", "-y", "-nostdin", "-i", image, "-vf", vf, "-frames:v", String(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "14", "-pix_fmt", "yuv420p", "-an", output];
 }
 
@@ -286,7 +289,8 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     if (cards.logo) { extra.logo = base + cardInputs.length; cardInputs.push(["-i", cards.logo]); }
     filters.push(...cardGraph(cards.plan, "sharp", "carded", extra, cards.dir));
   } else filters.push("[sharp]null[carded]");
-  filters.push(`[carded]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]`);
+  // Films end by fading to black; a single clip just ends.
+  filters.push(count > 1 ? `[carded]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]` : "[carded]fade=t=in:st=0:d=0.35[vout]");
   const args = ["-hide_banner", "-y", "-nostdin"];
   clips.forEach((file) => args.push("-i", file));
   if (music) {
@@ -343,7 +347,7 @@ async function compose(key, spec) {
               await renderParallaxClip({ image, depthImage: depthFile, move, ...shape });
               job.depthScenes = (job.depthScenes || 0) + 1;
             } catch (error) {
-              // Never fail the film over depth: this scene gets the flat version of the move.
+              // Never fail the film over depth: this scene gets the flat version of the move (a guessed depth bends straight walls, so none is used).
               job.depthFallbacks = (job.depthFallbacks || 0) + 1; job.depthError = String(error?.message || error).slice(0, 300);
               console.warn(`depth: scene ${i + 1} used a flat move; ${job.depthError}`);
               await run("ffmpeg", photoClipArgs({ image, move: FLAT_FALLBACK[move], ...shape }), { timeoutMs: 5 * 60 * 1000 });
@@ -367,11 +371,11 @@ async function compose(key, spec) {
     let cards = null;
     if (spec.cards) {
       try {
-        const plan = planCards(spec.cards, { width: spec.width, height: spec.height, duration: spec.duration, fps });
+        const plan = planCards(spec.cards, { width: spec.width, height: spec.height, duration: spec.duration, fps, single: files.length === 1 });
         if (plan) {
           for (const file of plan.files) await fs.writeFile(path.join(dir, file.name), file.text);
           let vignette = null, logo = null;
-          if (plan.opening) { vignette = path.join(dir, "card-vignette.png"); await run("ffmpeg", vignetteArgs({ width: spec.width, height: spec.height, output: vignette }), { timeoutMs: 60_000 }); }
+          if (plan.opening || (plan.single && plan.closing)) { vignette = path.join(dir, "card-vignette.png"); await run("ffmpeg", vignetteArgs({ width: spec.width, height: spec.height, output: vignette }), { timeoutMs: 60_000 }); }
           if (plan.logoData) { logo = path.join(dir, "card-logo.img"); await fs.writeFile(logo, Buffer.from(plan.logoData.split(",")[1], "base64")); }
           cards = { plan, dir, vignette, logo };
           job.cards = true;

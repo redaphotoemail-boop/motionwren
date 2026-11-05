@@ -106,14 +106,14 @@ async function renderRealEstateOverlays(sourceUrl: string, branding: RealEstateB
 /* `high`: for photos that go to the engine (not the small transition frames): up to 2560 px at near-lossless quality. */
 async function compressImage(file: File, high = false): Promise<string> {
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, (high ? 2560 : 1280) / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, (high ? 6144 : 1280) / Math.max(bitmap.width, bitmap.height)); // high: your photo at its own size
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser could not prepare this image.");
   ctx.imageSmoothingQuality = "high"; ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
-  const limit = high ? 7_000_000 : 1_250_000;
-  let quality = high ? 0.95 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
-  while (result.length > limit && quality > 0.5) { quality -= 0.05; result = canvas.toDataURL("image/jpeg", quality); }
+  const limit = high ? 10_400_000 : 1_250_000; // about 7.8 MB of file: the server takes 8 MB
+  let quality = high ? 0.97 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
+  while (result.length > limit && quality > (high ? 0.7 : 0.5)) { quality -= 0.05; result = canvas.toDataURL("image/jpeg", quality); }
   if (result.length > limit * 1.12) throw new Error("This image remains too large. Export a JPEG under 1 MB and try again.");
   return result;
 }
@@ -177,10 +177,15 @@ async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKe
   let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
   if (original > target) { sw = image.naturalHeight * target; sx = (image.naturalWidth - sw) / 2; }
   else { sh = image.naturalWidth / target; sy = (image.naturalHeight - sh) / 2; }
-  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 2560 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
+  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 6144 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
   const context = canvas.getContext("2d"); if (!context) throw new Error("The selected frame could not be prepared.");
   context.imageSmoothingQuality = "high"; context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", high ? .95 : .9);
+  let quality = high ? 0.97 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
+  while (high && result.length > 10_400_000 && quality > 0.7) { quality -= 0.05; result = canvas.toDataURL("image/jpeg", quality); }
+  if (high && result.length > 10_400_000) { // still too heavy for the server: come down in steps, never below what the film needs
+    for (const width of [4096, 3200, 2560]) { if (canvas.width <= width) continue; const small = document.createElement("canvas"); small.width = width; small.height = Math.round(width / target); const c2 = small.getContext("2d"); if (!c2) break; c2.imageSmoothingQuality = "high"; c2.drawImage(canvas, 0, 0, small.width, small.height); result = small.toDataURL("image/jpeg", 0.95); if (result.length <= 10_400_000) break; }
+  }
+  return result;
 }
 async function waitForPrediction(id: string, onProcessing: () => void, options: { timeoutMs?: number; canceled?: () => boolean } = {}): Promise<string> {
   const startedAt = Date.now(); const timeoutMs = options.timeoutMs ?? 12 * 60 * 1000; let misses = 0;
@@ -647,7 +652,7 @@ export default function Home() {
         </div>
         <div className="panel quality-panel"><Heading number="02" title="Production settings" note="Only the controls that affect the final result"/>
           <div className="quality-callout"><strong>Recommended setup</strong><p>Kling 3.0 · 1080p · restrained camera movement.</p><button onClick={() => { setEngine("kling3"); setResolution("1080p"); setSeriesPromptMode("scene"); }}>Apply</button></div>
-          <EngineSelector engine={engine} setEngine={setEngine} resolution={resolution} setResolution={setResolution}/>
+          <EngineSelector engine={engine} setEngine={setEngine} resolution={resolution} setResolution={setResolution} allowPhoto/>
           <VisualStyleControl aspect={aspect} setAspect={setAspect}/><FrameControl aspect={aspect} setAspect={setAspect}/>
           <label className="series-quality-field"><span className="label">Quality</span><select value={resolution} onChange={(e) => setResolution(e.target.value as ResolutionKey)}>{selectedEngine.resolutions.map((item) => <option value={item} key={item}>{item === "1080p" ? "1080p Full HD" : item === "720p" ? "720p HD" : "480p draft"}</option>)}</select><small className="quality-price">Estimated engine cost: ${seriesCost.toFixed(2)} for the full sequence{selectedEngine.upscaleTo1080 && resolution === "1080p" ? " · made at 720p, then upscaled to 1080p (included)" : ""}</small></label>
           
