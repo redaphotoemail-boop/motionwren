@@ -19,10 +19,10 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
-  seedance1fast: "https://api.replicate.com/v1/models/bytedance/seedance-1-pro-fast/predictions",
+  h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "seedance1fast"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -63,5 +63,6 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan27") return { first_frame: options.imageUrl, prompt, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan3") return { image: options.imageUrl, prompt, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
-  return { image: options.imageUrl, prompt, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, fps: 24, camera_fixed: false };
+  // h3lite: image-to-video takes the photo's own shape; 720p here means its 768P.
+  return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "480p" ? "480P" : "768P" };
 }

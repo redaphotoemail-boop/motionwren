@@ -13,10 +13,10 @@ const ENDPOINTS: Record<StudioEngineKey, string> = {
   wan25: "https://api.replicate.com/v1/models/wan-video/wan-2.5-i2v/predictions",
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
-  seedance1fast: "https://api.replicate.com/v1/models/bytedance/seedance-1-pro-fast/predictions",
+  h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
 };
 
-const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "seedance1fast"]);
+const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite"]);
 
 export async function POST(request: Request) {
   try {
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     else if (engine === "wan25") input = { image: body.image, prompt: body.prompt.slice(0, 4000), resolution, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };
     else if (engine === "wan27") input = { first_frame: body.image, prompt: body.prompt.slice(0, 4000), resolution: resolution === "480p" ? "720p" : resolution, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };
     else if (engine === "wan3") input = { image: body.image, prompt: body.prompt.slice(0, 4000), resolution, aspect_ratio: aspectRatio, duration, enable_prompt_expansion: true, negative_prompt: negativePrompt };
-    else input = { image: body.image, prompt: body.prompt.slice(0, 4000), resolution, aspect_ratio: aspectRatio, duration, fps: 24, camera_fixed: false };
+    else input = { first_frame_image: body.image, prompt: body.prompt.slice(0, 4000), duration, resolution: resolution === "480p" ? "480P" : "768P" };
     if (Number.isInteger(body.seed) && body.seed >= 0) input.seed = body.seed;
     const response = await fetch(transition ? ENDPOINTS.wan27 : ENDPOINTS[engine], {
       method: "POST",

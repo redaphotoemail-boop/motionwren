@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     await env.BUCKET.put(r2Key, bytes, { httpMetadata: { contentType } });
 
     const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 6000) : "";
-    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "seedance1fast", "studio", "fast"]);
+    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite", "seedance1fast", "studio", "fast"]);
     const requestedEngine = typeof body.engine === "string" ? body.engine : "wan22";
     const engine = validEngines.has(requestedEngine) ? requestedEngine : "wan22";
     const category = typeof body.category === "string" ? body.category.slice(0, 40) : "single";

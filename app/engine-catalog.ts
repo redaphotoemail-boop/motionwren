@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway45" | "wan22" | "wan25" | "wan27" | "wan3" | "seedance1fast";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway45" | "wan22" | "wan25" | "wan27" | "wan3" | "h3lite";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 10 | 15;
 
@@ -95,16 +95,16 @@ export const studioEngines: StudioEngine[] = [
     pricePerSecond: { "480p": 0.01, "720p": 0.022 },
   },
   {
-    key: "seedance1fast",
-    name: "Seedance 1 Pro Fast",
-    shortName: "Seedance Fast",
-    description: "Fast, stable 1080p alternative with strong motion.",
-    bestFor: "Speed at 1080p",
-    resolutions: ["480p", "720p", "1080p"],
+    key: "h3lite",
+    name: "MiniMax H3 Lite",
+    shortName: "H3 Lite",
+    description: "Lower-cost MiniMax H3 at 768p. New: being tested against Wan 3.0 for real estate.",
+    bestFor: "Lowest cost",
+    resolutions: ["480p", "720p"],
     audio: false,
-    firstLastFrame: false,
+    firstLastFrame: true,
     realEstate: true,
-    pricePerSecond: { "480p": 0.015, "720p": 0.025, "1080p": 0.06 },
+    pricePerSecond: { "480p": 0.0125, "720p": 0.02 },
   },
   {
     key: "wan25",
@@ -168,7 +168,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "hailuo23": return resolution === "1080p" ? [6] : [6, 10];
     case "runway45": return [5, 10];
     case "wan22": return [5, 10];
-    case "seedance1fast": return [5, 8, 10];
+    case "h3lite": return [4, 5, 6, 8, 10, 15];
     case "kling3": return [3, 5, 6, 8, 10, 15];
     case "wan25": return [3, 5, 6, 8, 10];
     case "wan27": return [3, 5, 6, 8, 10, 15];
@@ -198,6 +198,7 @@ export const CROSSFADE_SECONDS = 0.5;
     Studio options. */
 export function filmSceneDurations(key: StudioEngineKey, resolution: StudioResolution): number[] {
   if (key === "wan3") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
+  if (key === "h3lite") return [4, 5, 6, 7, 8, 9, 10, 12, 15]; // the model takes 4–15 whole seconds
   return [...engineDurationOptions(key, resolution)].sort((a, b) => a - b);
 }
 
