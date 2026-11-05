@@ -107,7 +107,7 @@ export async function saveManifest(env: R2Env, jobId: string, manifest: Producti
   await env.BUCKET.put(manifestKey(jobId), JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
 }
 
-export const MAX_FRAME_BYTES = 2 * 1024 * 1024;
+export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 
 /* A Studio scene's photo, stored with the job so a scene can be made again
    without the browser. Older Studio pages send it as a data URL. */

@@ -103,16 +103,18 @@ async function renderRealEstateOverlays(sourceUrl: string, branding: RealEstateB
   return { url: URL.createObjectURL(blob), blob, format };
 }
 
-async function compressImage(file: File): Promise<string> {
+/* `high`: for photos that go to the engine (not the small transition frames): up to 2560 px at near-lossless quality. */
+async function compressImage(file: File, high = false): Promise<string> {
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, (high ? 2560 : 1280) / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser could not prepare this image.");
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
-  let quality = 0.9; let result = canvas.toDataURL("image/jpeg", quality);
-  while (result.length > 1_250_000 && quality > 0.5) { quality -= 0.1; result = canvas.toDataURL("image/jpeg", quality); }
-  if (result.length > 1_400_000) throw new Error("This image remains too large. Export a JPEG under 1 MB and try again.");
+  ctx.imageSmoothingQuality = "high"; ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+  const limit = high ? 7_000_000 : 1_250_000;
+  let quality = high ? 0.95 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
+  while (result.length > limit && quality > 0.5) { quality -= 0.05; result = canvas.toDataURL("image/jpeg", quality); }
+  if (result.length > limit * 1.12) throw new Error("This image remains too large. Export a JPEG under 1 MB and try again.");
   return result;
 }
 const speedPrompts: Record<SpeedKey, string> = {
@@ -166,7 +168,7 @@ async function prepareUpscaleVideo(file: File): Promise<{ data: string; preview:
   const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || "")); reader.onerror = () => reject(new Error("This video could not be prepared.")); reader.readAsDataURL(file); });
   return { data, preview, duration: Number.isFinite(video.duration) ? video.duration : 0 };
 }
-async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKey): Promise<string> {
+async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKey, high = false): Promise<string> {
   void _engine;
   const target = aspect === "vertical" ? 9 / 16 : aspect === "cinematic" ? 2.39 : 16 / 9;
   const image = new Image(); image.src = source;
@@ -175,10 +177,10 @@ async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKe
   let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
   if (original > target) { sw = image.naturalHeight * target; sx = (image.naturalWidth - sw) / 2; }
   else { sh = image.naturalWidth / target; sy = (image.naturalHeight - sh) / 2; }
-  const canvas = document.createElement("canvas"); canvas.width = Math.min(1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
+  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 2560 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
   const context = canvas.getContext("2d"); if (!context) throw new Error("The selected frame could not be prepared.");
-  context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", .9);
+  context.imageSmoothingQuality = "high"; context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", high ? .95 : .9);
 }
 async function waitForPrediction(id: string, onProcessing: () => void, options: { timeoutMs?: number; canceled?: () => boolean } = {}): Promise<string> {
   const startedAt = Date.now(); const timeoutMs = options.timeoutMs ?? 12 * 60 * 1000; let misses = 0;
@@ -350,6 +352,11 @@ export default function Home() {
       setOverlayWork(null);
     } catch (reason) { setOverlayWork({ id: job.id, message: `The video is saved, but the listing cards could not be added: ${reason instanceof Error ? reason.message : "please try again"}`, busy: false }); }
   }
+  /* Adds the cards to a finished film now, from what is filled in on this page (for when the page was closed or reloaded before the film finished). */
+  function addCardsNow(job: StudioJob) {
+    overlayJobs.current.set(job.id, { branding, prompt: job.prompt || "Listing film", category: "film" });
+    void applyOverlays(job);
+  }
   function wantsOverlays() {
     return category === "interior" && ((listingEnabled && Boolean(listingTitle.trim() || listingPrice.trim() || listingBeds || listingBaths || listingSquareFeet || listingMessage.trim())) || (agentEnabled && Boolean(agentLogo || agentName.trim() || agentEmail.trim() || agentPhone.trim())));
   }
@@ -401,7 +408,7 @@ export default function Home() {
   async function acceptFile(file?: File) {
     if (!file) return; if (!file.type.startsWith("image/")) return setError("Choose a JPG, PNG or WebP image."); if (file.size > 20 * 1024 * 1024) return setError("Choose an image smaller than 20 MB.");
     setError(""); setStatus("preparing");
-    try { setSource(await compressImage(file)); setFileName(file.name); setStatus("idle"); clearResult("single"); } catch (err) { setStatus("failed"); setError(err instanceof Error ? err.message : "The image could not be prepared."); }
+    try { setSource(await compressImage(file, true)); setFileName(file.name); setStatus("idle"); clearResult("single"); } catch (err) { setStatus("failed"); setError(err instanceof Error ? err.message : "The image could not be prepared."); }
   }
   async function acceptTransitionFrame(position: "first" | "last", file?: File) {
     if (!file) return; if (!file.type.startsWith("image/")) return setTransitionError("Choose a JPG, PNG or WebP image."); if (file.size > 20 * 1024 * 1024) return setTransitionError("Choose an image smaller than 20 MB.");
@@ -427,7 +434,7 @@ export default function Home() {
     if (!selected.length) return setError("Choose JPG, PNG or WebP images."); if (selected.some((file) => file.size > 20 * 1024 * 1024)) return setError("Every image must be smaller than 20 MB.");
     setError(""); setStatus("preparing");
     try {
-      const prepared = await Promise.all(selected.map(async (file, index) => ({ id: `${Date.now()}-${index}`, name: file.name, source: await compressImage(file), prompt: "", motion: autoMovement[(shots.length + index) % autoMovement.length], status: "idle" as JobStatus, output: "", error: "" })));
+      const prepared = await Promise.all(selected.map(async (file, index) => ({ id: `${Date.now()}-${index}`, name: file.name, source: await compressImage(file, true), prompt: "", motion: autoMovement[(shots.length + index) % autoMovement.length], status: "idle" as JobStatus, output: "", error: "" })));
       setShots((current) => [...current, ...prepared]); setStatus("idle");
     } catch (err) { setStatus("failed"); setError(err instanceof Error ? err.message : "One of the images could not be prepared."); }
   }
@@ -465,7 +472,7 @@ export default function Home() {
   async function acceptSceneFile(id: string, file?: File) {
     if (!file) return; if (!file.type.startsWith("image/")) return setError("Choose a JPG, PNG or WebP image."); if (file.size > 20 * 1024 * 1024) return setError("Choose an image smaller than 20 MB.");
     setError(""); setStatus("preparing");
-    try { const prepared = await compressImage(file); updateShot(id, { source: prepared, name: file.name, output: "", status: "idle", error: "" }); setStatus("idle"); }
+    try { const prepared = await compressImage(file, true); updateShot(id, { source: prepared, name: file.name, output: "", status: "idle", error: "" }); setStatus("idle"); }
     catch (err) { setStatus("failed"); setError(err instanceof Error ? err.message : "The image could not be prepared."); }
   }
   /* Single clip: made on the server, so it survives a refresh and failed tries restart on their own. */
@@ -473,7 +480,7 @@ export default function Home() {
     if (!source) return setError("Upload an image first."); if (finalPrompt.trim().length < 20) return setError("Add a clear motion description.");
     setError(""); setStarting("single");
     try {
-      const image = await prepareFrame(source, aspect, engine);
+      const image = await prepareFrame(source, aspect, engine, true);
       const overlays = wantsOverlays();
       await launch("single", { mode: "single", scenes: [{ prompt: finalPrompt, audio: soundEnabled || voiceoverEnabled }], engine, resolution, aspect, clipSeconds: frames === 121 ? 10 : 5, seed: seed ? Number(seed) : null, label: "Single clip" }, [image], (job) => { if (overlays) overlayJobs.current.set(job.id, { branding, prompt: finalPrompt, category }); });
     } catch (err) { setError(err instanceof Error ? err.message : "Could not start the clip."); }
@@ -496,7 +503,7 @@ export default function Home() {
         const sceneAudio = soundEnabled && !voiceoverEnabled && shotIndex === 0;
         return { prompt: buildPrompt(shot.motion, direction, category, continuity, speed, aspect, sceneAudio ? audioPrompt : "", true), audio: sceneAudio };
       });
-      const photos = await Promise.all(used.map((shot) => prepareFrame(shot.source, aspect, engine)));
+      const photos = await Promise.all(used.map((shot) => prepareFrame(shot.source, aspect, engine, true)));
       const overlays = wantsOverlays();
       await launch("series", { mode: "series", scenes, engine, resolution, aspect, length: seriesLength, seed: seed ? Number(seed) : null, label: `${seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "" }, photos, (job) => {
         setLocalThumbs((current) => ({ ...current, [job.id]: used.map((shot) => shot.source) }));
@@ -509,7 +516,7 @@ export default function Home() {
     if (!extendSource) return setError("Upload the clip you want to extend first.");
     setError(""); setStarting("extend");
     try {
-      const image = await prepareFrame(extendSource, aspect, engine);
+      const image = await prepareFrame(extendSource, aspect, engine, true);
       const overlays = wantsOverlays();
       await launch("extend", { mode: "single", scenes: [{ prompt: extensionPrompt, audio: soundEnabled || voiceoverEnabled }], engine, resolution, aspect, clipSeconds: frames === 121 ? 10 : 5, seed: seed ? Number(seed) : null, label: "Extension" }, [image], (job) => { if (overlays) overlayJobs.current.set(job.id, { branding, prompt: extensionPrompt, category: "extension" }); });
     } catch (err) { setError(err instanceof Error ? err.message : "Could not extend the scene."); }
@@ -653,7 +660,7 @@ export default function Home() {
           <div className="series-actions"><button className="generate" onClick={generateSeries} disabled={!connected || shots.length < 2 || seriesGenerating || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" ? "Sending your scenes…" : isActive(seriesJob) ? "Making your film…" : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button></div>
           {historyMessage && <p className="history-message">{historyMessage}</p>}
           <p className="queue-note">Scenes are made on our server, in turn. A scene that fails is redone automatically, up to three tries. The film is edited with crossfades and one music track, then saved to History — you can close or refresh this page.</p>
-          <div className="stitched-result"><span className="label">FINAL VIDEO</span>{stitchedOutput ? <><video src={stitchedOutput} controls playsInline/>{downloadLink(stitchedOutput, seriesJob, stitchedFormat, "motionwren-film")}</> : <><strong>Your film will appear here</strong><small>Scenes stay in your order, cross-dissolve, and share one music track.</small></>}{overlayWork && seriesJob && overlayWork.id === seriesJob.id && <p className={overlayWork.busy ? "history-message" : "error"}>{overlayWork.busy ? `Adding the listing cards… ${overlayWork.message}` : overlayWork.message}</p>}</div>
+          <div className="stitched-result"><span className="label">FINAL VIDEO</span>{stitchedOutput ? <><video src={stitchedOutput} controls playsInline/>{downloadLink(stitchedOutput, seriesJob, stitchedFormat, "motionwren-film")}</> : <><strong>Your film will appear here</strong><small>Scenes stay in your order, cross-dissolve, and share one music track.</small></>}{seriesJob && seriesJob.status === "succeeded" && !branded[seriesJob.id] && !(overlayWork && overlayWork.id === seriesJob.id && overlayWork.busy) && wantsOverlays() && <button type="button" className="secondary" onClick={() => addCardsNow(seriesJob)}>Add listing and agent cards</button>}{overlayWork && seriesJob && overlayWork.id === seriesJob.id && <p className={overlayWork.busy ? "history-message" : "error"}>{overlayWork.busy ? `Adding the listing cards… ${overlayWork.message}` : overlayWork.message}</p>}</div>
         </div>
       </div>
     </section> : mode === "extend" ? <section className="workspace extension-workspace">
