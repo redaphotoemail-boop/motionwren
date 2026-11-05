@@ -31,6 +31,18 @@ export default function FinancePage() {
     });
   }, []);
 
+  /* One finished film, typically: the average of the finished films' own lines (client orders first, any film if there are none). */
+  const typical = (() => {
+    if (!costs) return null;
+    const done = (rows: Row[]) => rows.filter((row) => row.status === "succeeded" && row.musicCents > 0);
+    const mine = done(costs.recent.filter((row) => row.segment === "customer"));
+    const rows = mine.length ? mine : done(costs.recent);
+    if (!rows.length) return null;
+    const avg = (pick: (row: Row) => number) => Math.round(rows.reduce((sum, row) => sum + pick(row), 0) / rows.length);
+    const priced = rows.filter((row) => row.priceCents != null);
+    return { films: rows.length, clients: mine.length > 0, video: avg((row) => row.videoCents), music: avg((row) => row.musicCents), edit: avg((row) => row.editCents), total: avg((row) => row.totalCents), seconds: avg((row) => row.duration), price: priced.length ? Math.round(priced.reduce((sum, row) => sum + (row.priceCents || 0), 0) / priced.length) : null };
+  })();
+
   const body = (() => {
     if (!costs) return <div className="empty-soft compact"><span>{error ? "" : "Loading finance…"}</span></div>;
     const data = costs[period][who];
@@ -100,6 +112,19 @@ export default function FinancePage() {
       <a className="btn btn-white btn-sm" href="/admin/replicates">Provider spend <Icon name="arrow" size={14} /></a>
     </PageHead>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+    {typical && <section className="panel" aria-label="What one film costs">
+      <p className="eyebrow">What one film costs us</p>
+      <div className="hero-total">{cents(typical.total)}</div>
+      <p className="muted">Average of {typical.films} finished {typical.clients ? "client " : ""}film{typical.films === 1 ? "" : "s"}, about {typical.seconds} seconds each.{typical.price != null ? ` Sold at ${cents(typical.price)}, so ${cents(typical.price - typical.total)} is left before card fees.` : ""}</p>
+      <div className="cost-lines">
+        {([["Video engine", typical.video, "Replicate: every scene of the film"], ["Music", typical.music, "ElevenLabs: one track made to the film's length"], ["Editing", typical.edit, "Cloudflare: joining scenes and mixing the music"]] as const).map(([label, value, note]) => <div key={label}>
+          <div><span>{label}</span><strong>{cents(value)} <small style={{ display: "inline" }}>{pct(value, typical.total)}%</small></strong></div>
+          <div className="bar" aria-hidden="true"><i style={{ width: `${pct(value, typical.total)}%` }} /></div>
+          <small>{note}</small>
+        </div>)}
+      </div>
+      <p className="fine">The video engine is almost all of it. Retried scenes and failed attempts are billed by Replicate too but are not in this average, so your Replicate bill runs higher; open its billing page for the exact total.</p>
+    </section>}
     <div className="filters">
       <div className="tabs" role="radiogroup" aria-label="Which videos">
         {([["customer", "Client orders"], ["studio", "My tests"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={who === value} className={who === value ? "active" : ""} onClick={() => setWho(value)}>{text}</button>)}
