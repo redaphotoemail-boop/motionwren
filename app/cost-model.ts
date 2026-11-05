@@ -16,7 +16,15 @@ export const COST_RATES = {
   /** Fixed monthly plans, dollars. */
   cloudflareWorkersPaid: 5,
   elevenLabsStarter: 5,
+  /** Music minutes included in the ElevenLabs Starter plan each month. */
+  elevenLabsIncludedMinutes: 16,
+  /** Standard card processing: percent of the price plus a fixed fee per charge, dollars. */
+  cardPercent: 2.9,
+  cardFixed: 0.30,
 };
+
+/* Projected card fees for orders at list price (nothing is charged until payments are connected). */
+export const cardFeeCents = (priceCents: number, orders: number) => Math.round(priceCents * COST_RATES.cardPercent / 100 + orders * COST_RATES.cardFixed * 100);
 
 /* Job kinds finished by the editing container (music + crossfades). */
 export const EDITED_KINDS = ["customer-series", "studio-series"] as const;
@@ -40,7 +48,7 @@ export function videoCosts(job: { kind: string; status: string; costCents: numbe
 /* Totals from the database's per-segment sums (see /api/admin/costs). */
 export type CostAggregate = { videos: number; finished: number; edited: number; videoCents: number; musicSeconds: number; priceCents: number };
 
-export function aggregateCosts(a: CostAggregate): CostLines & { videos: number; finished: number; perFinishedCents: number; priceCents: number } {
+export function aggregateCosts(a: CostAggregate): CostLines & { videos: number; finished: number; perFinishedCents: number; priceCents: number; musicSeconds: number } {
   const lines = totalOf(Math.round(a.videoCents), musicCentsForSeconds(a.musicSeconds), Math.round(a.edited * COST_RATES.editPerFilm * 100));
-  return { ...lines, videos: a.videos, finished: a.finished, perFinishedCents: a.finished ? Math.round(lines.totalCents / a.finished) : 0, priceCents: Math.round(a.priceCents) };
+  return { ...lines, videos: a.videos, finished: a.finished, perFinishedCents: a.finished ? Math.round(lines.totalCents / a.finished) : 0, priceCents: Math.round(a.priceCents), musicSeconds: Math.round(a.musicSeconds) };
 }

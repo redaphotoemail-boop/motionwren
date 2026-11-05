@@ -494,6 +494,8 @@ const stitchCreates = () => P.stitchInputs.length;
   const sum = lib.aggregateCosts({ videos: 3, finished: 2, edited: 2, videoCents: 360, musicSeconds: 33, priceCents: 7800 });
   check("24d totals add up and give the average per finished video", sum.musicCents === 17 && sum.editCents === 2 && sum.totalCents === 379 && sum.perFinishedCents === 190 && sum.priceCents === 7800, JSON.stringify(sum));
   check("24e no finished videos: no divide by zero", lib.aggregateCosts({ videos: 1, finished: 0, edited: 0, videoCents: 100, musicSeconds: 0, priceCents: 0 }).perFinishedCents === 0);
+  check("24f music seconds are carried through for the minutes-used figure", sum.musicSeconds === 33);
+  check("24g projected card fees: 2.9% + 30¢ per order", lib.cardFeeCents(12500, 1) === 393 && lib.cardFeeCents(0, 0) === 0, String(lib.cardFeeCents(12500, 1)));
 }
 
 /* 21. Same 25 films once credit is added (no burst limit, 6 at a time) */

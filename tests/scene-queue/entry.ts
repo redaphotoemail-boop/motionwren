@@ -4,7 +4,7 @@ export * from "../../app/api/_lib/provider";
 export { QUEUE_KINDS, alignedScenes, applyJobAction, stepSceneQueue } from "../../app/api/_lib/scene-queue";
 export { scenePlan, engineCost } from "../../app/engine-catalog";
 export { buildEngineInput, ENGINE_ENDPOINTS } from "../../app/engine-providers";
-export { videoCosts, aggregateCosts, musicCentsForSeconds } from "../../app/cost-model";
+export { videoCosts, aggregateCosts, musicCentsForSeconds, cardFeeCents } from "../../app/cost-model";
 export { musicPrompt } from "../../app/api/_lib/composer";
 export { saveMusicChoice, readMusicChoice } from "../../app/api/_lib/customer-production";
 export { MUSIC_TEMPLATES, musicTemplate, defaultMusicId } from "../../app/music-catalog";

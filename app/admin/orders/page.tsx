@@ -3,9 +3,16 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
-import { Metric, PageHead, StatusPill, ago, money, statusGroup } from "../ui";
+import { Metric, PageHead, StatusPill, ago, cents, money, statusGroup } from "../ui";
+import { videoCosts } from "../../cost-model";
 
 type Order = Record<string, string | number | null>;
+const placed = (value: number) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+/* An order's cost lines from its video: engine, music, editing (see app/cost-model.ts). */
+function orderCosts(order: Order) {
+  if (order.productionCostCents === null || order.productionCostCents === undefined) return null;
+  return videoCosts({ kind: String(order.jobKind || ""), status: String(order.jobStatus || ""), costCents: Number(order.productionCostCents), duration: Number(order.jobDuration || 0) });
+}
 type StatusFilter = "all" | "draft" | "production" | "failed" | "completed";
 const statusFilters: Array<[StatusFilter, string]> = [["all", "All"], ["draft", "Saved"], ["production", "In production"], ["completed", "Ready"], ["failed", "Needs attention"]];
 
@@ -81,7 +88,8 @@ export default function OrdersPage() {
   let sumPackage = 0; let sumCost = 0; let sumProfit = 0; let sumDraft = 0; let sumFailed = 0; let sumCompleted = 0;
   for (const order of visible) {
     const price = order.price !== null && order.price !== undefined && String(order.price) !== "" ? Number(order.price) : NaN;
-    const cost = order.productionCostCents !== null && order.productionCostCents !== undefined ? Number(order.productionCostCents) / 100 : NaN;
+    const lines = orderCosts(order);
+    const cost = lines ? lines.totalCents / 100 : NaN;
     const group = statusGroup(String(order.status));
     if (!Number.isNaN(price)) { sumPackage += price; if (group === "draft") sumDraft += price; if (group === "failed") sumFailed += price; if (group === "completed") sumCompleted += price; }
     if (!Number.isNaN(cost)) sumCost += cost;
@@ -100,7 +108,7 @@ export default function OrdersPage() {
       <Metric label="Orders" value={visible.length} note={statusFilter === "all" && productFilter === "all" ? "In this view" : "Matching filters"} />
       <Metric label="Package total" value={money(sumPackage)} note={`Ready ${money(sumCompleted)} · Saved ${money(sumDraft)} · Failed ${money(sumFailed)}`} />
       <Metric label="Collected" value={money(collected)} note="Stripe not connected" />
-      <Metric label="Est. cost" value={money(sumCost)} note="Catalog estimate" />
+      <Metric label="Est. cost" value={money(sumCost)} note="Engine + music + editing" />
       <Metric label="Est. profit" value={money(sumProfit)} note="Not real margin yet" />
     </section>
 
@@ -112,24 +120,25 @@ export default function OrdersPage() {
       </div>
 
       <div className="table orders" role="table" aria-label="Orders">
-        <div className="table-head" role="row"><span>Order</span><span>Customer</span><span>Package</span><span>Est. cost</span><span>Est. profit</span><span>Status</span></div>
+        <div className="table-head" role="row"><span>Order</span><span>Customer</span><span>Package</span><span>Cost</span><span>Profit</span><span>Status</span></div>
         {loading && !orders.length ? <div className="empty-soft compact"><span>Loading orders…</span></div> : visible.length ? visible.map((order) => {
           const hasPrice = order.price !== null && order.price !== undefined && String(order.price) !== "";
           const price = hasPrice ? Number(order.price) : 0;
-          const hasCost = order.productionCostCents !== null && order.productionCostCents !== undefined;
-          const cost = hasCost ? Number(order.productionCostCents) / 100 : 0;
+          const lines = orderCosts(order);
+          const hasCost = Boolean(lines);
+          const cost = lines ? lines.totalCents / 100 : 0;
           return <Link role="row" className="table-row" href={`/admin/projects/${String(order.id)}`} key={String(order.id)}>
-            <span className="cell-main"><strong>{String(order.title)}</strong><small>{order.listingAddress ? `${String(order.listingAddress)} · ` : ""}{ago(Number(order.updatedAt))} · {Number(order.assetCount || 0)} photos</small>{order.shortMessage && <small className="cell-note">{String(order.shortMessage)}</small>}</span>
+            <span className="cell-main"><strong>{String(order.title)}</strong><small>{order.listingAddress ? `${String(order.listingAddress)} · ` : ""}Placed {placed(Number(order.createdAt || order.updatedAt))} · updated {ago(Number(order.updatedAt))} · {Number(order.assetCount || 0)} photos</small>{order.shortMessage && <small className="cell-note">{String(order.shortMessage)}</small>}</span>
             <span className="cell-person"><strong>{String(order.ownerName || order.ownerEmail || "Unknown")}</strong><small>{String(order.ownerEmail || "")}</small></span>
             <span className="cell-num" data-label="Package">{hasPrice ? money(price) : "—"}</span>
-            <span className="cell-num" data-label="Est. cost">{hasCost ? money(cost) : "—"}</span>
-            <span className="cell-num" data-label="Est. profit">{hasPrice && hasCost ? money(price - cost) : "—"}</span>
+            <span className="cell-num" data-label="Cost">{lines ? <><strong>{cents(lines.totalCents)}</strong><small className="cost-split">Engine {cents(lines.videoCents)} · Music {cents(lines.musicCents)} · Edit {cents(lines.editCents)}</small></> : "—"}</span>
+            <span className="cell-num" data-label="Profit">{hasPrice && hasCost ? money(price - cost) : "—"}</span>
             <span><StatusPill status={String(order.status)} /></span>
           </Link>;
         }) : <div className="empty-soft compact"><strong>{orders.length ? "No orders match these filters" : "No projects yet"}</strong><span>{orders.length ? "Try a different status or product." : "New client orders will appear here."}</span></div>}
       </div>
       {total > orders.length && <div className="table-more"><button type="button" className="btn btn-soft btn-sm" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more orders"}</button></div>}
-      <p className="fine">Package totals are what each order is priced at, not collected payments. Costs are catalog estimates recorded when production starts, not metered provider bills.</p>
+      <p className="fine">Package totals are what each order is priced at, not collected payments. Cost = video engine (recorded when production started) + music and editing (calculated from the film&apos;s length and list prices). Not metered provider bills; see Finance for the full breakdown.</p>
     </section>
 
     <section className="panel maintenance">
