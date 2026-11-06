@@ -130,12 +130,14 @@ export function guidedFilter(guide, input, w, h, r, eps) {
 export function prepareMetricDepth(meters, w, h, guide = null) {
   const sorted = Float32Array.from(meters).sort();
   const near = Math.max(0.05, sorted[Math.floor(sorted.length * 0.02)]), far = Math.max(near * 1.4, sorted[Math.floor(sorted.length * 0.98)]);
-  const zfar = Math.max(1.8, Math.min(6, far / near));
+  const zfar = Math.max(1.8, Math.min(4.5, far / near)); // sky and glass read as extremely far: never let them stretch the scale
   let d = Float32Array.from(meters, (m) => { const z = Math.max(1, Math.min(zfar, m / near)); return 1 - (z - 1) / (zfar - 1); });
-  if (guide) d = guidedFilter(guide, d, w, h, Math.max(3, Math.round(w / 60)), 0.0008);
-  const r = Math.max(1, Math.round(w / 500));
-  const eroded = new Float32Array(w * h); boxMin(d, w, h, r * 2, eroded);
-  const smooth = new Float32Array(w * h); blur(eroded, w, h, r * 3, smooth); blur(smooth, w, h, r * 3, eroded);
+  // The depth model sees fine texture (carpet, brick, grain) and reports it as bumps in the distance. Those bumps are what
+  // shimmer when the camera moves, so flatten them: smooth within surfaces, but let the photo's own edges stay sharp.
+  if (guide) { const rad = Math.max(4, Math.round(w / 28)); d = guidedFilter(guide, d, w, h, rad, 0.004); d = guidedFilter(guide, d, w, h, Math.max(3, Math.round(rad / 2)), 0.002); }
+  const r = Math.max(1, Math.round(w / 160));
+  const eroded = new Float32Array(w * h); boxMin(d, w, h, r, eroded);
+  const smooth = new Float32Array(w * h); blur(eroded, w, h, r * 2, smooth); blur(smooth, w, h, r * 2, eroded);
   return { depth: eroded, zfar };
 }
 
@@ -175,7 +177,7 @@ function weights(f, out, o) {
 /* One frame: for each output pixel, where the moved camera finds it in the photo. The mapping is worked out on a coarse grid
    (it is smooth) and blended across, then the colour is taken with a sharp (bicubic) lookup. */
 const STEPS = 20;
-export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, width, height, out, zfar = ZFAR }) {
+export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, width, height, out, zfar = ZFAR, onMaps = null }) {
   const f = 0.9; // focal length in widths
   const grid = 8;
   const gw = Math.ceil(width / grid) + 1, gh = Math.ceil(height / grid) + 1;
@@ -198,8 +200,20 @@ export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, widt
         const dd = (depth[y0 * dw + x0] * (1 - ax) + depth[y0 * dw + x1] * ax) * (1 - ay) + (depth[y1 * dw + x0] * (1 - ax) + depth[y1 * dw + x1] * ax) * ay;
         const diff = zOf(dd, zfar) - z;
         if (diff <= 0 || i === STEPS) {
-          const a = i === 0 || prevDiff <= 0 ? 1 : prevDiff / (prevDiff - diff); // where between the two steps the surface is
-          su = prevU + (cu - prevU) * a; sv = prevV + (cv - prevV) * a;
+          if (i === 0 || prevDiff <= 0) { su = cu; sv = cv; break; }
+          // Refine where, between the two steps, the ray meets the surface (bisection), so the picture changes smoothly with the camera
+          // instead of stepping from one depth slice to the next: stepping is what looks like heat shimmer.
+          let lo = prevZ, hi = z;
+          for (let it = 0; it < 7; it += 1) {
+            const mid = (lo + hi) / 2, km = 1 - tz / mid;
+            const mu = u * km + (cam.tx * f) / mid - cam.yaw * f, mv = v * km + (cam.ty * f) / mid;
+            const mx = Math.min(dw - 1, Math.max(0, (mu + 0.5) * (dw - 1))), my = Math.min(dh - 1, Math.max(0, (mv * aspect + 0.5) * (dh - 1)));
+            const mx0 = Math.floor(mx), my0 = Math.floor(my), mx1 = Math.min(dw - 1, mx0 + 1), my1 = Math.min(dh - 1, my0 + 1), bx = mx - mx0, by = my - my0;
+            const md = (depth[my0 * dw + mx0] * (1 - bx) + depth[my0 * dw + mx1] * bx) * (1 - by) + (depth[my1 * dw + mx0] * (1 - bx) + depth[my1 * dw + mx1] * bx) * by;
+            if (zOf(md, zfar) - mid > 0) lo = mid; else hi = mid;
+          }
+          const zh = (lo + hi) / 2, kh = 1 - tz / zh;
+          su = u * kh + (cam.tx * f) / zh - cam.yaw * f; sv = v * kh + (cam.ty * f) / zh;
           break;
         }
         prevDiff = diff; prevZ = z; prevU = cu; prevV = cv;
@@ -209,6 +223,7 @@ export function renderFrame({ photo, sw, sh, depth, dw, dh, cam, extraPush, widt
       mapY[gy * gw + gx] = (sv * aspect + 0.5) * sh - 0.5;
     }
   }
+  if (onMaps) onMaps(mapX, mapY, gw, gh);
   const wts = new Float32Array(8);
   const stride = sw * 3, maxX = sw - 1, maxY = sh - 1;
   for (let y = 0; y < height; y += 1) {
