@@ -46,7 +46,16 @@ const clean = (text: string) => text.replace(/[^\p{L}\p{N} ,.;:'()%/-]/gu, " ").
 async function cloudflareRun(env: unknown, image: Uint8Array): Promise<string> {
   const input = { image: [...image], prompt: `${QUESTION} Answer with exactly one line: "OK" if the frame looks clean and realistic, or "ISSUE: <what is wrong, under 15 words>".`, max_tokens: 60 };
   const binding = (env as { AI?: AiBinding } | null)?.AI;
-  if (binding) { const out = await binding.run(CF_MODEL, input); return String(typeof out === "string" ? out : out?.response || ""); }
+  if (binding) {
+    const call = async () => { const out = await binding.run(CF_MODEL, input); return String(typeof out === "string" ? out : out?.response || ""); };
+    try { return await call(); }
+    catch (error) {
+      // Meta's vision model asks for its licence to be accepted once per account (a one-time "agree").
+      if (!/agree|licen[cs]e|5016/i.test(String(error instanceof Error ? error.message : error))) throw error;
+      await binding.run(CF_MODEL, { prompt: "agree" });
+      return call();
+    }
+  }
   const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${secret("CF_ACCOUNT_ID")}/ai/run/${CF_MODEL}`, { method: "POST", headers: { Authorization: `Bearer ${secret("CF_AI_TOKEN")}`, "Content-Type": "application/json" }, body: JSON.stringify(input) });
   const data = await response.json().catch(() => null) as { result?: { response?: string }; errors?: { message?: string }[] } | null;
   if (!response.ok) throw new Error(data?.errors?.[0]?.message || `Workers AI answered HTTP ${response.status}.`);
