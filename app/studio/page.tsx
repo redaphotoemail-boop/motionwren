@@ -104,7 +104,31 @@ async function renderRealEstateOverlays(sourceUrl: string, branding: RealEstateB
 }
 
 /* `high`: for photos that go to the engine (not the small transition frames): up to 2560 px at near-lossless quality. */
+/* The EXIF orientation of a JPEG (1 = upright); 1 when there is none. */
+async function jpegOrientation(file: File): Promise<number> {
+  try {
+    const view = new DataView(await file.slice(0, 65536).arrayBuffer());
+    if (view.getUint16(0) !== 0xffd8) return 1;
+    let offset = 2;
+    while (offset + 4 < view.byteLength) {
+      const marker = view.getUint16(offset); const size = view.getUint16(offset + 2);
+      if (marker === 0xffe1 && view.getUint32(offset + 4) === 0x45786966) {
+        const tiff = offset + 10; const little = view.getUint16(tiff) === 0x4949;
+        const entries = view.getUint16(tiff + view.getUint32(tiff + 4, little), little);
+        for (let i = 0; i < entries; i += 1) { const entry = tiff + view.getUint32(tiff + 4, little) + 2 + i * 12; if (view.getUint16(entry, little) === 0x0112) return view.getUint16(entry + 8, little); }
+        return 1;
+      }
+      if ((marker & 0xff00) !== 0xff00) return 1;
+      offset += 2 + size;
+    }
+  } catch { /* unreadable: treat as upright */ }
+  return 1;
+}
+const readAsDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Your browser could not read this image.")); reader.readAsDataURL(file); });
+
 async function compressImage(file: File, high = false): Promise<string> {
+  // Full quality: an upright JPEG/PNG/WebP that fits the server's limit goes up exactly as it is, never re-encoded or resized.
+  if (high && /^image\/(jpeg|png|webp)$/.test(file.type) && file.size <= 7_800_000 && (file.type !== "image/jpeg" || await jpegOrientation(file) === 1)) return readAsDataUrl(file);
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, (high ? 6144 : 1280) / Math.max(bitmap.width, bitmap.height)); // high: your photo at its own size
   const canvas = document.createElement("canvas");
@@ -174,6 +198,8 @@ async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKe
   const image = new Image(); image.src = source;
   await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("The selected frame could not be prepared.")); });
   const original = image.naturalWidth / image.naturalHeight;
+  // Already the right shape and small enough for the server: send it untouched (no crop, no re-encode).
+  if (high && Math.abs(original / target - 1) < 0.01 && /^data:image\/(jpeg|png|webp);/.test(source) && source.length <= 10_400_000) return source;
   let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
   if (original > target) { sw = image.naturalHeight * target; sx = (image.naturalWidth - sw) / 2; }
   else { sh = image.naturalWidth / target; sy = (image.naturalHeight - sh) / 2; }
