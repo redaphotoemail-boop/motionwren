@@ -55,6 +55,17 @@ export function buildEngineInput(engine: StudioEngineKey, options: EngineInputOp
   return input;
 }
 
+/* Runway reads short, positive prompts (its own limit is 1,000 characters) and animates whatever a long "nothing moves" list names.
+   The baked real-estate prompt stays as it is for every other engine; Runway gets the same camera move and the same lock, said briefly. */
+export function runwayPrompt(prompt: string) {
+  const baked = /^REAL ESTATE CAMERA-ONLY PRESET[^.]*\.\s*(.*?)\.\s*Capture an extremely/s.exec(prompt);
+  if (!baked) return prompt.slice(0, 1000);
+  const move = baked[1]
+    .replace(/subtle three-quarter orbit around the property scene/i, "smooth three-quarter orbit, arcing sideways around the room so the viewpoint truly turns and nearer objects shift against the background")
+    .replace(/horizontal lateral slide across the property scene/i, "smooth horizontal slide sideways across the room, so nearer objects shift against the background");
+  return `${move}. A frozen real-estate photograph brought to life by the camera alone: the parked car, furniture, plants, water, curtains and light all stay perfectly still. Only the camera moves. Straight architectural lines, realistic, perfectly steady.`.slice(0, 1000);
+}
+
 function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
   const prompt = options.prompt.slice(0, 4000);
   const noAudio = options.audio ? "Generate restrained synchronized ambience." : "No dialogue, no music, and no sound effects.";
@@ -63,9 +74,9 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3800)} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
   if (engine === "photo" || engine === "photo2" || engine === "photo3") return { image: options.imageUrl };
-  if (engine === "runway4turbo") return { image: options.imageUrl, prompt, duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
+  if (engine === "runway4turbo") return { image: options.imageUrl, prompt: runwayPrompt(options.prompt), duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
   if (engine === "luma") return { start_image: options.imageUrl, prompt, duration: 5, resolution: options.resolution === "1080p" ? "1080p" : "720p", aspect_ratio: options.aspectRatio };
-  if (engine === "runway45") return { image: options.imageUrl, prompt, duration: options.duration, aspect_ratio: options.aspectRatio };
+  if (engine === "runway45") return { image: options.imageUrl, prompt: runwayPrompt(options.prompt), duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan27") return { first_frame: options.imageUrl, prompt, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan3") return { image: options.imageUrl, prompt, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };

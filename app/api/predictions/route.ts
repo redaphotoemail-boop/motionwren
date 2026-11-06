@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { requireAdmin, jsonError } from "../_lib/account";
+import { runwayPrompt } from "../../engine-providers";
 import { engineUpscales, preferredDurationForEngine, type StudioEngineKey } from "../../engine-catalog";
 
 const ENDPOINTS: Record<StudioEngineKey, string> = {
@@ -80,10 +81,10 @@ export async function POST(request: Request) {
       resolution: resolution === "1080p" ? "1080p" : "768p",
       prompt_optimizer: false,
     };
-    else if (engine === "runway4turbo") input = { image: body.image, prompt: body.prompt.slice(0, 4000), duration: duration === 10 ? 10 : 5, aspect_ratio: aspectRatio };
+    else if (engine === "runway4turbo") input = { image: body.image, prompt: runwayPrompt(body.prompt), duration: duration === 10 ? 10 : 5, aspect_ratio: aspectRatio };
     else if (engine === "runway45") input = {
       image: body.image,
-      prompt: body.prompt.slice(0, 4000),
+      prompt: runwayPrompt(body.prompt),
       duration,
       aspect_ratio: aspectRatio,
     };
