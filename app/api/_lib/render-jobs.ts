@@ -2,6 +2,7 @@ import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 import { frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
+import { aiReviewOn, reviewStills } from "./film-review";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
@@ -386,7 +387,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(await aiReviewOn(env) ? { stills: true } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -511,6 +512,28 @@ async function upscaleFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rende
   return { response: download };
 }
 
+/* The free quality check's verdict: kept with the order and, when it found
+   something, the managers hear about it. Never blocks the film. */
+async function recordFilmCheck(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: ProductionManifest, key: string, historyId: string | null) {
+  try {
+    const state = await editState(env, row.id, key);
+    const qc = state.qc;
+    if (state.stills) {
+      const stills: Uint8Array[] = [];
+      for (let n = 1; n <= state.stills; n += 1) stills.push(new Uint8Array(await (await editFile(env, row.id, key, `still/${n}` as `still/${number}`)).arrayBuffer()));
+      const review = await reviewStills(env, stills);
+      manifest.aiReview = review; await saveManifest(env, row.id, manifest);
+      if (review.status === "flag") await alertManagers(env, "The AI review flagged a film", `${review.issues.join(" ")} Order ${row.id}${historyId ? `, film ${historyId}` : ""}. The film was still delivered; open it and decide whether to re-make it.`);
+    }
+    if (!qc || qc.status === "error") return;
+    manifest.qc = qc; await saveManifest(env, row.id, manifest);
+    if (qc.status !== "pass") {
+      const what = qc.flags.map((flag) => flag.message).join(" ");
+      await alertManagers(env, qc.status === "fail" ? "A film failed the quality check" : "A film has a quality warning", `${what} Order ${row.id}${historyId ? `, film ${historyId}` : ""}. The film was still delivered; open it and decide whether to re-make it.`);
+    }
+  } catch { /* the check is a bonus: never lose a film over it */ }
+}
+
 async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string, ctx?: FinishContext) {
   const fresh = await getRenderJob(env, row.id);
   if (!fresh || fresh.historyId || fresh.status !== "saving") return fresh?.historyId || null;
@@ -537,6 +560,7 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
   }
   const historyId = await storeFinishedFilm(env, fresh, film!, `composer:${key}`);
   if (manifest?.upscale?.stored) await env.BUCKET.delete(composedKey(row.id)).catch(() => undefined);
+  if (manifest) await recordFilmCheck(env, row, manifest, key, historyId);
   await dropEdit(env, row.id, key);
   return historyId;
 }

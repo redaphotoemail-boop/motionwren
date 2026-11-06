@@ -56,6 +56,8 @@ export type ProductionManifest = {
   /* Engines that make 720p: the edited film is upscaled to 1080p before it is saved.
      stored: our copy of the edited film (the upscaler reads it) · predictionId: the upscale in progress ·
      skipped: why the 720p film was kept instead. */
+  qc?: import("./composer").FilmCheck;
+  aiReview?: import("./film-review").AiReview;
   upscale?: { to: "1080p"; stored?: boolean; predictionId?: string; startedAt?: number; tries?: number; done?: boolean; skipped?: string; lastError?: string };
   /* The final edit by our composer (composer.ts): each scene's share of the
      film on screen, the crossfade, and the film's ONE music track — its

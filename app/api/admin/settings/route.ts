@@ -1,5 +1,6 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { isEngineKey } from "../../../engine-providers";
+import { AI_REVIEW_KEY, aiReviewAvailable, aiReviewOn } from "../../_lib/film-review";
 
 const DEFAULT_SECONDS = "auto"; // unset means automatic scene timing (scenePlan)
 const allowed = new Set([3, 5, "auto"]);
@@ -17,16 +18,16 @@ export async function GET() {
 
 /* Customer orders start automatically, or wait for the manager's OK. While
    payments are not connected they wait unless switched to automatic. */
-async function orderSettings(env: { DB: D1Database }) {
+async function orderSettings(env: { DB: D1Database } & Record<string, unknown>) {
   const row = await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'customer_production'").first<{ value?: string }>();
-  return { customerProduction: row?.value === "automatic" ? "automatic" : "approval", paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY) };
+  return { customerProduction: row?.value === "automatic" ? "automatic" : "approval", paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY), aiReview: await aiReviewOn(env), aiReviewConnected: aiReviewAvailable(env) };
 }
 
 export async function PUT(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     const admin = await requireAdmin(env);
-    const body = await request.json() as { multiShotSecondsPerImage?: unknown; defaultEngine?: unknown; customerProduction?: unknown };
+    const body = await request.json() as { multiShotSecondsPerImage?: unknown; defaultEngine?: unknown; customerProduction?: unknown; aiReview?: unknown };
     let seconds: 3 | 5 | "auto" | null = null;
     if (body.multiShotSecondsPerImage !== undefined) {
       const value = body.multiShotSecondsPerImage === "auto" ? "auto" : Number(body.multiShotSecondsPerImage);
@@ -36,6 +37,10 @@ export async function PUT(request: Request) {
     if (body.customerProduction !== undefined) {
       if (!["automatic", "approval"].includes(String(body.customerProduction))) return Response.json({ error: "Choose automatic or approval." }, { status: 400 });
       await env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('customer_production', ?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(String(body.customerProduction), Date.now()).run();
+    }
+    if (body.aiReview !== undefined) {
+      if (typeof body.aiReview !== "boolean") return Response.json({ error: "Choose on or off." }, { status: 400 });
+      await env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(AI_REVIEW_KEY, body.aiReview ? "on" : "off", Date.now()).run();
     }
     let engine: string | null = null;
     if (body.defaultEngine !== undefined) {

@@ -213,6 +213,7 @@ async function getMusic(spec, dir, job) {
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
+import { extractStills, qualityCheck } from "./qc.mjs";
 
 /* The depth map of a photo (Depth Anything v2 on Replicate; near is bright). Written to `file` as an image. */
 const DEPTH_VERSION = "b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4";
@@ -406,6 +407,9 @@ async function compose(key, spec) {
     if (!check.hasVideo || Math.abs(check.duration - spec.duration) > 0.25) throw new Error(`The edit came out ${round(check.duration, 2)} s instead of ${spec.duration} s.`);
     if (check.width !== spec.width || check.height !== spec.height) throw new Error(`The edit came out ${check.width}×${check.height}.`);
     if (music && check.audioStreams !== 1) throw new Error("The edit is missing its music.");
+    // The free quality check: it only reports, it never fails or changes the film.
+    if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards) }); }
+    if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }
     const stat = await fs.stat(output);
     Object.assign(job, { status: "done", stage: "done", finishedAt: Date.now(), outputBytes: stat.size, duration: round(check.duration, 3), width: check.width, height: check.height, fps, music: Boolean(music) });
     if (music) job.musicBytes = (await fs.stat(music)).size;
@@ -496,7 +500,7 @@ export function createServer() {
         try { return await streamFile(res, made.out, "audio/mpeg"); }
         finally { await fs.rm(made.dir, { recursive: true, force: true }).catch(() => undefined); }
       }
-      const match = /^\/jobs\/([^/]+)(\/output|\/music)?$/.exec(url.pathname);
+      const match = /^\/jobs\/([^/]+)(\/output|\/music|\/still\/[1-9])?$/.exec(url.pathname);
       if (!match || !KEY.test(match[1])) return send(res, 404, { error: "Not found." });
       const key = match[1];
       if (req.method === "POST" && !match[2]) {
@@ -514,6 +518,7 @@ export function createServer() {
         if (jobs.get(key)?.status !== "done") return send(res, 409, { error: "Not finished." });
         return streamFile(res, path.join(ROOT, key, "film.mp4"), "video/mp4");
       }
+      if (req.method === "GET" && match[2]?.startsWith("/still/")) return streamFile(res, path.join(ROOT, key, `still-${match[2].slice(-1)}.jpg`), "image/jpeg");
       if (req.method === "GET" && match[2] === "/music") return streamFile(res, path.join(ROOT, key, "music.mp3"), "audio/mpeg");
       if (req.method === "DELETE" && !match[2]) {
         jobs.delete(key);

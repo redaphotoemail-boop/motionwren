@@ -30,6 +30,10 @@ export type EditSpec = {
   depthMode?: "metric";
   /** One clip only: keep its own sound (no music track is added). */
   keepAudio?: boolean;
+  /** Free mechanical quality check (on unless false). */
+  qc?: boolean;
+  /** Keep a few stills of the finished film for the AI review. */
+  stills?: boolean;
   music?: { url?: string; prompt?: string; required?: boolean } | null;
 };
 
@@ -45,7 +49,11 @@ export type EditState = {
   musicSource?: string;
   musicError?: string;
   music?: boolean;
+  qc?: FilmCheck;
+  stills?: number;
 };
+
+export type FilmCheck = { status: "pass" | "warn" | "fail" | "error"; flags: { level: "warn" | "fail"; code: string; at?: number; message: string }[]; metrics?: Record<string, number>; error?: string; checkedAt: number };
 
 export function composerBinding(env: unknown): Namespace | null {
   const vars = typeof process !== "undefined" ? process.env || {} : {};
@@ -88,7 +96,7 @@ export async function editState(env: unknown, jobId: string, key: string): Promi
   return data;
 }
 
-export async function editFile(env: unknown, jobId: string, key: string, which: "output" | "music") {
+export async function editFile(env: unknown, jobId: string, key: string, which: "output" | "music" | `still/${number}`) {
   const response = await stub(env, jobId).fetch(url(key, `/${which}`));
   if (!response.ok || !response.body) throw new Error(`The edited ${which === "output" ? "film" : "music"} could not be collected (HTTP ${response.status}).`);
   return response;

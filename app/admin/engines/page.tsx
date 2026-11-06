@@ -20,12 +20,15 @@ export default function EnginesPage() {
   const [timingMessage, setTimingMessage] = useState("");
   const [orders, setOrders] = useState<{ mode: "approval" | "automatic"; payments: boolean }>({ mode: "approval", payments: false });
   const [ordersMessage, setOrdersMessage] = useState("");
+  const [aiReview, setAiReview] = useState<{ on: boolean; connected: boolean }>({ on: false, connected: false });
+  const [aiMessage, setAiMessage] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => {
       if (result.multiShotSecondsPerImage === 3 || result.multiShotSecondsPerImage === 5 || result.multiShotSecondsPerImage === "auto") setSecondsPerImage(result.multiShotSecondsPerImage);
       if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine);
       setOrders({ mode: result.customerProduction === "automatic" ? "automatic" : "approval", payments: Boolean(result.paymentsConnected) });
+      setAiReview({ on: result.aiReview === true, connected: result.aiReviewConnected === true });
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
@@ -63,6 +66,15 @@ export default function EnginesPage() {
     if (!response.ok) { setOrdersMessage(result.error || "The setting could not be saved."); return; }
     setOrders({ mode, payments: Boolean(result.paymentsConnected) });
     setOrdersMessage(mode === "automatic" ? "New orders start on their own." : "New orders wait for you to press Start production.");
+  }
+
+  async function saveAiReview(on: boolean) {
+    setAiMessage("");
+    const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aiReview: on }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { setAiMessage(result.error || "The setting could not be saved."); return; }
+    setAiReview({ on: result.aiReview === true, connected: result.aiReviewConnected === true });
+    setAiMessage(on ? (result.aiReviewConnected ? "Every new film gets an AI review." : "On, but Cloudflare Workers AI is not connected yet, so nothing is reviewed.") : "AI review is off.");
   }
 
   const current = studioEngine(defaultEngine);
@@ -103,6 +115,14 @@ export default function EnginesPage() {
       <p className="fine">Applies to new videos only. Videos already in production keep the engine they started with. RECOMMENDED is our suggested starting point — the selected default is what new videos actually use. Film estimates are price per second × {FILM_SECONDS} seconds; real bills depend on scene count and the provider.</p>
     </section>
 
+    <section className="panel" id="quality">
+      <div className="panel-head"><h2>Film quality check</h2><span className="muted small">Free check always on</span></div>
+      <p className="muted">Every film is measured for sharpness, black or frozen picture, sudden jumps and flicker. Problems reach you as an alert; the film is still delivered.</p>
+      <div className="choice-row">
+        {([[false, "AI review off", "No extra cost"], [true, "AI review on", aiReview.connected ? "A vision model looks at stills (about half a cent a film)" : "Needs Cloudflare Workers AI connected"]] as Array<[boolean, string, string]>).map(([value, label, note]) => <button key={label} type="button" className={aiReview.on === value ? "choice active" : "choice"} aria-pressed={aiReview.on === value} onClick={() => saveAiReview(value)}><strong>{label}</strong><small>{note}</small></button>)}
+      </div>
+      {aiMessage && <p className="muted small" role="status">{aiMessage}</p>}
+    </section>
     <section className="panel" id="orders">
       <div className="panel-head"><h2>Customer orders</h2><span className="muted small">{orders.payments ? "Payments connected" : "Payments not connected"}</span></div>
       <p className="muted">{orders.payments ? "Paid orders start on their own." : "Until payments are connected, choose whether orders start on their own or wait for you."}</p>
