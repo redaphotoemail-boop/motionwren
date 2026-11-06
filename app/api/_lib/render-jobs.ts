@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
 import { engineResolution } from "../../engine-providers";
-import { aiReviewOn, reviewSettings, reviewStills } from "./film-review";
+import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } from "./film-review";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, engineCost, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
@@ -553,7 +553,16 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
         stills.push(new Uint8Array(await (await editFile(env, row.id, key, `still/${n}` as `still/${number}`)).arrayBuffer()));
         times.push(Math.round(((n - 0.5) / state.stills) * (state.duration || row.duration) * 10) / 10);
       }
-      const review = await reviewStills(env, stills, times, use);
+      const sources: (Uint8Array | null)[] = [];
+      for (let n = 0; n < stills.length; n += 1) {
+        try {
+          const object = await env.BUCKET.get(frameKey(row.id, sceneAt(times[n])));
+          if (!object) { sources.push(null); continue; }
+          const bytes = new Uint8Array(await new Response(object.body).arrayBuffer());
+          sources.push(bytes.byteLength <= REALITY_SOURCE_MAX_BYTES ? bytes : null);
+        } catch { sources.push(null); }
+      }
+      const review = await reviewStills(env, stills, times, use, sources);
       manifest.aiReview = review;
       if (review.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${row.id}`, String(review.costCents), Date.now()).run().catch(() => undefined);
       if (review.status === "flag") {
