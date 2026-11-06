@@ -213,7 +213,7 @@ async function getMusic(spec, dir, job) {
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
-import { extractStills, qualityCheck } from "./qc.mjs";
+import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 
 /* The depth map of a photo (Depth Anything v2 on Replicate; near is bright). Written to `file` as an image. */
 const DEPTH_VERSION = "b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4";
@@ -323,6 +323,7 @@ function validSpec(spec) {
   if (clips.length < 1 || clips.length > 20 || clips.some((url) => typeof url !== "string" || !/^https?:\/\//.test(url))) return "Between 1 and 20 scene links are needed.";
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
   if (spec.speeds !== undefined && !(Array.isArray(spec.speeds) && spec.speeds.length === clips.length && spec.speeds.every((value) => typeof value === "number" && value >= 0.5 && value <= 1))) return "Scene speeds must match the scenes (0.5 to 1).";
+  if (spec.refs !== undefined && !(Array.isArray(spec.refs) && spec.refs.length === clips.length && spec.refs.every((value) => value === null || (typeof value === "string" && /^https?:\/\//.test(value))))) return "Reference clips must match the scenes.";
   if (spec.depthMode !== undefined && spec.depthMode !== "metric") return "Unknown depth mode.";
   if (spec.strictDepth === true && Array.isArray(spec.moves) && spec.moves.some((move) => move && !DEPTH_MOVES.includes(move))) return "Photo move 2.0 uses only the depth moves.";
   if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
@@ -372,6 +373,19 @@ async function compose(key, spec) {
         files[i] = file;
       }
     }));
+    // Hybrid scenes: an AI clip made on top of a measured camera move must keep the move's straight lines; if not, the measured clip is used.
+    if (Array.isArray(spec.refs)) {
+      for (let i = 0; i < files.length; i += 1) {
+        if (!spec.refs[i]) continue;
+        try {
+          const ref = path.join(dir, `scene-${String(i + 1).padStart(2, "0")}-ref.mp4`);
+          await download(spec.refs[i], ref, MAX_CLIP_BYTES, `Scene ${i + 1} reference`);
+          const verdict = await structureHeld(files[i], ref, { width: spec.width, height: spec.height });
+          (job.guard ||= []).push({ scene: i + 1, ...verdict });
+          if (!verdict.held) { files[i] = ref; job.guarded = (job.guarded || 0) + 1; }
+        } catch (error) { console.warn(`guard: scene ${i + 1} skipped; ${error.message}`); }
+      }
+    }
     const infos = await Promise.all(files.map(probe));
     infos.forEach((info, i) => { if (!info.hasVideo || info.duration < 0.5) throw new Error(`Scene ${i + 1} is not a usable video.`); });
     const fps = [24, 25, 30].reduce((best, value) => Math.abs(value - infos[0].fps) < Math.abs(best - infos[0].fps) ? value : best, 30);

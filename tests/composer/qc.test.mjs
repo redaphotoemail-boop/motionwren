@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { existsSync, statSync } from "node:fs";
-import { extractStills, qualityCheck } from "../../composer/qc.mjs";
+import { extractStills, qualityCheck, structureHeld } from "../../composer/qc.mjs";
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "qc-test-"));
 let pass = 0, fail = 0;
@@ -51,6 +51,15 @@ check("8 an unreadable file reports an error and never throws", (await qualityCh
 
 const stills = await extractStills(out("good.mp4"), dir, { duration: 10, count: 4 });
 check("9 four stills are kept for the AI review", stills.length === 4 && stills.every((f) => existsSync(f) && statSync(f).size > 2000));
+
+// The straightness guard: a refined clip keeps its lines, or it does not
+ff(["-f", "lavfi", "-i", "testsrc2=s=640x360:r=24:d=4", ...enc, out("ref.mp4")]);
+ff(["-i", out("ref.mp4"), "-vf", "gblur=sigma=0.8,noise=alls=6:allf=t", ...enc, out("refined.mp4")]);
+ff(["-i", out("ref.mp4"), "-vf", "lenscorrection=k1=0.35:k2=0.1,rotate=0.05:fillcolor=black", ...enc, out("bent.mp4")]);
+const kept = await structureHeld(out("refined.mp4"), out("ref.mp4"), { width: 640, height: 360 });
+const lost = await structureHeld(out("bent.mp4"), out("ref.mp4"), { width: 640, height: 360 });
+check("10 a clip that keeps its lines passes the straightness guard", kept.held, JSON.stringify(kept));
+check("11 a clip whose lines bent and shifted fails it", !lost.held, JSON.stringify(lost));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

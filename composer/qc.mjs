@@ -130,3 +130,57 @@ export async function extractStills(file, dir, { duration, count = 4 }) {
   }
   return made;
 }
+
+/* The straightness guard for the hybrid (AI on top of a measured camera move).
+   The mechanical render has the right geometry; the AI clip must keep it.
+   Compare the edge pictures (walls, door frames, rooflines) of both, frame by
+   frame: when lines have bent, moved or melted the edges stop lining up and
+   the score drops. Returns { held, mean, min }. */
+function edgeMap(frame, w, h) {
+  const out = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y += 1) for (let x = 1; x < w - 1; x += 1) {
+    const i = y * w + x;
+    const gx = frame[i - w + 1] + 2 * frame[i + 1] + frame[i + w + 1] - frame[i - w - 1] - 2 * frame[i - 1] - frame[i + w - 1];
+    const gy = frame[i + w - 1] + 2 * frame[i + w] + frame[i + w + 1] - frame[i - w - 1] - 2 * frame[i - w] - frame[i - w + 1];
+    out[i] = Math.hypot(gx, gy);
+  }
+  return out;
+}
+function blur(map, w, h, passes = 2) {
+  let a = map; let b = new Float32Array(map.length);
+  for (let p = 0; p < passes; p += 1) {
+    for (let y = 1; y < h - 1; y += 1) for (let x = 1; x < w - 1; x += 1) {
+      const i = y * w + x; let s = 0;
+      for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) s += a[i + dy * w + dx];
+      b[i] = s / 9;
+    }
+    [a, b] = [b, a];
+  }
+  return a;
+}
+function correlation(a, b) {
+  let ma = 0; let mb = 0; for (let i = 0; i < a.length; i += 1) { ma += a[i]; mb += b[i]; }
+  ma /= a.length; mb /= a.length;
+  let num = 0; let da = 0; let db = 0;
+  for (let i = 0; i < a.length; i += 1) { const x = a[i] - ma; const y = b[i] - mb; num += x * y; da += x * x; db += y * y; }
+  return da && db ? num / Math.sqrt(da * db) : 0;
+}
+
+export function structureScore(framesA, framesB, w, h) {
+  const n = Math.min(framesA.length, framesB.length);
+  const scores = [];
+  for (let i = 0; i < n; i += 1) scores.push(correlation(blur(edgeMap(framesA[i], w, h), w, h), blur(edgeMap(framesB[i], w, h), w, h)));
+  const mean = scores.reduce((s, v) => s + v, 0) / (scores.length || 1);
+  return { mean: Math.round(mean * 1000) / 1000, min: Math.round(Math.min(...scores, 1) * 1000) / 1000, frames: n };
+}
+
+export const STRUCTURE_MEAN = 0.78;
+export const STRUCTURE_MIN = 0.6;
+
+export async function structureHeld(aiFile, refFile, { width, height }) {
+  const scale = 320 / Math.max(width, height);
+  const w = Math.max(64, Math.round(width * scale)); const h = Math.max(64, Math.round(height * scale));
+  const [a, b] = await Promise.all([sampleFrames(aiFile, { width: w, height: h, fps: 3 }), sampleFrames(refFile, { width: w, height: h, fps: 3 })]);
+  const score = structureScore(a, b, w, h);
+  return { ...score, held: score.mean >= STRUCTURE_MEAN && score.min >= STRUCTURE_MIN };
+}

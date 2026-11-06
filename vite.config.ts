@@ -26,6 +26,8 @@ const localBindingConfig = {
       max_instances: 20,
     },
   ],
+  // Cloudflare Workers AI: the film quality review (app/api/_lib/film-review.ts). Declared here so every deploy keeps it.
+  ai: { binding: "AI" },
   durable_objects: { bindings: [{ name: "COMPOSER", class_name: "Composer" }] },
   migrations: [{ tag: "composer-v1", new_sqlite_classes: ["Composer"] }],
   // Local development runs without Docker; films there use the backup joiner.

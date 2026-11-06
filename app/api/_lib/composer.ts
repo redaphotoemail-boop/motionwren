@@ -32,6 +32,8 @@ export type EditSpec = {
   keepAudio?: boolean;
   /** Free mechanical quality check (on unless false). */
   qc?: boolean;
+  /** Hybrid scenes: the measured (mechanical) clip behind an AI clip; used instead when the AI clip bent its lines. */
+  refs?: (string | null)[];
   /** Per scene playback speed (1 = as made); orbit and pan scenes run slower so less is invented. */
   speeds?: number[];
   /** Keep a few stills of the finished film for the AI review. */
