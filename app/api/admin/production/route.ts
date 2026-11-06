@@ -50,6 +50,7 @@ export async function GET(request: Request) {
         music: !process.env.ELEVENLABS_API_KEY ? (process.env.REPLICATE_API_TOKEN ? "Stable Audio (backup)" : "None")
           : editor.musicSource === "stable-audio" ? "Backup in use" : editor.musicSource === "none" ? "Missing" : "ElevenLabs",
         musicNote: editor.musicNote.slice(0, 200),
+        polishNote: (editor.polishNote || "").slice(0, 300),
       },
       jobs,
     });

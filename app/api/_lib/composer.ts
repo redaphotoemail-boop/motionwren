@@ -57,6 +57,11 @@ export type EditState = {
   music?: boolean;
   qc?: FilmCheck;
   stills?: number;
+  /** Photo move 3.0: what the AI polish did for each scene. */
+  hybrid?: { scene: number; used: "ai" | "measured"; error?: string; mean?: number; min?: number }[];
+  depthScenes?: number;
+  depthFallbacks?: number;
+  depthError?: string;
 };
 
 export type FilmCheck = { status: "pass" | "warn" | "fail" | "error"; flags: { level: "warn" | "fail"; code: string; at?: number; message: string }[]; metrics?: Record<string, number>; error?: string; checkedAt: number };
@@ -163,7 +168,7 @@ export function musicPrompt({ aspect, duration, choice }: { aspect: string; dura
 
 /* musicSource: where the last new music came from ("elevenlabs",
    "stable-audio" or "none"); musicNote: why ElevenLabs was skipped, if it was. */
-type EditorState = { lastOkAt: number; lastError: string; lastErrorAt: number; musicSource: string; musicNote: string };
+type EditorState = { lastOkAt: number; lastError: string; lastErrorAt: number; musicSource: string; musicNote: string; polishNote?: string };
 type DbEnv = { DB: D1Database };
 
 export async function readEditorState(env: DbEnv): Promise<EditorState> {

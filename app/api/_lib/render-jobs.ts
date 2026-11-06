@@ -437,7 +437,11 @@ async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   if (!claim.meta.changes) return;
   // A re-edit reuses the film's kept music, which says nothing about the music engines.
   const madeMusic = state.musicSource && state.musicSource !== "kept";
-  await recordEditorState(env, { lastOkAt: Date.now(), ...(madeMusic ? { musicSource: state.musicSource, musicNote: state.musicError || "" } : {}) });
+  // What the Photo move 3.0 AI polish did (or why it was skipped), so the manager can see it.
+  const polish = manifest.photoHybrid ? (state.hybrid?.length
+    ? state.hybrid.map((item) => `Scene ${item.scene}: ${item.used === "ai" ? "AI polish kept" : "plain depth render kept"}${item.error ? ` (${item.error})` : item.mean !== undefined ? ` (lines held ${Math.round(item.mean * 100)}%)` : ""}`).join(" · ")
+    : state.depthFallbacks ? `Depth step failed: ${state.depthError || "unknown"}` : "AI polish did not run (editing service has no record of it)") : undefined;
+  await recordEditorState(env, { lastOkAt: Date.now(), ...(polish !== undefined ? { polishNote: polish.slice(0, 300) } : {}), ...(madeMusic ? { musicSource: state.musicSource, musicNote: state.musicError || "" } : {}) });
   if (state.music && !edit.music?.saved) {
     try {
       await storeResponse(env.BUCKET, musicKey(row.id), await editFile(env, row.id, key, "music"), "audio/mpeg");

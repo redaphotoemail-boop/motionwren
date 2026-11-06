@@ -19,7 +19,7 @@ function sceneNote(error: string) {
    fix a stuck video. Every action goes through the same queue, so a double
    click cannot create duplicate engine jobs. */
 
-type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string };
+type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string; polishNote?: string };
 type Job = StudioJob & { owner?: string };
 
 const time = (value: number) => value ? new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
@@ -121,7 +121,7 @@ export default function ProductionPage() {
       <Metric label="Engine" value={health?.engine || "…"} />
       <Metric label="With the engine" value={health ? `${health.activeScenes} of ${health.maxActive}` : "…"} note={health ? `${health.queuedScenes} in line · ${health.activeVideos} video${health.activeVideos === 1 ? "" : "s"}` : undefined} />
       <Metric label="Last provider message" value={health?.lastErrorAt ? ago(health.lastErrorAt, now) : "None"} note={health?.lastError ? sceneNote(health.lastError) : undefined} />
-      <Metric label="Editing" value={!health ? "…" : health.editor === "ready" ? "Ready" : health.editor === "trouble" ? "Retrying" : "Backup joiner"} tone={health?.editor === "ready" ? "ok" : health?.editor === "trouble" ? "warn" : "bad"} note={health?.editor === "backup" ? "Editing service not set up: music changes between scenes" : health?.editorOkAt ? `Last film edited ${ago(health.editorOkAt, now)}` : "One music track, true crossfades"} />
+      <Metric label="Editing" value={!health ? "…" : health.editor === "ready" ? "Ready" : health.editor === "trouble" ? "Retrying" : "Backup joiner"} tone={health?.editor === "ready" ? "ok" : health?.editor === "trouble" ? "warn" : "bad"} note={health?.editor === "backup" ? "Editing service not set up: music changes between scenes" : health?.editorOkAt ? `Last film edited ${ago(health.editorOkAt, now)}${health.polishNote ? ` · ${health.polishNote}` : ""}` : "One music track, true crossfades"} />
       <Metric label="Music" value={health?.music || "…"} tone={health?.music === "ElevenLabs" ? "ok" : "warn"} note={musicNote} />
     </section>
 
