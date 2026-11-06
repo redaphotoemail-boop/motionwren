@@ -36,13 +36,15 @@ export const studioEngines: StudioEngine[] = [
     key: "wan3",
     name: "Wan 3.0",
     shortName: "Wan 3.0",
-    description: "Newest Wan model with cinematic motion and longer generations.",
-    bestFor: "Latest overall quality",
+    description: "Newest Wan model with cinematic motion and longer generations. 1080p is made at 720p, then upscaled to 1080p automatically.",
+    bestFor: "Latest overall quality · 1080p for less",
     resolutions: ["480p", "720p", "1080p"],
     audio: false,
     firstLastFrame: false,
     realEstate: true,
-    pricePerSecond: { "480p": 0.035, "720p": 0.07, "1080p": 0.14 },
+    badge: "UPSCALED 1080P",
+    pricePerSecond: { "480p": 0.035, "720p": 0.07, "1080p": 0.0886 }, // 720p price + Topaz upscale; native 1080p would be $0.14/s
+    upscaleTo1080: true,
   },
   {
     key: "runway4turbo",

@@ -468,6 +468,19 @@ const stitchCreates = () => P.stitchInputs.length;
   check("15m a Photo move 2.0 film asks the editor for strict depth", end.status === "succeeded" && spec?.strictDepth === true && scenesOf("s15m").length === 0, `${end.status} ${end.error || ""} ${JSON.stringify(spec)}`);
 }
 
+/* 15n. A single clip from an engine that makes 720p: edited at 720p, then upscaled to 1080p automatically */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 1, { tag: "s15n", kind: "studio-single" });
+  const m0 = await lib.loadManifest(env, id); m0.upscale = { to: "1080p" }; await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("15n a single clip is edited at 720p and goes on to the upscaler", end.status === "succeeded" && spec?.height === 720 && spec?.clips.length === 1, `${end.status} ${end.error || ""} h=${spec?.height} ${JSON.stringify(spec)?.slice(0, 200)}`);
+}
+
 /* 15e. An engine that makes 720p: the edited film is upscaled to 1080p before it is saved */
 {
   resetProvider();

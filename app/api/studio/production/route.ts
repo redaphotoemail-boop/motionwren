@@ -41,7 +41,6 @@ export async function POST(request: Request) {
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
   if (valid.length !== scenesIn.length || !valid.length || valid.length > 12) return NextResponse.json({ error: "Every scene needs a clear prompt (and at most 12 scenes)." }, { status: 400 });
-  if (mode === "single" && engineUpscales(engine, resolution)) return NextResponse.json({ error: "This engine reaches 1080p in Create film. For a single clip, choose 720p." }, { status: 400 });
   if (mode === "series" && valid.length < 2) return NextResponse.json({ error: "Add at least two scenes." }, { status: 400 });
 
   // How many scenes and how long each, so the film lands on the chosen length.
@@ -88,7 +87,7 @@ export async function POST(request: Request) {
   }
   const cards = cleanCards(body.cards);
   if (cards) manifest.cards = cards;
-  if (mode === "series" && engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
+  if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
   if (mode === "series") manifest.edit = { shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect, duration }) } };
   try {
     await saveManifest(env, id, manifest);
