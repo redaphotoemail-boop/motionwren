@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import CookieBanner from "./components/cookie-banner";
 import MwPackageListener from "./mw-package-listener";
 
 export const metadata: Metadata = {
@@ -31,9 +32,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
+        <a className="skip-link" href="#main-content">Skip to content</a>
         <script src="/studio/mw-loader.js" data-src="/studio/mw-studio.html" defer></script>
         <MwPackageListener />
         {children}
+        <CookieBanner />
       </body>
     </html>
   );

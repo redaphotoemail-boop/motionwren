@@ -29,7 +29,7 @@ async function hashPassword(password: string, salt: Uint8Array) {
 
 export async function POST(request: Request) {
   const { env } = await import("cloudflare:workers");
-  let body: { email?: string; password?: string; displayName?: string };
+  let body: { email?: string; password?: string; displayName?: string; ageConfirmed?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -40,6 +40,7 @@ export async function POST(request: Request) {
   const displayName = String(body.displayName || "").trim() || email;
   if (!validEmail(email)) return Response.json({ error: "Enter a valid email address." }, { status: 400 });
   if (password.length < 8) return Response.json({ error: "Password must be at least 8 characters." }, { status: 400 });
+  if (body.ageConfirmed !== true) return Response.json({ error: "You must be 18 or older and agree to the Terms of Service and Privacy Policy to create an account." }, { status: 400 });
   try {
     await enforceRateLimit(env, "email-register", email, 5, 60 * 60 * 1000);
   } catch (error) {

@@ -180,6 +180,10 @@ export default function CustomerDashboard() {
   }
 
   async function deleteAccount() {
+    /* Export first: deletion is permanent and removes orders, photos,
+       videos and credits. The account menu above already offers
+       "Download my data" — this step makes sure it is not skipped. */
+    if (!window.confirm("Delete your account permanently? Download your data first (account menu → Download my data) — deletion removes your orders, photos, videos and credits and cannot be undone.")) return;
     const typed = window.prompt("This permanently deletes your account, orders, photos and videos. Type DELETE MY ACCOUNT to confirm.");
     if (typed === null) return;
     if (typed.trim() !== "DELETE MY ACCOUNT") { setError("Account not deleted. Type DELETE MY ACCOUNT exactly to confirm."); return; }
@@ -249,7 +253,7 @@ export default function CustomerDashboard() {
     </li>;
   }
 
-  return <main className="ws">
+  return <main className="ws" id="main-content">
     <header className="ws-top">
       <div className="ws-wrap ws-top-inner">
         <Link href="/" className="ws-home" aria-label="MotionWren home"><Wordmark size={28} /></Link>
@@ -383,7 +387,7 @@ export default function CustomerDashboard() {
         </div>
       </section>
 
-      <footer className="ws-foot"><WrenMark size={18} /><span>MotionWren</span><a href="mailto:info@redaphoto.com">Help</a><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></footer>
+      <footer className="ws-foot"><WrenMark size={18} /><span>MotionWren</span><a href="mailto:info@redaphoto.com">Help</a><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/refund">Refunds</Link><Link href="/cookies">Cookies</Link></footer>
     </div>
 
     {selecting && <div className="select-bar" role="region" aria-label="Selection">

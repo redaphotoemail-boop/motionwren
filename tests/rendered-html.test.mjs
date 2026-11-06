@@ -192,3 +192,52 @@ test("keeps manager Google authentication server-side and exposes admin navigati
   assert.doesNotMatch(googleStart, /GOOGLE_CLIENT_SECRET/);
   assert.doesNotMatch(landing, /GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|REPLICATE_API_TOKEN/);
 });
+
+test("publishes the legal pages and asks for consent before an account is created", async () => {
+  const [refund, cookies, privacy, terms, sitemap, layout, banner, settings, emailForm, register, landing] = await Promise.all([
+    readFile(new URL("../app/refund/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/cookies/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/privacy/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/terms/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/sitemap.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/cookie-banner.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/cookie-settings.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/signin/email-form.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/email/register/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+  // Refund policy: automatic credit return on a failed generation, no duplicate charges.
+  assert.match(refund, /Failed generations are refunded automatically/);
+  assert.match(refund, /not charged twice/);
+  assert.match(refund, /within 14 days/);
+  assert.match(refund, /expire at the end of that month/);
+  assert.match(refund, /info@redaphoto\.com/);
+  // Cookie policy + banner: essential cookies named, no analytics cookies, accept/reject.
+  assert.match(cookies, /motionwren_session/);
+  assert.match(cookies, /does not currently use analytics/);
+  assert.match(banner, /Reject optional cookies/);
+  assert.match(banner, /COOKIE_CONSENT_KEY/);
+  assert.match(settings, /mw-cookie-consent/);
+  assert.match(layout, /CookieBanner/);
+  assert.match(layout, /Skip to content/);
+  // Privacy + terms: contact, 18+, processors, no draft language left.
+  assert.match(privacy, /18 and over/);
+  assert.match(privacy, /Stripe \(payments/);
+  assert.match(privacy, /Google \(sign-in and fonts\)/);
+  assert.match(privacy, /Resend \(service email\)/);
+  assert.match(terms, /at least 18 years old/);
+  assert.match(terms, /Refund Policy/);
+  assert.doesNotMatch(privacy, /launch draft|must be reviewed with final company/);
+  assert.doesNotMatch(terms, /launch draft|require legal review/);
+  // Sitemap and footer link the new pages; sign-up requires the age + terms checkbox.
+  assert.match(sitemap, /\/refund/);
+  assert.match(sitemap, /\/cookies/);
+  assert.match(landing, /\/refund/);
+  assert.match(landing, /\/cookies/);
+  assert.match(landing, /Boston, Massachusetts/);
+  assert.match(emailForm, /I am 18 or older/);
+  assert.match(register, /ageConfirmed !== true/);
+  // The homepage no longer states the AI result as an absolute guarantee.
+  assert.doesNotMatch(landing, /Walls stay straight, furniture stays put/);
+});
