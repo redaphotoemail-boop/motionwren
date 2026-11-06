@@ -387,7 +387,7 @@ export default function CustomerDashboard() {
         </div>
       </section>
 
-      <footer className="ws-foot"><WrenMark size={18} /><span>MotionWren</span><a href="mailto:info@redaphoto.com">Help</a><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/refund">Refunds</Link><Link href="/cookies">Cookies</Link></footer>
+      <footer className="ws-foot"><WrenMark size={18} /><span>MotionWren</span><a href="mailto:info@redaphoto.com">Help</a><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/refund">Refunds</Link><Link href="/cookies">Cookies</Link><Link href="/accessibility">Accessibility</Link></footer>
     </div>
 
     {selecting && <div className="select-bar" role="region" aria-label="Selection">

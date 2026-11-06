@@ -14,6 +14,7 @@ export default function AuthFrame({ children }: { children: React.ReactNode }) {
           <Link href="/terms">Terms</Link>
           <Link href="/refund">Refunds</Link>
           <Link href="/cookies">Cookies</Link>
+          <Link href="/accessibility">Accessibility</Link>
           <a href="mailto:info@redaphoto.com">Contact</a>
         </nav>
       </section>
