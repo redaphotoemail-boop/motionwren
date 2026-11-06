@@ -40,8 +40,24 @@ const eleven = http.createServer(async (req, res) => {
   if (/output_format=mp3_44100_192/.test(req.url)) { res.writeHead(403, { "Content-Type": "application/json" }); return res.end('{"detail":{"status":"output_format_not_allowed"}}'); }
   res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": musicBytes.length }); res.end(musicBytes);
 });
+const mode_refine = { value: "good" };
 const replicate = http.createServer(async (req, res) => {
-  let raw = ""; for await (const chunk of req) raw += chunk;
+  const chunks = []; for await (const chunk of req) chunks.push(chunk);
+  const bytes = Buffer.concat(chunks); const raw = bytes.toString("latin1");
+  if (req.method === "POST" && req.url === "/v1/files") {
+    // The uploaded clip: keep the bytes between the multipart headers and the closing boundary.
+    const start = bytes.indexOf("\r\n\r\n") + 4; const end = bytes.lastIndexOf("\r\n--");
+    writeFileSync(path.join(dir, "uploaded-move.mp4"), bytes.subarray(start, end));
+    res.writeHead(201, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ urls: { get: `${base(files)}/uploaded-move.mp4` } }));
+  }
+  if (req.method === "POST" && req.url.includes("wan-2.7-videoedit")) {
+    calls.refine = (calls.refine || 0) + 1; calls.refineBody = JSON.parse(raw);
+    if (mode_refine.value === "down") { res.writeHead(500, { "Content-Type": "application/json" }); return res.end('{"detail":"down"}'); }
+    // good: the same lines (a touch softer, with grain); bad: lines bent and shifted
+    const vf = mode_refine.value === "bad" ? "lenscorrection=k1=0.35:k2=0.1,rotate=0.05:fillcolor=black" : "gblur=sigma=0.6,noise=alls=5:allf=t";
+    ff(["-i", path.join(dir, "uploaded-move.mp4"), "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", path.join(dir, "refined-out.mp4")]);
+    res.writeHead(201, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ id: "rf1", status: "succeeded", output: `${base(files)}/refined-out.mp4` }));
+  }
   const json = (status, data) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(data)); };
   if (req.method === "POST" && raw.includes('"version"')) { calls.depth += 1; if (mode.depth === "down") return json(500, { detail: "depth down" }); if (raw.includes("return_raw_depth")) calls.metric = (calls.metric || 0) + 1; return json(201, { id: "dp1", status: "starting" }); }
   if (req.url.endsWith("/dp1")) return json(200, { id: "dp1", status: "succeeded", output: { grey_depth: `${base(files)}/depth.png`, depth_png: `${base(files)}/depth16.png`, scale_m_per_unit: 0.001, offset_m: 0 } });
@@ -264,6 +280,27 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
   check("15a a 3.0 film asks the metric depth model and renders with true distances", done.status === "done" && calls.metric === 1 && done.depthScenes === 1 && !done.depthFallbacks, `${done.status} metric=${calls.metric} ${done.error || done.depthError || ""}`);
   const bad = await api("POST", "/jobs/film-fifteen-bad", spec({ depthMode: "other" }));
   check("15b an unknown depth mode is refused", bad.status === 400);
+}
+
+/* 16. Photo move 3.0 hybrid: AI realism over the measured move, kept only if the lines hold */
+{
+  const hy = (over = {}) => spec({ clips: [`${base(files)}/photo.jpg`, clip(2), clip(3)], moves: ["pull-rise", null, null], strictDepth: true, depthMode: "metric", hybrid: true, ...over });
+  calls.refine = 0; mode_refine.value = "good";
+  await api("POST", "/jobs/film-sixteen-a", hy());
+  const a = await waitDone("film-sixteen-a");
+  check("16a the measured move is refined by the AI model with the extra refine prompt, and the refined clip is used when its lines hold", a.status === "done" && calls.refine === 1 && /perfectly straight/.test(calls.refineBody?.input?.prompt || "") && a.hybrid?.[0]?.used === "ai", `${a.status} refine=${calls.refine} ${JSON.stringify(a.hybrid)} ${a.error || ""}`);
+  mode_refine.value = "bad";
+  await api("POST", "/jobs/film-sixteen-b", hy());
+  const b = await waitDone("film-sixteen-b");
+  check("16b when the AI bends the lines, the measured move is kept", b.status === "done" && b.hybrid?.[0]?.used === "measured" && b.hybrid[0].held === false, `${b.status} ${JSON.stringify(b.hybrid)} ${b.error || ""}`);
+  mode_refine.value = "down";
+  await api("POST", "/jobs/film-sixteen-c", hy());
+  const c = await waitDone("film-sixteen-c");
+  check("16c when the AI service is down, the film still finishes with the measured move", c.status === "done" && c.hybrid?.[0]?.used === "measured" && Boolean(c.hybrid[0].error), `${c.status} ${JSON.stringify(c.hybrid)} ${c.error || ""}`);
+  const noHybrid = calls.refine;
+  await api("POST", "/jobs/film-sixteen-d", hy({ hybrid: false }));
+  await waitDone("film-sixteen-d");
+  check("16d without hybrid, the AI model is never called", calls.refine === noHybrid);
 }
 
 for (const server of [composer, files, eleven, replicate]) server.close();

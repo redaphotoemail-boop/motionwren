@@ -5,11 +5,11 @@ import { Icon } from "../../ui-icon";
 import { Metric, PageHead, cents } from "../ui";
 import { cardFeeCents } from "../../cost-model";
 
-type Lines = { videoCents: number; musicCents: number; editCents: number; totalCents: number };
+type Lines = { videoCents: number; musicCents: number; editCents: number; reviewCents: number; totalCents: number };
 type Totals = Lines & { videos: number; finished: number; perFinishedCents: number; priceCents: number; musicSeconds: number };
 type Segment = { customer: Totals; studio: Totals };
 type Row = Lines & { id: string; segment: "customer" | "studio"; status: string; title: string; owner: string; duration: number; createdAt: number; priceCents: number | null };
-type CostData = { month: Segment; allTime: Segment; recent: Row[]; fixedMonthly: { cloudflare: number; elevenLabs: number }; rates: { musicPerMinute: number; editPerFilm: number; includedMusicMinutes: number; cardPercent: number; cardFixed: number }; paymentsConnected: boolean };
+type CostData = { month: Segment; allTime: Segment; recent: Row[]; fixedMonthly: { cloudflare: number; elevenLabs: number }; rates: { reviewCloudflareCents: number; reviewClaudeCents: number; musicPerMinute: number; editPerFilm: number; includedMusicMinutes: number; cardPercent: number; cardFixed: number }; paymentsConnected: boolean };
 
 const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 const placed = (value: number) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -41,7 +41,7 @@ export default function FinancePage() {
     if (!rows.length) return null;
     const avg = (pick: (row: Row) => number) => Math.round(rows.reduce((sum, row) => sum + pick(row), 0) / rows.length);
     const priced = rows.filter((row) => row.priceCents != null);
-    return { films: rows.length, clients: mine.length > 0, video: avg((row) => row.videoCents), music: avg((row) => row.musicCents), edit: avg((row) => row.editCents), total: avg((row) => row.totalCents), seconds: avg((row) => row.duration), price: priced.length ? Math.round(priced.reduce((sum, row) => sum + (row.priceCents || 0), 0) / priced.length) : null };
+    return { films: rows.length, clients: mine.length > 0, video: avg((row) => row.videoCents), music: avg((row) => row.musicCents), edit: avg((row) => row.editCents), review: avg((row) => row.reviewCents), total: avg((row) => row.totalCents), seconds: avg((row) => row.duration), price: priced.length ? Math.round(priced.reduce((sum, row) => sum + (row.priceCents || 0), 0) / priced.length) : null };
   })();
 
   const body = (() => {
@@ -54,6 +54,7 @@ export default function FinancePage() {
       { label: "Video engine", cents: data.videoCents, note: "Replicate: generating every scene" },
       { label: "Music", cents: data.musicCents, note: `ElevenLabs: one track per film, about $${costs.rates.musicPerMinute.toFixed(2)} a minute` },
       { label: "Editing", cents: data.editCents, note: "Cloudflare: joining scenes and mixing the music" },
+      { label: "Quality review", cents: data.reviewCents, note: `The free check costs nothing; the AI review is about ${costs.rates.reviewCloudflareCents}¢ a film on Cloudflare, ${costs.rates.reviewClaudeCents}¢ on Claude (estimates). Scenes re-made by a fix are in Video engine.` },
       ...(period === "month" ? [{ label: "Monthly plans", cents: fixedCents, note: `Cloudflare $${costs.fixedMonthly.cloudflare} + ElevenLabs $${costs.fixedMonthly.elevenLabs}, paid whether or not anyone orders` }] : []),
       ...(orders ? [{ label: "Card fees (projected)", cents: feeCents, note: `${costs.rates.cardPercent}% + $${costs.rates.cardFixed.toFixed(2)} per order once payments are on` }] : []),
     ];
@@ -69,11 +70,11 @@ export default function FinancePage() {
       if (span === "week") { const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)); return { key: `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`, label: `Week of ${start.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` }; }
       return { key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, label: d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" }) };
     };
-    const map = new Map<string, { key: string; label: string; rows: Row[]; video: number; music: number; edit: number; total: number; price: number }>();
+    const map = new Map<string, { key: string; label: string; rows: Row[]; video: number; music: number; edit: number; review: number; total: number; price: number }>();
     for (const row of costs.recent.filter((item) => item.segment === who)) {
       const { key, label } = bucket(row.createdAt);
-      const group = map.get(key) || { key, label, rows: [], video: 0, music: 0, edit: 0, total: 0, price: 0 };
-      group.rows.push(row); group.video += row.videoCents; group.music += row.musicCents; group.edit += row.editCents; group.total += row.totalCents; group.price += row.priceCents || 0;
+      const group = map.get(key) || { key, label, rows: [], video: 0, music: 0, edit: 0, review: 0, total: 0, price: 0 };
+      group.rows.push(row); group.video += row.videoCents; group.music += row.musicCents; group.edit += row.editCents; group.review += row.reviewCents; group.total += row.totalCents; group.price += row.priceCents || 0;
       map.set(key, group);
     }
     const groups = [...map.values()];
@@ -96,7 +97,7 @@ export default function FinancePage() {
       <section className="metrics" aria-label="Money in and out">
         {orders && <Metric label="Revenue at list price" value={cents(revenue)} note={costs.paymentsConnected ? label : `${label} · not charged yet`} />}
         {orders && <Metric label="Profit after all costs" value={cents(profit)} note={revenue ? `${pct(profit, revenue)}% margin` : "No priced orders"} tone={profit < 0 ? "bad" : undefined} />}
-        <Metric label="Cost per finished video" value={cents(data.perFinishedCents)} note="Engine + music + editing" />
+        <Metric label="Cost per finished video" value={cents(data.perFinishedCents)} note="Engine + music + editing + review" />
         <Metric label="Music used" value={`${musicMinutes.toFixed(1)} min`} note={period === "month" ? `of ${costs.rates.includedMusicMinutes} included in the plan` : "all films, all time"} />
         {orders && breakEven !== null && period === "month" && <Metric label="Orders to cover plans" value={String(breakEven)} note={`Monthly plans ÷ ${cents(perOrderProfit)} profit per order`} />}
       </section>
@@ -109,14 +110,14 @@ export default function FinancePage() {
         </div></div>
         {groups.length ? <div className="period-list">
           {groups.map((group) => <details key={group.key} className="period" open={group === groups[0]}>
-            <summary><span><strong>{group.label}</strong><small>{group.rows.length} video{group.rows.length === 1 ? "" : "s"}{orders ? ` · ${cents(group.price)} at list price` : ""}</small></span><span className="cell-num"><strong>{cents(group.total)}</strong><small className="cost-split">Engine {cents(group.video)} · Music {cents(group.music)} · Edit {cents(group.edit)}</small></span></summary>
+            <summary><span><strong>{group.label}</strong><small>{group.rows.length} video{group.rows.length === 1 ? "" : "s"}{orders ? ` · ${cents(group.price)} at list price` : ""}</small></span><span className="cell-num"><strong>{cents(group.total)}</strong><small className="cost-split">Engine {cents(group.video)} · Music {cents(group.music)} · Edit {cents(group.edit)}{group.review ? ` · Review ${cents(group.review)}` : ""}</small></span></summary>
             <div className="table costs" role="table" aria-label={`Videos, ${group.label}`}>
-              <div className="table-head" role="row"><span>Video</span><span>Engine</span><span>Music</span><span>Editing</span><span>Total</span><span>{orders ? "Price" : ""}</span><span>{orders ? "Profit" : ""}</span></div>
+              <div className="table-head" role="row"><span>Video</span><span>Engine</span><span>Music</span><span>Edit &amp; review</span><span>Total</span><span>{orders ? "Price" : ""}</span><span>{orders ? "Profit" : ""}</span></div>
               {group.rows.map((row) => <div role="row" className="table-row" key={row.id}>
-                <span className="cell-main"><strong>{row.title}{row.owner ? ` · ${row.owner}` : ""}</strong><small>{placed(row.createdAt)} · {row.duration}s · {row.status === "succeeded" ? "finished" : row.status}</small><small className="cost-mobile">Engine {cents(row.videoCents)} · Music {cents(row.musicCents)} · Edit {cents(row.editCents)}</small></span>
+                <span className="cell-main"><strong>{row.title}{row.owner ? ` · ${row.owner}` : ""}</strong><small>{placed(row.createdAt)} · {row.duration}s · {row.status === "succeeded" ? "finished" : row.status}</small><small className="cost-mobile">Engine {cents(row.videoCents)} · Music {cents(row.musicCents)} · Edit {cents(row.editCents)}{row.reviewCents ? ` · Review ${cents(row.reviewCents)}` : ""}</small></span>
                 <span className="cell-num" data-label="Engine">{cents(row.videoCents)}</span>
                 <span className="cell-num" data-label="Music">{row.musicCents ? cents(row.musicCents) : "–"}</span>
-                <span className="cell-num" data-label="Editing">{row.editCents ? cents(row.editCents) : "–"}</span>
+                <span className="cell-num" data-label="Edit & review">{row.editCents + row.reviewCents ? cents(row.editCents + row.reviewCents) : "–"}</span>
                 <span className="cell-num" data-label="Total"><strong>{cents(row.totalCents)}</strong></span>
                 <span className="cell-num" data-label="Price">{orders && row.priceCents != null ? cents(row.priceCents) : ""}</span>
                 <span className="cell-num" data-label="Profit">{orders && row.priceCents != null ? cents(row.priceCents - row.totalCents) : ""}</span>

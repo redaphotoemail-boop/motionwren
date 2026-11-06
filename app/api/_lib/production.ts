@@ -44,6 +44,8 @@ export type ProductionManifest = {
   photoStrict?: boolean;
   /** Photo move 3.0: metric depth. */
   photoMetric?: boolean;
+  /** Photo move 3.0: AI refining over the measured move (with the straightness guard). */
+  photoHybrid?: boolean;
   /** The opening property card and closing agent card, burned into the film by the editor. */
   cards?: ListingCards;
   nextAt?: number[];      // earliest time the scene may be sent (again)

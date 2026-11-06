@@ -187,6 +187,7 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
               const attempt = manifest.attempts[index] + 1;
               const input = await engineInputFor(env, token, jobId, manifest, index, attempt);
               ids[index] = await createPrediction(token, manifest.endpoint, input, webhookUrl);
+              if (provider.lowCredit || provider.pausedUntil) await writeProviderState(env, { lowCredit: false, pausedUntil: 0 }).catch(() => undefined); // the engine took a request: the credit warning is over
               manifest.attempts[index] = attempt;
               manifest.startedAt[index] = Date.now();
               manifest.states[index] = "creating";

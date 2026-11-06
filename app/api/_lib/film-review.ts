@@ -12,10 +12,13 @@ export const REVIEW_CLOUDFLARE_KEY = "ai_review_cloudflare";
 export const REVIEW_CLAUDE_KEY = "ai_review_claude";
 const CF_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const CLAUDE_MODEL = "claude-sonnet-5-5";
+import { COST_RATES } from "../../cost-model";
+const CF_REVIEW_CENTS = COST_RATES.reviewCloudflareCents;
+const CLAUDE_REVIEW_CENTS = COST_RATES.reviewClaudeCents;
 
 type AiBinding = { run(model: string, input: Record<string, unknown>): Promise<{ response?: string } | string> };
 export type Finding = { at: number; issue: string };
-export type AiReview = { status: "pass" | "flag" | "error"; reviewer: "cloudflare" | "claude" | "cloudflare+claude"; findings: Finding[]; reviewedAt: number; error?: string };
+export type AiReview = { status: "pass" | "flag" | "error"; reviewer: "cloudflare" | "claude" | "cloudflare+claude"; findings: Finding[]; reviewedAt: number; error?: string; costCents?: number };
 
 const secret = (name: string) => (typeof process !== "undefined" ? process.env?.[name] : undefined) || undefined;
 
@@ -98,9 +101,10 @@ export async function reviewStills(env: unknown, stills: Uint8Array[], times: nu
   if (!useCf && !useClaude) return { ...base, status: "error", reviewer: use.claude && !use.cloudflare ? "claude" : "cloudflare", findings: [], error: use.claude && !use.cloudflare ? "Claude is switched on but no Anthropic key is set." : "Cloudflare Workers AI is switched on but not connected." };
   try {
     let findings: Finding[] = [];
-    if (useCf) findings = await reviewWithCloudflare(env, stills, times);
-    if (useClaude && (!useCf || findings.length)) findings = await reviewWithClaude(stills, times); // Claude double-checks what Cloudflare flagged
-    return { ...base, status: findings.length ? "flag" : "pass", reviewer: useCf && useClaude ? "cloudflare+claude" : useCf ? "cloudflare" : "claude", findings };
+    let costCents = 0;
+    if (useCf) { findings = await reviewWithCloudflare(env, stills, times); costCents += CF_REVIEW_CENTS; }
+    if (useClaude && (!useCf || findings.length)) { findings = await reviewWithClaude(stills, times); costCents += CLAUDE_REVIEW_CENTS; } // Claude double-checks what Cloudflare flagged
+    return { ...base, status: findings.length ? "flag" : "pass", reviewer: useCf && useClaude ? "cloudflare+claude" : useCf ? "cloudflare" : "claude", findings, costCents };
   } catch (error) {
     return { ...base, status: "error", reviewer: useCf ? "cloudflare" : "claude", findings: [], error: String(error instanceof Error ? error.message : error).slice(0, 300) };
   }

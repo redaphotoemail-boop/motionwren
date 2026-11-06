@@ -13,14 +13,15 @@ const AGGREGATE = `SELECT ${SEGMENT} AS segment,
   COALESCE(SUM(CASE WHEN j.kind IN (${KINDS}) AND j.status = 'succeeded' THEN 1 ELSE 0 END), 0) AS edited,
   COALESCE(SUM(j.cost_cents), 0) AS videoCents,
   COALESCE(SUM(CASE WHEN j.kind IN (${KINDS}) AND j.status = 'succeeded' THEN j.duration + ${COST_RATES.musicExtraSeconds} ELSE 0 END), 0) AS musicSeconds,
-  COALESCE(SUM(CAST(p.price AS REAL) * 100), 0) AS priceCents
-  FROM render_jobs j LEFT JOIN projects p ON p.render_job_id = j.id WHERE j.created_at >= ? GROUP BY segment`;
+  COALESCE(SUM(CAST(p.price AS REAL) * 100), 0) AS priceCents,
+  COALESCE(SUM(CAST(rc.value AS REAL)), 0) AS reviewCents
+  FROM render_jobs j LEFT JOIN projects p ON p.render_job_id = j.id LEFT JOIN platform_settings rc ON rc.key = 'review-cost:' || j.id WHERE j.created_at >= ? GROUP BY segment`;
 
 type Row = CostAggregate & { segment: "customer" | "studio" };
 
 async function totals(env: { DB: D1Database }, since: number) {
   const rows = await env.DB.prepare(AGGREGATE).bind(since).all<Row>();
-  const empty: CostAggregate = { videos: 0, finished: 0, edited: 0, videoCents: 0, musicSeconds: 0, priceCents: 0 };
+  const empty: CostAggregate = { videos: 0, finished: 0, edited: 0, videoCents: 0, musicSeconds: 0, priceCents: 0, reviewCents: 0 };
   const pick = (segment: string) => aggregateCosts(rows.results.find((row) => row.segment === segment) || empty);
   return { customer: pick("customer"), studio: pick("studio") };
 }
@@ -34,15 +35,15 @@ export async function GET() {
     const [month, allTime, recent] = await Promise.all([
       totals(env, monthStart),
       totals(env, 0),
-      env.DB.prepare(`SELECT j.id, j.kind, j.status, j.category, j.duration, j.aspect, j.cost_cents AS costCents, j.created_at AS createdAt, ${SEGMENT} AS segment, CAST(p.price AS REAL) * 100 AS priceCents, u.display_name AS name, u.email AS email
-        FROM render_jobs j LEFT JOIN projects p ON p.render_job_id = j.id LEFT JOIN users u ON u.id = j.owner_id
-        ORDER BY j.created_at DESC LIMIT 1500`).all<{ id: string; kind: string; status: string; category: string; duration: number; aspect: string; costCents: number; createdAt: number; segment: string; priceCents: number | null; name: string | null; email: string | null }>(),
+      env.DB.prepare(`SELECT j.id, j.kind, j.status, j.category, j.duration, j.aspect, j.cost_cents AS costCents, j.created_at AS createdAt, ${SEGMENT} AS segment, CAST(p.price AS REAL) * 100 AS priceCents, CAST(rc.value AS REAL) AS reviewCents, u.display_name AS name, u.email AS email
+        FROM render_jobs j LEFT JOIN projects p ON p.render_job_id = j.id LEFT JOIN users u ON u.id = j.owner_id LEFT JOIN platform_settings rc ON rc.key = 'review-cost:' || j.id
+        ORDER BY j.created_at DESC LIMIT 1500`).all<{ id: string; kind: string; status: string; category: string; duration: number; aspect: string; costCents: number; createdAt: number; segment: string; priceCents: number | null; reviewCents: number | null; name: string | null; email: string | null }>(),
     ]);
     return Response.json({
       month, allTime,
-      recent: recent.results.map((row) => ({ id: row.id, segment: row.segment, status: row.status, title: String(row.category || "Video").replace(/^Studio · /, ""), owner: row.name || row.email || "", duration: row.duration, createdAt: row.createdAt, priceCents: row.priceCents ?? null, ...videoCosts(row) })),
+      recent: recent.results.map((row) => ({ id: row.id, segment: row.segment, status: row.status, title: String(row.category || "Video").replace(/^Studio · /, ""), owner: row.name || row.email || "", duration: row.duration, createdAt: row.createdAt, priceCents: row.priceCents ?? null, ...videoCosts({ ...row, reviewCents: row.reviewCents || 0 }) })),
       fixedMonthly: { cloudflare: COST_RATES.cloudflareWorkersPaid, elevenLabs: COST_RATES.elevenLabsStarter },
-      rates: { musicPerMinute: COST_RATES.musicPerMinute, editPerFilm: COST_RATES.editPerFilm, includedMusicMinutes: COST_RATES.elevenLabsIncludedMinutes, cardPercent: COST_RATES.cardPercent, cardFixed: COST_RATES.cardFixed },
+      rates: { reviewCloudflareCents: COST_RATES.reviewCloudflareCents, reviewClaudeCents: COST_RATES.reviewClaudeCents, musicPerMinute: COST_RATES.musicPerMinute, editPerFilm: COST_RATES.editPerFilm, includedMusicMinutes: COST_RATES.elevenLabsIncludedMinutes, cardPercent: COST_RATES.cardPercent, cardFixed: COST_RATES.cardFixed },
       paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY),
     });
   } catch (error) { return jsonError(error); }

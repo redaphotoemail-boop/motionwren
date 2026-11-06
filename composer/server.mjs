@@ -248,6 +248,48 @@ async function depthMap(imageUrl, file, metric = false) {
   return Number.isFinite(scale) && scale > 0 ? { scale, offset: Number.isFinite(offset) ? offset : 0 } : { scale: 0.001, offset: 0 };
 }
 
+
+/* ---------- Photo move 3.0, the hybrid: a measured camera move, then AI realism on top, then a straightness guard ---------- */
+const REFINE_MODEL = "wan-video/wan-2.7-videoedit";
+/* An extra instruction for the refining step only. The scene prompts used for the engine clips are never touched. */
+export const REFINE_PROMPT = "Keep exactly the same camera move and the same room. Make it look like a real, sharp, photorealistic real-estate video: restore natural texture and detail, and replace any stretched, smeared or hazy areas with the material around them. Every wall, door frame, window frame and roofline must stay perfectly straight and exactly where it is. Do not add, remove, move or change any object.";
+
+async function refineClip(file, out, { width, height }) {
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error("The refining service is not connected.");
+  const auth = { Authorization: `Bearer ${token}` };
+  // 1. Our measured clip goes to Replicate's file store, so the model can read it.
+  const form = new FormData();
+  form.append("content", new Blob([await fs.readFile(file)], { type: "video/mp4" }), "move.mp4");
+  const upload = await fetch(`${REPLICATE_BASE}/v1/files`, { method: "POST", headers: auth, body: form, signal: AbortSignal.timeout(120_000) });
+  const uploaded = await upload.json().catch(() => ({}));
+  const link = uploaded?.urls?.get;
+  if (!upload.ok || !link) throw new Error(`The clip could not be sent for refining (HTTP ${upload.status}).`);
+  // 2. The refining model, on top of that clip.
+  let prediction;
+  for (let attempt = 1; attempt <= 4 && !prediction; attempt += 1) {
+    const response = await fetch(`${REPLICATE_BASE}/v1/models/${REFINE_MODEL}/predictions`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify({ input: { video: link, prompt: REFINE_PROMPT, resolution: "720p", aspect_ratio: "auto" } }), signal: AbortSignal.timeout(60_000) });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 429) { await sleep(Math.max(2000, (Number(response.headers.get("retry-after")) || 10) * 1000)); continue; }
+    if (!response.ok || !data.id) throw new Error(`Refining could not start (HTTP ${response.status}) ${String(data.detail || "").slice(0, 160)}`.trim());
+    prediction = data;
+  }
+  if (!prediction) throw new Error("The refining service stayed busy.");
+  const deadline = Date.now() + 12 * 60 * 1000;
+  while (!["succeeded", "failed", "canceled"].includes(prediction.status) && Date.now() < deadline) {
+    await sleep(3000);
+    const poll = await fetch(`${REPLICATE_BASE}/v1/predictions/${prediction.id}`, { headers: auth, signal: AbortSignal.timeout(30_000) });
+    if (poll.ok) prediction = await poll.json();
+  }
+  const url = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+  if (prediction.status !== "succeeded" || typeof url !== "string") throw new Error(`Refining did not finish (${prediction.status}${prediction.error ? `: ${String(prediction.error).slice(0, 120)}` : ""}).`);
+  const refined = `${out}.refined.mp4`;
+  await download(url, refined, MAX_CLIP_BYTES, "The refined clip");
+  // 3. The guard: the refined clip must keep the measured clip's lines.
+  const verdict = await structureHeld(refined, file, { width, height });
+  return { refined, verdict };
+}
+
 /* ---------- photo moves: a slow push, pull or slide on the original photo (no AI, so no softness) ---------- */
 
 /* Flat moves (no depth) and the depth moves. If depth is not available, a depth move falls back to its flat look. */
@@ -324,6 +366,7 @@ function validSpec(spec) {
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
   if (spec.speeds !== undefined && !(Array.isArray(spec.speeds) && spec.speeds.length === clips.length && spec.speeds.every((value) => typeof value === "number" && value >= 0.5 && value <= 1))) return "Scene speeds must match the scenes (0.5 to 1).";
   if (spec.refs !== undefined && !(Array.isArray(spec.refs) && spec.refs.length === clips.length && spec.refs.every((value) => value === null || (typeof value === "string" && /^https?:\/\//.test(value))))) return "Reference clips must match the scenes.";
+  if (spec.hybrid !== undefined && typeof spec.hybrid !== "boolean") return "Hybrid must be true or false.";
   if (spec.depthMode !== undefined && spec.depthMode !== "metric") return "Unknown depth mode.";
   if (spec.strictDepth === true && Array.isArray(spec.moves) && spec.moves.some((move) => move && !DEPTH_MOVES.includes(move))) return "Photo move 2.0 uses only the depth moves.";
   if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
@@ -360,6 +403,17 @@ async function compose(key, spec) {
               const metric = spec.depthMode === "metric" ? await depthMap(spec.clips[i], depthFile, true) : (await depthMap(spec.clips[i], depthFile), null);
               await renderParallaxClip({ image, depthImage: depthFile, move, boost: spec.strictDepth ? 1.2 : 1, edgeAware: spec.strictDepth === true, metric, ...shape });
               job.depthScenes = (job.depthScenes || 0) + 1;
+              if (spec.hybrid === true) {
+                try {
+                  const { refined, verdict } = await refineClip(file, file, { width: spec.width, height: spec.height });
+                  (job.hybrid ||= []).push({ scene: i + 1, used: verdict.held ? "ai" : "measured", ...verdict });
+                  if (verdict.held) await fs.rename(refined, file); else await fs.rm(refined, { force: true });
+                } catch (error) {
+                  // Never lose a film over the AI step: the measured clip is already good geometry.
+                  (job.hybrid ||= []).push({ scene: i + 1, used: "measured", error: String(error?.message || error).slice(0, 200) });
+                  console.warn(`hybrid: scene ${i + 1} kept the measured clip; ${error?.message || error}`);
+                }
+              }
             } catch (error) {
               // Photo move 2.0 is real 3D or nothing: no flat zoom, the film waits and says why.
               if (spec.strictDepth) throw new Error(`Photo move 2.0 needs the depth step: ${String(error?.message || error).slice(0, 200)}`);

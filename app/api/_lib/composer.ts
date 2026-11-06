@@ -28,6 +28,8 @@ export type EditSpec = {
   strictDepth?: boolean;
   /** Photo move 3.0: depth in true distances (metres) from a metric model. */
   depthMode?: "metric";
+  /** Photo move 3.0: AI realism over the measured move, kept only if the straight lines hold. */
+  hybrid?: boolean;
   /** One clip only: keep its own sound (no music track is added). */
   keepAudio?: boolean;
   /** Free mechanical quality check (on unless false). */

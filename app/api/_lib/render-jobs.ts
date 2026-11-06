@@ -392,7 +392,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(await aiReviewOn(env) ? { stills: true } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(await aiReviewOn(env) ? { stills: true } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -551,6 +551,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       }
       const review = await reviewStills(env, stills, times, use);
       manifest.aiReview = review;
+      if (review.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${row.id}`, String(review.costCents), Date.now()).run().catch(() => undefined);
       if (review.status === "flag") {
         alertText += ` ${review.findings.map((item) => `At ${item.at} s: ${item.issue}.`).join(" ")}`;
         for (const item of review.findings) add(sceneAt(item.at), `Fix: the previous attempt showed this problem: ${item.issue}. Keep every straight line perfectly straight, keep every object exactly where the source photo has it, and add nothing that is not in the photo.`);
@@ -781,7 +782,7 @@ export async function providerNote(env: { DB: D1Database }) {
   return {
     waitingUntil: Math.max(state.throttledUntil, state.pausedUntil) > now ? Math.max(state.throttledUntil, state.pausedUntil) : 0,
     paused: state.pausedUntil > now,
-    lowCredit: state.lowCredit,
+    lowCredit: state.lowCredit && Date.now() - state.lastErrorAt < 2 * 60 * 60 * 1000, // a warning from hours ago is not today's news
   };
 }
 

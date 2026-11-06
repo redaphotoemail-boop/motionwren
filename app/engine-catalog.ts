@@ -181,14 +181,14 @@ export const studioEngines: StudioEngine[] = [
     key: "photo3",
     name: "Photo move 3.0",
     shortName: "Photo move 3.0",
-    description: "Real 3D from true distances: each photo's depth is measured in metres, so straight edges stay straight through pulls, orbits and push-and-rise. Your exact photo pixels, no AI video. Commercially licensed depth model.",
-    bestFor: "Straight lines · exact photo",
+    description: "Hybrid: a camera move measured from the photo's true depth keeps every line straight, then AI adds realism on top. A guard compares the lines afterwards and keeps the measured move if the AI bent anything. Experimental.",
+    bestFor: "Straight lines · AI realism",
     resolutions: ["720p", "1080p"],
     audio: false,
     firstLastFrame: false,
     realEstate: true,
-    badge: "NEW · TRUE 3D",
-    pricePerSecond: { "720p": 0.0015, "1080p": 0.0015 }, // the depth map only (estimated, confirm after one run)
+    badge: "HYBRID",
+    pricePerSecond: { "720p": 0.1, "1080p": 0.1 }, // depth map + the AI refining step on the whole clip (the refining price is a guess until one run: confirm and update)
     photoMove: true,
   },
   {

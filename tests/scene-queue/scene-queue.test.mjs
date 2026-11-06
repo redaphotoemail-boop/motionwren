@@ -664,5 +664,13 @@ const stitchCreates = () => P.stitchInputs.length;
   check("22e fix switched off: the film is delivered after one edit", end.status === "succeeded" && C.starts.length === 1 && P.creates.filter((c) => c.job === "s22e").length === 2, `${end.status} edits=${C.starts.length}`);
 }
 
+/* 24e. AI review cost is its own line, added to the total */
+{
+  const withReview = lib.videoCosts({ kind: "studio-series", status: "succeeded", costCents: 180, duration: 15, reviewCents: 3.5 });
+  check("24e the AI review is a separate cost line and part of the total", withReview.reviewCents === 4 && withReview.totalCents === 180 + 8 + 1 + 4, JSON.stringify(withReview));
+  const agg = lib.aggregateCosts({ videos: 1, finished: 1, edited: 1, videoCents: 180, musicSeconds: 16.5, priceCents: 0, reviewCents: 3 });
+  check("24f totals include the review", agg.reviewCents === 3 && agg.totalCents === 180 + 8 + 1 + 3, JSON.stringify(agg));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

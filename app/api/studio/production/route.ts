@@ -81,7 +81,7 @@ export async function POST(request: Request) {
   // The final edit: each scene's share on screen and the film's one music track.
   if (engine === "photo" || engine === "photo2" || engine === "photo3") {
     if (engine !== "photo") manifest.photoStrict = true;
-    if (engine === "photo3") manifest.photoMetric = true;
+    if (engine === "photo3") { manifest.photoMetric = true; manifest.photoHybrid = true; }
     const asked = (PHOTO_MOVE_KEYS as readonly string[]).includes(String(body.photoMove)) ? String(body.photoMove) : "push-rise";
     manifest.photoMoves = mode === "single" ? [asked] : scenes.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
   }

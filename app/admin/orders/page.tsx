@@ -11,7 +11,7 @@ const placed = (value: number) => new Date(value).toLocaleString(undefined, { mo
 /* An order's cost lines from its video: engine, music, editing (see app/cost-model.ts). */
 function orderCosts(order: Order) {
   if (order.productionCostCents === null || order.productionCostCents === undefined) return null;
-  return videoCosts({ kind: String(order.jobKind || ""), status: String(order.jobStatus || ""), costCents: Number(order.productionCostCents), duration: Number(order.jobDuration || 0) });
+  return videoCosts({ kind: String(order.jobKind || ""), status: String(order.jobStatus || ""), costCents: Number(order.productionCostCents), duration: Number(order.jobDuration || 0), reviewCents: Number(order.productionReviewCents || 0) });
 }
 type StatusFilter = "all" | "draft" | "production" | "failed" | "completed";
 const statusFilters: Array<[StatusFilter, string]> = [["all", "All"], ["draft", "Saved"], ["production", "In production"], ["completed", "Ready"], ["failed", "Needs attention"]];
@@ -131,7 +131,7 @@ export default function OrdersPage() {
             <span className="cell-main"><strong>{String(order.title)}</strong><small>{order.listingAddress ? `${String(order.listingAddress)} · ` : ""}Placed {placed(Number(order.createdAt || order.updatedAt))} · updated {ago(Number(order.updatedAt))} · {Number(order.assetCount || 0)} photos</small>{order.shortMessage && <small className="cell-note">{String(order.shortMessage)}</small>}</span>
             <span className="cell-person"><strong>{String(order.ownerName || order.ownerEmail || "Unknown")}</strong><small>{String(order.ownerEmail || "")}</small></span>
             <span className="cell-num" data-label="Package">{hasPrice ? money(price) : "—"}</span>
-            <span className="cell-num" data-label="Cost">{lines ? <><strong>{cents(lines.totalCents)}</strong><small className="cost-split">Engine {cents(lines.videoCents)} · Music {cents(lines.musicCents)} · Edit {cents(lines.editCents)}</small></> : "—"}</span>
+            <span className="cell-num" data-label="Cost">{lines ? <><strong>{cents(lines.totalCents)}</strong><small className="cost-split">Engine {cents(lines.videoCents)} · Music {cents(lines.musicCents)} · Edit {cents(lines.editCents)}{lines.reviewCents ? ` · Review ${cents(lines.reviewCents)}` : ""}</small></> : "—"}</span>
             <span className="cell-num" data-label="Profit">{hasPrice && hasCost ? money(price - cost) : "—"}</span>
             <span><StatusPill status={String(order.status)} /></span>
           </Link>;
