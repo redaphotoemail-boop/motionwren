@@ -188,7 +188,7 @@ export const studioEngines: StudioEngine[] = [
     firstLastFrame: false,
     realEstate: true,
     badge: "HYBRID",
-    pricePerSecond: { "720p": 0.1, "1080p": 0.1 }, // depth map + the AI refining step on the whole clip (the refining price is a guess until one run: confirm and update)
+    pricePerSecond: { "720p": 0.3, "1080p": 0.3 }, // measured Nov 6: one 7 s refine (5 s scene + 2 s overlap) billed $1.40 on Replicate ($0.20 per rendered second) + under $0.01 depth, so about $0.28-0.30 per shown second
     photoMove: true,
   },
   {
