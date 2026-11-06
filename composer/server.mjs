@@ -269,14 +269,17 @@ export function photoClipArgs({ image, move, width, height, fps, seconds, output
 
 /* ---------- the edit ---------- */
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
   const filters = [];
   clips.forEach((_, i) => {
     // Each scene: hold its last frame if it runs short, take its share, one size and frame rate.
-    filters.push(`[${i}:v]tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},setsar=1,format=yuv420p[v${i}]`);
+    // A slower scene (orbits and pans): the camera covers less of the scene, so less is made up.
+    const speed = Array.isArray(speeds) && speeds[i] >= 0.5 && speeds[i] < 1 ? speeds[i] : 1;
+    const slow = speed < 1 ? `setpts=PTS/${speed.toFixed(3)},minterpolate=fps=${fps}:mi_mode=blend,` : "";
+    filters.push(`[${i}:v]${slow}tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},setsar=1,format=yuv420p[v${i}]`);
   });
   let last = "v0";
   for (let i = 1; i < count; i += 1) {
@@ -319,6 +322,7 @@ function validSpec(spec) {
   const clips = Array.isArray(spec.clips) ? spec.clips : [];
   if (clips.length < 1 || clips.length > 20 || clips.some((url) => typeof url !== "string" || !/^https?:\/\//.test(url))) return "Between 1 and 20 scene links are needed.";
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
+  if (spec.speeds !== undefined && !(Array.isArray(spec.speeds) && spec.speeds.length === clips.length && spec.speeds.every((value) => typeof value === "number" && value >= 0.5 && value <= 1))) return "Scene speeds must match the scenes (0.5 to 1).";
   if (spec.depthMode !== undefined && spec.depthMode !== "metric") return "Unknown depth mode.";
   if (spec.strictDepth === true && Array.isArray(spec.moves) && spec.moves.some((move) => move && !DEPTH_MOVES.includes(move))) return "Photo move 2.0 uses only the depth moves.";
   if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
@@ -393,7 +397,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { clips: files, music, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true };
+    const editInput = { clips: files, music, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, speeds: spec.speeds };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.

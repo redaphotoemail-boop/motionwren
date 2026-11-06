@@ -20,7 +20,7 @@ export default function EnginesPage() {
   const [timingMessage, setTimingMessage] = useState("");
   const [orders, setOrders] = useState<{ mode: "approval" | "automatic"; payments: boolean }>({ mode: "approval", payments: false });
   const [ordersMessage, setOrdersMessage] = useState("");
-  const [aiReview, setAiReview] = useState<{ on: boolean; connected: boolean }>({ on: false, connected: false });
+  const [review, setReview] = useState<{ cloudflare: boolean; claude: boolean; autoFix: boolean; connected: { cloudflare: boolean; claude: boolean } }>({ cloudflare: false, claude: false, autoFix: true, connected: { cloudflare: false, claude: false } });
   const [aiMessage, setAiMessage] = useState("");
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function EnginesPage() {
       if (result.multiShotSecondsPerImage === 3 || result.multiShotSecondsPerImage === 5 || result.multiShotSecondsPerImage === "auto") setSecondsPerImage(result.multiShotSecondsPerImage);
       if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine);
       setOrders({ mode: result.customerProduction === "automatic" ? "automatic" : "approval", payments: Boolean(result.paymentsConnected) });
-      setAiReview({ on: result.aiReview === true, connected: result.aiReviewConnected === true });
+      setReview({ cloudflare: result.review?.cloudflare === true, claude: result.review?.claude === true, autoFix: result.autoFix !== false, connected: { cloudflare: result.reviewConnected?.cloudflare === true, claude: result.reviewConnected?.claude === true } });
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
@@ -68,13 +68,13 @@ export default function EnginesPage() {
     setOrdersMessage(mode === "automatic" ? "New orders start on their own." : "New orders wait for you to press Start production.");
   }
 
-  async function saveAiReview(on: boolean) {
+  async function saveReview(change: { review?: { cloudflare?: boolean; claude?: boolean }; autoFix?: boolean }) {
     setAiMessage("");
-    const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aiReview: on }) });
+    const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) { setAiMessage(result.error || "The setting could not be saved."); return; }
-    setAiReview({ on: result.aiReview === true, connected: result.aiReviewConnected === true });
-    setAiMessage(on ? (result.aiReviewConnected ? "Every new film gets an AI review." : "On, but Cloudflare Workers AI is not connected yet, so nothing is reviewed.") : "AI review is off.");
+    setReview({ cloudflare: result.review?.cloudflare === true, claude: result.review?.claude === true, autoFix: result.autoFix !== false, connected: { cloudflare: result.reviewConnected?.cloudflare === true, claude: result.reviewConnected?.claude === true } });
+    setAiMessage("Saved.");
   }
 
   const current = studioEngine(defaultEngine);
@@ -119,7 +119,11 @@ export default function EnginesPage() {
       <div className="panel-head"><h2>Film quality check</h2><span className="muted small">Free check always on</span></div>
       <p className="muted">Every film is measured for sharpness, black or frozen picture, sudden jumps and flicker. Problems reach you as an alert; the film is still delivered.</p>
       <div className="choice-row">
-        {([[false, "AI review off", "No extra cost"], [true, "AI review on", aiReview.connected ? "A vision model looks at stills (about half a cent a film)" : "Needs Cloudflare Workers AI connected"]] as Array<[boolean, string, string]>).map(([value, label, note]) => <button key={label} type="button" className={aiReview.on === value ? "choice active" : "choice"} aria-pressed={aiReview.on === value} onClick={() => saveAiReview(value)}><strong>{label}</strong><small>{note}</small></button>)}
+        {([
+          ["Cloudflare AI review", review.cloudflare, review.connected.cloudflare ? "Looks at stills, about half a cent a film" : "Not connected yet", () => saveReview({ review: { cloudflare: !review.cloudflare } })],
+          ["Claude review", review.claude, review.connected.claude ? "Sharper eyes, a few cents a film" : "Needs an Anthropic key", () => saveReview({ review: { claude: !review.claude } })],
+          ["Fix automatically", review.autoFix, "Re-makes a flagged scene, up to 2 more times", () => saveReview({ autoFix: !review.autoFix })],
+        ] as Array<[string, boolean, string, () => void]>).map(([label, on, note, toggle]) => <button key={label} type="button" className={on ? "choice active" : "choice"} aria-pressed={on} onClick={toggle}><strong>{label}: {on ? "On" : "Off"}</strong><small>{note}</small></button>)}
       </div>
       {aiMessage && <p className="muted small" role="status">{aiMessage}</p>}
     </section>

@@ -32,6 +32,8 @@ export type EditSpec = {
   keepAudio?: boolean;
   /** Free mechanical quality check (on unless false). */
   qc?: boolean;
+  /** Per scene playback speed (1 = as made); orbit and pan scenes run slower so less is invented. */
+  speeds?: number[];
   /** Keep a few stills of the finished film for the AI review. */
   stills?: boolean;
   music?: { url?: string; prompt?: string; required?: boolean } | null;

@@ -1,10 +1,11 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
-import { frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
-import { aiReviewOn, reviewStills } from "./film-review";
+import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
+import { engineResolution } from "../../engine-providers";
+import { aiReviewOn, reviewSettings, reviewStills } from "./film-review";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
-import { CROSSFADE_SECONDS, studioEngine, type StudioEngineKey } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, engineCost, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -297,7 +298,7 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
       const fresh = await getRenderJob(env, row.id);
       if (!fresh || fresh.status !== "generating") return;
       const loadedManifest = segments.length === 1 ? await loadManifest(env, row.id) : null;
-      const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale));
+      const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest)));
       if (segments.length === 1 && !photoSingle) {
         const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'generating'`).bind(Date.now(), row.id).run();
         if (!claim.meta.changes) return;
@@ -320,7 +321,7 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const loaded = await loadManifest(env, row.id);
   const manifest = loaded ? normalizeManifest(loaded) : null;
   const origin = webhookUrl ? new URL(webhookUrl).origin : "";
-  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
+  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest)) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
   // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
@@ -364,12 +365,16 @@ const jobFileLink = (origin: string, row: RenderJobRow, file: string) => `${orig
 
 /* Sends the film to our composer. Returns false when the editing service
    could not take it three times running, so the backup joiner takes over. */
+/* One scene that orbits or pans is also played slower in the edit. */
+const slowSingle = (manifest: ProductionManifest) => manifest.inputs.length === 1 && !manifest.photoMoves?.[0] && isSidewaysMove(manifest.inputs[0]?.prompt);
+
 async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, origin: string) {
   const count = manifest.inputs.length;
   const { segments } = alignedScenes(row, count);
   const moves = segments.map((_, index) => manifest.photoMoves?.[index] || null);
+  const speeds = segments.map((_, index) => !moves[index] && isSidewaysMove(manifest.inputs[index]?.prompt) ? SIDEWAYS_SPEED : 1);
   const clips = segments.map((url, index) => manifest.saved[index] && !moves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
-  if ((count < 2 && !moves.some(Boolean) && !manifest.cards && !manifest.upscale) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  if ((count < 2 && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest)) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   const edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
@@ -387,7 +392,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(await aiReviewOn(env) ? { stills: true } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(await aiReviewOn(env) ? { stills: true } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -512,26 +517,86 @@ async function upscaleFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rende
   return { response: download };
 }
 
-/* The free quality check's verdict: kept with the order and, when it found
-   something, the managers hear about it. Never blocks the film. */
-async function recordFilmCheck(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: ProductionManifest, key: string, historyId: string | null) {
+/* What a flagged film needs: only the engine scenes that show the problem are made again, each with an
+   added instruction that names it. The scene's own prompt is never touched. */
+const FIX_NOTES: Record<string, string> = {
+  jump: "Fix: the previous attempt had a sudden jump. Keep one continuous, smooth camera movement from the first frame to the last, with no cuts.",
+  black: "Fix: the previous attempt had black frames. The picture must stay fully lit and visible from the first frame to the last.",
+};
+const fixSetting = async (env: { DB: D1Database }) => (await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'auto_fix'").first<{ value?: string }>().catch(() => null))?.value !== "off";
+
+/* Reads the free check and the AI review of the edited film (before it is saved). Returns true when the film was
+   sent back to be made again, false when it should be delivered (with an alert if it still has problems). */
+async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, key: string): Promise<boolean> {
   try {
     const state = await editState(env, row.id, key);
+    const count = manifest.inputs.length;
+    const step = count > 1 ? Math.max(1, (manifest.edit?.shareSeconds || row.duration / count) - (manifest.edit?.crossfade || 0)) : row.duration;
+    const sceneAt = (at: number) => Math.min(count - 1, Math.max(0, Math.floor(at / step)));
+    const reasons = new Map<number, string[]>();
+    const add = (scene: number, note: string) => reasons.set(scene, [...(reasons.get(scene) || []), note]);
     const qc = state.qc;
-    if (state.stills) {
-      const stills: Uint8Array[] = [];
-      for (let n = 1; n <= state.stills; n += 1) stills.push(new Uint8Array(await (await editFile(env, row.id, key, `still/${n}` as `still/${number}`)).arrayBuffer()));
-      const review = await reviewStills(env, stills);
-      manifest.aiReview = review; await saveManifest(env, row.id, manifest);
-      if (review.status === "flag") await alertManagers(env, "The AI review flagged a film", `${review.issues.join(" ")} Order ${row.id}${historyId ? `, film ${historyId}` : ""}. The film was still delivered; open it and decide whether to re-make it.`);
+    let alertText = "";
+    if (qc && qc.status !== "error") {
+      manifest.qc = qc;
+      for (const flag of qc.flags) if (flag.level === "fail" && flag.at !== undefined && FIX_NOTES[flag.code]) add(sceneAt(flag.at), FIX_NOTES[flag.code]);
+      if (qc.status !== "pass") alertText += qc.flags.map((flag) => flag.message).join(" ");
     }
-    if (!qc || qc.status === "error") return;
-    manifest.qc = qc; await saveManifest(env, row.id, manifest);
-    if (qc.status !== "pass") {
-      const what = qc.flags.map((flag) => flag.message).join(" ");
-      await alertManagers(env, qc.status === "fail" ? "A film failed the quality check" : "A film has a quality warning", `${what} Order ${row.id}${historyId ? `, film ${historyId}` : ""}. The film was still delivered; open it and decide whether to re-make it.`);
+    const use = await reviewSettings(env);
+    if (state.stills && (use.cloudflare || use.claude)) {
+      const stills: Uint8Array[] = []; const times: number[] = [];
+      for (let n = 1; n <= state.stills; n += 1) {
+        stills.push(new Uint8Array(await (await editFile(env, row.id, key, `still/${n}` as `still/${number}`)).arrayBuffer()));
+        times.push(Math.round(((n - 0.5) / state.stills) * (state.duration || row.duration) * 10) / 10);
+      }
+      const review = await reviewStills(env, stills, times, use);
+      manifest.aiReview = review;
+      if (review.status === "flag") {
+        alertText += ` ${review.findings.map((item) => `At ${item.at} s: ${item.issue}.`).join(" ")}`;
+        for (const item of review.findings) add(sceneAt(item.at), `Fix: the previous attempt showed this problem: ${item.issue}. Keep every straight line perfectly straight, keep every object exactly where the source photo has it, and add nothing that is not in the photo.`);
+      }
+    }
+    await saveManifest(env, row.id, manifest);
+    const round = manifest.fix?.round || 0;
+    const scenes = [...reasons.keys()].filter((scene) => !manifest.photoMoves?.[scene]);
+    if (scenes.length && round < MAX_FIX_ROUNDS && await fixSetting(env)) {
+      const notes = [...(manifest.fix?.notes || Array(count).fill(""))];
+      for (const scene of scenes) notes[scene] = [...new Set(reasons.get(scene))].join(" ").slice(0, 700);
+      manifest.fix = { round: round + 1, notes, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400) }] };
+      if (await remakeScenes(env, row, manifest, scenes)) return true;
+    }
+    if (alertText.trim()) {
+      const left = round >= MAX_FIX_ROUNDS ? ` It was made ${round + 1} times and still has this.` : "";
+      await alertManagers(env, "A film has a quality problem", `${alertText.trim()}${left} Order ${row.id}. The film was delivered; open it and decide whether to re-make it.`);
     }
   } catch { /* the check is a bonus: never lose a film over it */ }
+  return false;
+}
+
+/* Sends the chosen scenes back to the engine (the job goes back to "generating"); the other scenes are kept. */
+async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, scenes: number[]) {
+  const lease = await acquireLease(env, `job-lock:${row.id}`, 60 * 1000);
+  if (!lease) return false;
+  try {
+    const fresh = await getRenderJob(env, row.id);
+    if (!fresh) return false;
+    const count = manifest.inputs.length;
+    const { ids, segments } = alignedScenes(fresh, count);
+    for (const index of scenes) {
+      ids[index] = ""; segments[index] = null;
+      manifest.states[index] = "queued"; manifest.attempts[index] = 0; manifest.waits[index] = 0; manifest.nextAt[index] = 0; manifest.reasons[index] = "";
+      manifest.outputs[index] = ""; manifest.saved[index] = ""; manifest.readyAt[index] = 0; manifest.lastErrors[index] = "";
+    }
+    manifest.stitchAttempts = 0;
+    if (manifest.upscale) manifest.upscale = { to: "1080p" };
+    if (manifest.edit) manifest.edit = { ...manifest.edit, key: undefined, tries: 0, startedAt: 0, lastError: "", usedBackupJoiner: false };
+    const seconds = manifest.sceneSeconds;
+    const extra = Math.round(engineCost(manifest.engine, engineResolution(manifest.engine), seconds) * scenes.length * 100);
+    await saveManifest(env, row.id, manifest);
+    await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
+    await alertManagers(env, "A film is being fixed", `The quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1}, about $${(extra / 100).toFixed(2)} more).`);
+    return true;
+  } finally { await releaseLease(env, `job-lock:${row.id}`, lease); }
 }
 
 async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string, ctx?: FinishContext) {
@@ -553,6 +618,11 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
       throw error;
     }
   }
+  if (manifest && film && !(upscaling && manifest.upscale?.stored) && await judgeFilm(env, fresh, manifest as Required<ProductionManifest>, key)) {
+    await film.body?.cancel().catch(() => undefined);
+    await dropEdit(env, row.id, key);
+    return null;
+  }
   if (upscaling) {
     const out = await upscaleFilm(env, fresh, manifest!, film, ctx!);
     if (!out) return null;
@@ -560,7 +630,6 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
   }
   const historyId = await storeFinishedFilm(env, fresh, film!, `composer:${key}`);
   if (manifest?.upscale?.stored) await env.BUCKET.delete(composedKey(row.id)).catch(() => undefined);
-  if (manifest) await recordFilmCheck(env, row, manifest, key, historyId);
   await dropEdit(env, row.id, key);
   return historyId;
 }

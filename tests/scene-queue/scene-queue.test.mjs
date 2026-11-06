@@ -79,7 +79,7 @@ globalThis.fetch = async (url, init = {}) => {
       const tries = P.creates.filter((c) => c.scene === scene && c.job === body.input.prompt.split("|")[0]).length;
       const outcomes = P.script.get(scene) || ["ok"];
       const raw = JSON.stringify(body.input);
-      P.creates.push({ scene, id, at: clock, job: body.input.prompt.split("|")[0], via: raw.includes("data:image/") ? "inline" : raw.includes("api.replicate.com/v1/files/") ? "file" : "link" });
+      P.creates.push({ scene, id, at: clock, prompt: String(body.input.prompt), job: body.input.prompt.split("|")[0], via: raw.includes("data:image/") ? "inline" : raw.includes("api.replicate.com/v1/files/") ? "file" : "link" });
       P.preds.set(id, { scene, status: "processing", doneAt: clock + P.sceneMs, outcome: outcomes[Math.min(tries, outcomes.length - 1)] });
       maxRunning = Math.max(maxRunning, running());
     }
@@ -362,17 +362,17 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
 /* A stand-in for the Composer container: the same HTTP protocol as
    composer/server.mjs, finishing an edit 60 s (simulated) after it starts. */
 function makeComposer() {
-  const C = { jobs: new Map(), starts: [], specs: [], failNext: 0, down: 0, loseOutput: false, outputs: 0, musicFallback: false };
+  const C = { qc: null, jobs: new Map(), starts: [], specs: [], failNext: 0, down: 0, loseOutput: false, outputs: 0, musicFallback: false };
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   const stubFor = (name) => ({
     fetch: async (url, init = {}) => {
       if (C.down > 0) { C.down -= 1; throw new Error("Container failed to start"); }
-      const u = new URL(url); const m = /^\/jobs\/([^/]+)(\/output|\/music)?$/.exec(u.pathname); const key = m[1]; const method = (init.method || "GET").toUpperCase();
+      const u = new URL(url); const m = /^\/jobs\/([^/]+)(\/output|\/music|\/still\/\d)?$/.exec(u.pathname); const key = m[1]; const method = (init.method || "GET").toUpperCase();
       if (method === "POST") {
         const spec = JSON.parse(init.body); C.specs.push({ name, key, spec });
         const existing = C.jobs.get(key); if (existing && existing.status !== "failed") return json(existing);
         C.starts.push(key);
-        C.jobs.set(key, { key, status: "running", startedAt: clock, doneAt: clock + 60_000, fail: C.failNext-- > 0, music: Boolean(spec.music), musicSource: spec.music?.url ? "kept" : C.musicFallback ? "stable-audio" : "elevenlabs", ...(C.musicFallback && !spec.music?.url ? { musicError: "ElevenLabs music failed (HTTP 403) output_format_not_allowed" } : {}) });
+        C.jobs.set(key, { ...(C.qc ? C.qc(C.starts.length) : {}), key, status: "running", startedAt: clock, doneAt: clock + 60_000, fail: C.failNext-- > 0, music: Boolean(spec.music), musicSource: spec.music?.url ? "kept" : C.musicFallback ? "stable-audio" : "elevenlabs", ...(C.musicFallback && !spec.music?.url ? { musicError: "ElevenLabs music failed (HTTP 403) output_format_not_allowed" } : {}) });
         return json(C.jobs.get(key), 202);
       }
       const job = C.jobs.get(key);
@@ -627,6 +627,41 @@ const stitchCreates = () => P.stitchInputs.length;
   }
   const done = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM render_jobs WHERE status = 'succeeded'").get().n;
   check("21a with credit, 6 scenes at a time: all 25 finish, never over the limit, no duplicates", done === 25 && maxRunning <= 6 && maxRunning >= 4 && P.creates.length === 75 && C.starts.length === 25, `succeeded=${done} maxRunning=${maxRunning} creates=${P.creates.length} minutes=${Math.round((clock - t0) / 60000)}`);
+}
+
+/* 22. The fix loop: a failed check re-makes only the flagged scene with an ADDED instruction, at most twice */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  C.qc = () => ({ qc: { status: "fail", flags: [{ level: "fail", code: "jump", at: 5, message: "The picture jumps suddenly around 5 s." }], checkedAt: clock } });
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  env.DB.raw.prepare("INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('admin-22','a22@x.test','A','admin','active','internal',0,0,0)").run();
+  const id = await newJob(env, 3, { tag: "s22" }); await withEdit(env, id, 3.875);
+  const cost0 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const made = P.creates.filter((c) => c.job === "s22");
+  const m = await lib.loadManifest(env, id);
+  const base = made.filter((c) => c.scene === 1)[0].prompt;
+  const fixed = made.filter((c) => c.scene === 1).slice(1);
+  check("22a a film that keeps failing is made 3 times at most (first + 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
+  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 2, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
+  check("22c a fix adds an instruction after the scene's own prompt, which is never edited", fixed.every((c) => c.prompt.startsWith(base) && /Fix:/.test(c.prompt)) && !/Fix:/.test(base) && !/Fix:/.test(String(m.inputs[1].prompt)), `${fixed.map((c) => c.prompt.slice(-90)).join(" | ")}`);
+  const cost1 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
+  check("22d each fix is added to the order's cost", cost1 > cost0, `${cost0} -> ${cost1}`);
+}
+
+/* 22e. With "Fix automatically" off, a flagged film is delivered at once */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  C.qc = () => ({ qc: { status: "fail", flags: [{ level: "fail", code: "black", at: 1, message: "Black picture around 1 s." }], checkedAt: clock } });
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  env.DB.raw.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES ('auto_fix','off',0)").run();
+  const id = await newJob(env, 2, { tag: "s22e" }); await withEdit(env, id, 3.875);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  check("22e fix switched off: the film is delivered after one edit", end.status === "succeeded" && C.starts.length === 1 && P.creates.filter((c) => c.job === "s22e").length === 2, `${end.status} edits=${C.starts.length}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -58,6 +58,9 @@ export type ProductionManifest = {
      skipped: why the 720p film was kept instead. */
   qc?: import("./composer").FilmCheck;
   aiReview?: import("./film-review").AiReview;
+  /* The fix loop: a flagged scene is made again with an ADDED instruction (notes[scene]);
+     the scene's own prompt in `inputs` is never edited. round counts re-makes (at most MAX_FIX_ROUNDS). */
+  fix?: { round: number; notes: string[]; history: { round: number; scenes: number[]; why: string }[] };
   upscale?: { to: "1080p"; stored?: boolean; predictionId?: string; startedAt?: number; tries?: number; done?: boolean; skipped?: string; lastError?: string };
   /* The final edit by our composer (composer.ts): each scene's share of the
      film on screen, the crossfade, and the film's ONE music track — its
@@ -181,7 +184,7 @@ async function inlinePhoto(env: R2Env, key: string, limit: number): Promise<stri
    Each way fails over to the next, so one way of handing over the photo
    failing can never sink a scene. The manifest remembers the uploaded copy
    (the caller saves it). */
-export async function engineInputFor(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
+async function baseEngineInput(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
   const input = manifest.inputs[index];
   const photo = manifest.photos?.[index];
   if (!photo) return legacyInput(env, jobId, index, input, attempt);
@@ -261,4 +264,22 @@ export function cleanCards(value: unknown): ListingCards | undefined {
   const hasClosing = Boolean(closing.name || closing.contact || closing.logo);
   if (!hasOpening && !hasClosing) return undefined;
   return { opening: hasOpening ? opening : null, closing: hasClosing ? closing : null };
+}
+
+/* Orbits, lateral slides and pans reveal parts of the room the photo never
+   showed, and that is where an engine invents things. These scenes play a
+   little slower in the edit: the camera covers less of the room and what is
+   shown is the part the engine kept faithful. Pushes and pulls stay as made.
+   The scene's own prompt is never changed. */
+export const SIDEWAYS_SPEED = 0.7;
+export const isSidewaysMove = (prompt: unknown) => typeof prompt === "string" && /lateral slide|horizontal lateral|orbit|\bpan(s|ning)?\b/i.test(prompt);
+
+export const MAX_FIX_ROUNDS = 2; // the film is made at most three times: the first, and two fixes
+
+/* The input the engine receives: the scene's own input, plus (only in a fix) the extra instruction after it. */
+export async function engineInputFor(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
+  const input = await baseEngineInput(env, token, jobId, manifest, index, attempt);
+  const note = manifest.fix?.notes?.[index];
+  if (!note || typeof input.prompt !== "string") return input;
+  return { ...input, prompt: `${input.prompt.slice(0, 3600)} ${note}` };
 }
