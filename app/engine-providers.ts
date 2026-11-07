@@ -47,7 +47,7 @@ export function engineResolution(engine: StudioEngineKey): StudioResolution {
 
 /* audio: engines that can make sound (the Studio's music/voiceover option);
    customer videos are always silent. seed: the Studio's fixed seed. */
-export type EngineInputOptions = { imageUrl: string; prompt: string; duration: number; resolution: StudioResolution; aspectRatio: "16:9" | "9:16"; audio?: boolean; seed?: number };
+export type EngineInputOptions = { imageUrl: string; prompt: string; duration: number; resolution: StudioResolution; aspectRatio: "16:9" | "9:16" | "1:1"; audio?: boolean; seed?: number };
 
 export function buildEngineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
   const input = engineInput(engine, { ...options, resolution: nativeResolution(engine, options.resolution) });
