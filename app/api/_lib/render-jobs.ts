@@ -11,7 +11,7 @@ import { acquireLease, classify, createPrediction, ProviderError, providerUrl, r
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
 /* Kinds whose scenes are joined with one-second cross-dissolves. */
-const CROSSFADE_KINDS = new Set(["customer-series", "studio-series"]);
+const CROSSFADE_KINDS = new Set(["customer-series", "studio-series", "ad-series"]);
 /* Engine shown in History for jobs made before manifests existed. */
 const KIND_ENGINE: Record<string, string> = { "ai-transition": "wan27", "clean-transition": "slideshow", "series-stitch": "stitched" };
 
@@ -106,6 +106,7 @@ export function outputSize(resolution: string, aspect: string) {
   const height = resolution === "1080p" ? 1080 : 720;
   if (aspect === "vertical") return { width: height, height: Math.round(height * 16 / 9) };
   if (aspect === "cinematic") return { width: Math.round(height * 2.39), height };
+  if (aspect === "square") return { width: height, height };
   return { width: Math.round(height * 16 / 9), height };
 }
 
@@ -356,7 +357,7 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
       if (!fresh || fresh.status !== "generating") return;
       const loadedManifest = segments.length === 1 ? await loadManifest(env, row.id) : null;
       const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest)));
-      if (segments.length === 1 && !photoSingle) {
+      if (segments.length === 1 && !photoSingle && !loadedManifest?.ads) {
         const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'generating'`).bind(Date.now(), row.id).run();
         if (!claim.meta.changes) return;
         const manifest = await loadManifest(env, row.id);
@@ -431,7 +432,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const moves = segments.map((_, index) => manifest.photoMoves?.[index] || null);
   const speeds = segments.map((_, index) => !moves[index] && isSidewaysMove(manifest.inputs[index]?.prompt) ? SIDEWAYS_SPEED : 1);
   const clips = segments.map((url, index) => manifest.saved[index] && !moves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
-  if ((count < 2 && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest)) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest)) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   const edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
@@ -443,13 +444,13 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   // An upscaled film is edited at the engine's own 720p; the upscaler then makes the 1080p (stretching it first would waste it).
   const height = row.resolution === "1080p" && !manifest.upscale ? 1080 : row.resolution === "480p" ? 480 : 720;
   const wide = Math.round(height * 16 / 9 / 2) * 2;
-  const [width, tall] = row.aspect === "vertical" ? [height, wide] : [wide, height];
-  const music = count === 1 ? null : edit.music?.saved
+  const [width, tall] = row.aspect === "vertical" ? [height, wide] : row.aspect === "square" ? [height, height] : [wide, height];
+  const music = count === 1 && !manifest.ads ? null : edit.music?.saved
     ? { url: jobFileLink(origin, row, "music.mp3") }
     : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(await aiReviewOn(env) ? { stills: true } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: true } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -689,7 +690,7 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
       throw error;
     }
   }
-  if (manifest && film && !(upscaling && manifest.upscale?.stored) && await judgeFilm(env, fresh, manifest as Required<ProductionManifest>, key)) {
+  if (manifest && film && row.kind !== "ad-series" && !(upscaling && manifest.upscale?.stored) && await judgeFilm(env, fresh, manifest as Required<ProductionManifest>, key)) {
     await film.body?.cancel().catch(() => undefined);
     await dropEdit(env, row.id, key);
     return null;

@@ -41,6 +41,10 @@ export type EditSpec = {
   /** Keep a few stills of the finished film for the AI review. */
   stills?: boolean;
   music?: { url?: string; prompt?: string; required?: boolean } | null;
+  /** Studio Ads: subtitle lines to burn in, and a voiceover track (a link
+      to the stored MP3) to mix over the music. */
+  subtitles?: { lines: { start: number; end: number; text: string }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
+  voiceover?: { url: string };
 };
 
 export type EditState = {

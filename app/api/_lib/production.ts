@@ -40,6 +40,11 @@ export type ProductionManifest = {
   photos?: { key: string; link: string; file?: string }[];
   /** Set for "Photo move" films: scene i is the original photo with this camera move, made by the editor (no AI clip). */
   photoMoves?: string[];
+  /** Studio Ads: this job is a commercial, not a real-estate film. The
+      pipeline treats it so: the composer edits even a single clip, and the
+      film-review reality check (which flags anything added or changed
+      versus the source photo) is skipped. */
+  ads?: boolean;
   /** Photo move 2.0: real depth for every scene, never a flat zoom. */
   photoStrict?: boolean;
   /** Photo move 3.0: metric depth. */
@@ -72,6 +77,11 @@ export type ProductionManifest = {
     shareSeconds?: number;
     crossfade?: number;
     music?: { prompt: string; saved?: string; source?: string };
+    /** Studio Ads: subtitle lines to burn in (position + size), and a
+        voiceover track already stored in R2 (voiceover.mp3), mixed over
+        the music by the composer. */
+    subtitles?: { lines: { start: number; end: number; text: string }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
+    voiceover?: { saved?: string };
     key?: string;
     attempt?: number;  // every edit ever started for this film (keys are never reused)
     tries?: number;    // edits tried for the current version of the film
@@ -87,6 +97,7 @@ const manifestKey = (jobId: string) => `render-jobs/${jobId}/manifest.json`;
 export const frameKey = (jobId: string, index: number) => `render-jobs/${jobId}/scene-${String(index + 1).padStart(2, "0")}.jpg`;
 export const outputKey = (jobId: string, index: number) => `render-jobs/${jobId}/out-${String(index + 1).padStart(2, "0")}.mp4`;
 export const musicKey = (jobId: string) => `render-jobs/${jobId}/music.mp3`;
+export const voiceoverKey = (jobId: string) => `render-jobs/${jobId}/voiceover.mp3`;
 
 /* Fills fields older manifests do not have, so every job runs on the queue. */
 export function normalizeManifest(manifest: ProductionManifest) {
