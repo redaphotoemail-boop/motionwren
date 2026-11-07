@@ -159,3 +159,75 @@ export const authSessions = sqliteTable("auth_sessions", {
   expiresAt: integer("expires_at").notNull(),
   createdAt: integer("created_at").notNull(),
 }, (table) => [index("auth_sessions_user_idx").on(table.userId), index("auth_sessions_expires_idx").on(table.expiresAt)]);
+
+/* Studio Ads (admin-only commercials): own tables, because the customer
+   `projects` table is real-estate-shaped. Generation reuses `render_jobs`
+   with kind 'ad-series'. See drizzle/0011_studio_ads.sql. */
+export const adProjects = sqliteTable("ad_projects", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  title: text("title").notNull(),
+  hook: text("hook"),
+  prompt: text("prompt").notNull().default(""),
+  scenePrompts: text("scene_prompts").notNull().default("[]"),
+  sceneImages: text("scene_images").notNull().default("[]"),
+  engine: text("engine").notNull().default("wan3"),
+  resolution: text("resolution").notNull().default("1080p"),
+  aspect: text("aspect").notNull().default("vertical"),
+  targetDuration: integer("target_duration").notNull().default(10),
+  subtitles: text("subtitles").notNull().default("{}"),
+  voiceoverScript: text("voiceover_script").notNull().default(""),
+  voiceId: text("voice_id"),
+  musicMood: text("music_mood"),
+  draft: integer("draft", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull().default("draft"),
+  renderJobId: text("render_job_id"),
+  finalHistoryId: text("final_history_id"),
+  costCents: integer("cost_cents").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("ad_projects_owner_created_idx").on(table.ownerId, table.createdAt)]);
+
+export const adAssets = sqliteTable("ad_assets", {
+  id: text("id").primaryKey(),
+  adProjectId: text("ad_project_id").notNull(),
+  ownerId: text("owner_id").notNull(),
+  kind: text("kind").notNull().default("source"),
+  r2Key: text("r2_key").notNull().unique(),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  providerToken: text("provider_token"),
+  expiresAt: integer("expires_at"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("ad_assets_project_order_idx").on(table.adProjectId, table.sortOrder)]);
+
+export const adActors = sqliteTable("ad_actors", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  name: text("name").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("ad_actors_owner_created_idx").on(table.ownerId, table.createdAt)]);
+
+export const adActorPhotos = sqliteTable("ad_actor_photos", {
+  id: text("id").primaryKey(),
+  actorId: text("actor_id").notNull(),
+  ownerId: text("owner_id").notNull(),
+  angle: text("angle").notNull().default("front"),
+  r2Key: text("r2_key").notNull().unique(),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  providerToken: text("provider_token"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("ad_actor_photos_actor_order_idx").on(table.actorId, table.sortOrder)]);
+
+export const adProjectActors = sqliteTable("ad_project_actors", {
+  adProjectId: text("ad_project_id").notNull(),
+  actorId: text("actor_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("ad_project_actors_actor_idx").on(table.actorId)]);
