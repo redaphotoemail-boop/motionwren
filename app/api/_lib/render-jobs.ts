@@ -1,6 +1,7 @@
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
+import { HttpError, audit } from "./account";
 import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
 import { engineResolution } from "../../engine-providers";
 import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } from "./film-review";
@@ -242,7 +243,10 @@ export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?
 /* A customer's order is never left failed for the customer to see: a stopped
    order is quietly resumed by the heartbeat (up to MAX_RECOVERIES times, only
    the scenes that were not made are made again), and once those are used up
-   the managers are alerted and the customer still sees it in production. */
+   the managers are alerted and the customer is told it is taking longer
+   (see HOLDING_MESSAGE) — never that it failed. The fix itself stays with
+   the heartbeat and the managers; the customer can ask for their credit
+   back, but only as a fallback (see refundHoldingOrder). */
 /* Backups for a client order, in order: if the engine it started on cannot make a scene, the scenes still
    to be made go to the next one. Chosen for the same natural, photo-true look at a fair price. */
 const BACKUP_ENGINES: StudioEngineKey[] = ["wan3", "hailuo23", "wan27", "kling3"];
@@ -251,12 +255,33 @@ const HARD_ERROR = /not.?found|not supported|unavailable|invalid|unprocessable|H
 const WAIT_ERROR = /credit|throttl|rate limit|429|busy/i;
 const recoveryKey = (id: string) => `job_recoveries:${id}`;
 
-async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, message: string) {
+/* A stopped customer order is "holding" once the automatic retries are used
+   up, or once it has sat failed past the heartbeat's recovery window: the
+   fix is no longer quick, so the customer is told it is taking longer.
+   Jobs the customer stopped themselves (or got refunded) are never holding. */
+export const HOLDING_WINDOW_MS = 6 * 60 * 60 * 1000;
+export const HOLDING_MESSAGE = "We're looking into this — your video is taking a little longer than usual. This can happen with a technical issue or a high volume of submissions. We're on it and we'll get back to you as soon as it's ready.";
+export function isHoldingJob(job: { status: string; updatedAt: number; error?: string | null } | null, recoveries: number, now = Date.now()): boolean {
+  if (!job || job.status !== "failed") return false;
+  if (String(job.error || "").startsWith("Stopped")) return false;
+  return recoveries >= MAX_RECOVERIES || now - job.updatedAt > HOLDING_WINDOW_MS;
+}
+export async function getRecoveries(env: { DB: D1Database }, jobId: string): Promise<number> {
+  return Number((await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(recoveryKey(jobId)).first<{ value?: string }>())?.value || 0) || 0;
+}
+
+export async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, message: string) {
   const now = Date.now();
   if (row.kind === "customer-series") {
     await env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status NOT IN ('succeeded','failed')`).bind(message.slice(0, 1000), now, row.id).run();
-    const used = Number((await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(recoveryKey(row.id)).first<{ value?: string }>())?.value || 0) || 0;
-    if (used >= MAX_RECOVERIES) await alertManagers(env, "An order needs you", `A client order stopped even after ${MAX_RECOVERIES} automatic retries (${message.slice(0, 200)}). The customer has not been told. Open Production to resume or fix it.`);
+    const used = await getRecoveries(env, row.id);
+    if (used >= MAX_RECOVERIES) {
+      await alertManagers(env, "An order needs you", `A client order stopped even after ${MAX_RECOVERIES} automatic retries (${message.slice(0, 200)}). The customer has been told it is taking longer. Open Production to resume or fix it.`);
+      // The holding message, once per order: the customer is told it is
+      // taking longer — never that it failed — and can ask for a refund.
+      const note = await env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'production_delayed', 'Taking a little longer', ?, NULL, ?)`).bind(`${row.id}:delayed`, row.ownerId, HOLDING_MESSAGE, now).run();
+      if (note.meta.changes) await sendAccountEmail(env, row.ownerId, "Your MotionWren video is taking a little longer", HOLDING_MESSAGE);
+    }
     return;
   }
   await env.DB.batch([
@@ -273,6 +298,38 @@ async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: Ren
     }
   }
   await sendAccountEmail(env, row.ownerId, "Your MotionWren project needs attention", `Video processing stopped: ${customerSafeError(message).slice(0, 500)}`);
+}
+
+/* A customer asks for their credit back on a holding order: the order is
+   past the automatic retries, so the fix did not land quickly. The refund
+   is the fallback, not the first thing shown — it only runs on an order the
+   customer already sees as taking longer, and only when a credit was
+   actually reserved for it. Idempotent: a second ask finds the order
+   cancelled and is refused, and the ledger insert is keyed so a credit can
+   never be returned twice for one order. */
+export async function refundHoldingOrder(env: { DB: D1Database }, projectId: string, ownerId: string) {
+  const now = Date.now();
+  const project = await env.DB.prepare(`SELECT id, render_job_id AS renderJobId FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(projectId, ownerId).first<{ id: string; renderJobId: string | null }>();
+  if (!project) throw new HttpError(404, "Project not found.");
+  if (!project.renderJobId) throw new HttpError(409, "This order has no video to refund.");
+  const job = await getRenderJob(env, project.renderJobId, ownerId);
+  if (!job) throw new HttpError(409, "This order has no video to refund.");
+  if (job.status !== "failed") throw new HttpError(409, "This order is still being worked on.");
+  if (!isHoldingJob(job, await getRecoveries(env, job.id), now)) throw new HttpError(409, "This order is not waiting on a fix yet.");
+  const reserved = await env.DB.prepare(`SELECT id FROM credit_ledger WHERE project_id = ? AND owner_id = ? AND type = 'project_reservation' LIMIT 1`).bind(project.id, ownerId).first();
+  if (!reserved) throw new HttpError(409, "There's no credit to refund for this order.");
+  const refund = await env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned after the customer asked for a refund on a delayed order', ?)`).bind(crypto.randomUUID(), ownerId, project.id, job.id, `project:${project.id}:failure-refund`, now).run();
+  if (refund.meta.changes) await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(now, ownerId).run();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE projects SET status = 'cancelled', updated_at = ? WHERE id = ? AND owner_id = ? AND status != 'completed'`).bind(now, project.id, ownerId),
+    // Stopped jobs are skipped by the heartbeat's recovery, so a refunded
+    // order is never quietly resumed (and re-spent) afterwards.
+    env.DB.prepare(`UPDATE render_jobs SET error = 'Stopped by customer refund.', updated_at = ? WHERE id = ? AND status = 'failed'`).bind(now, job.id),
+    env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'refund_issued', 'Refund issued', 'One video credit was returned to your account.', NULL, ?)`).bind(`${project.id}:refunded`, ownerId, now),
+  ]);
+  await audit(env, ownerId, "project.refunded", "project", project.id);
+  const balance = await env.DB.prepare(`SELECT credit_balance AS creditBalance FROM users WHERE id = ? LIMIT 1`).bind(ownerId).first<{ creditBalance: number }>();
+  return { refunded: true, creditBalance: balance?.creditBalance ?? 0 };
 }
 
 /* Starts the queue for a job whose photos are all in: every scene waits its
@@ -808,7 +865,7 @@ export async function providerNote(env: { DB: D1Database }) {
 /* Quietly resumes stopped client orders (see failRenderJob). Run by the heartbeat. */
 export async function recoverFailedOrders(env: { DB: D1Database; BUCKET: R2Bucket }) {
   const now = Date.now();
-  const stopped = await env.DB.prepare(`SELECT j.id FROM render_jobs j WHERE j.kind = 'customer-series' AND j.status = 'failed' AND j.updated_at < ? AND j.updated_at > ? AND COALESCE(j.error, '') NOT LIKE 'Stopped%' AND COALESCE((SELECT CAST(value AS INTEGER) FROM platform_settings WHERE key = 'job_recoveries:' || j.id), 0) < ? ORDER BY j.updated_at ASC LIMIT 2`).bind(now - 90 * 1000, now - 6 * 60 * 60 * 1000, MAX_RECOVERIES).all<{ id: string }>();
+  const stopped = await env.DB.prepare(`SELECT j.id FROM render_jobs j WHERE j.kind = 'customer-series' AND j.status = 'failed' AND j.updated_at < ? AND j.updated_at > ? AND COALESCE(j.error, '') NOT LIKE 'Stopped%' AND COALESCE(j.error, '') NOT LIKE 'Replaced%' AND COALESCE((SELECT CAST(value AS INTEGER) FROM platform_settings WHERE key = 'job_recoveries:' || j.id), 0) < ? ORDER BY j.updated_at ASC LIMIT 2`).bind(now - 90 * 1000, now - 6 * 60 * 60 * 1000, MAX_RECOVERIES).all<{ id: string }>();
   for (const item of stopped.results) {
     const row = await getRenderJob(env, item.id);
     if (!row) continue;

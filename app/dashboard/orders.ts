@@ -24,6 +24,8 @@ export type Project = {
   jobStatus?: string | null; // the render job behind a video in production
   scenesReady?: number | null;
   scenesTotal?: number | null;
+  holding?: number | boolean | null; // the order stopped and the retries are used up — the customer sees "taking longer"
+  refundable?: number | boolean | null; // a credit was reserved for this order, so the customer can ask for it back
 };
 
 /* Where a video in production stands, for the progress bar: scenes fill
@@ -40,7 +42,7 @@ export function productionProgress(project: Project): { stage: string; detail: s
 }
 
 export type DeliverableKind = "film" | "reel" | "story" | "post" | "graphic" | "cover";
-export type StatusGroup = "production" | "completed" | "draft" | "failed";
+export type StatusGroup = "production" | "completed" | "draft" | "failed" | "cancelled";
 
 export type Deliverable =
   | { type: "video"; key: string; kind: DeliverableKind; title: string; project: Project; group: StatusGroup }
@@ -62,9 +64,11 @@ export type Order = {
   group: StatusGroup;
 };
 
-/* Everything that is neither saved, finished nor stopped is being made. */
+/* Everything that is neither saved, finished nor stopped is being made.
+   A stopped order is its own group — never "failed": the customer is never
+   shown a failed project. */
 export const groupOf = (status: string): StatusGroup =>
-  status === "draft" ? "draft" : status === "failed" || status === "cancelled" ? "failed" : status === "completed" ? "completed" : "production";
+  status === "draft" ? "draft" : status === "cancelled" ? "cancelled" : status === "failed" ? "failed" : status === "completed" ? "completed" : "production";
 
 const GOALS: Record<string, string> = {
   listed: "Just listed",
@@ -164,7 +168,7 @@ export function buildOrders(projects: Project[]): Order[] {
     const videos = deliverables.filter((item) => item.type === "video") as Extract<Deliverable, { type: "video" }>[];
     const groups = videos.map((item) => item.group);
     // An order of designed pieces only is in the team's hands, not just saved.
-    const group: StatusGroup = !videos.length ? "production" : groups.includes("failed") ? "failed" : groups.includes("production") ? "production" : groups.includes("completed") ? "completed" : "draft";
+    const group: StatusGroup = !videos.length ? "production" : groups.includes("failed") ? "failed" : groups.includes("production") ? "production" : groups.includes("completed") ? "completed" : groups.includes("cancelled") ? "cancelled" : "draft";
     const firstTitle = list[0]?.title || "Order";
     const isPackage = key.startsWith("order:") || key.startsWith("legacy:") || list.length > 1;
     orders.push({

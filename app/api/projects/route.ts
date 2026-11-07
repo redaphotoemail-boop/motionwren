@@ -1,6 +1,6 @@
 import { audit, jsonError, requireAccount } from "../_lib/account";
 import { saveMusicChoice } from "../_lib/customer-production";
-import { advanceStaleJobs } from "../_lib/render-jobs";
+import { advanceStaleJobs, isHoldingJob } from "../_lib/render-jobs";
 
 export async function GET(request: Request) {
   try {
@@ -9,8 +9,22 @@ export async function GET(request: Request) {
     // Opening the dashboard also moves along any of this client's videos
     // whose engine callback was missed, so nothing can stall unseen.
     await advanceStaleJobs(env, new URL(request.url).origin, account.id).catch(() => undefined);
-    const result = await env.DB.prepare(`SELECT p.id, p.title, p.status, p.listing_url AS listingUrl, p.listing_address AS listingAddress, p.beds, p.baths, p.square_feet AS squareFeet, p.price, p.short_message AS shortMessage, p.aspect, p.resolution, p.generation_engine AS generationEngine, p.target_duration AS targetDuration, p.created_at AS createdAt, p.updated_at AS updatedAt, p.final_history_id AS finalHistoryId, COUNT(a.id) AS assetCount, (SELECT c.id FROM project_assets c WHERE c.project_id = p.id ORDER BY c.sort_order, c.created_at LIMIT 1) AS coverAssetId, (SELECT h.expires_at FROM generation_history h WHERE h.id = p.final_history_id) AS videoExpiresAt, (SELECT r.status FROM render_jobs r WHERE r.id = p.render_job_id) AS jobStatus, (SELECT COUNT(*) FROM render_jobs r, json_each(r.segment_urls) j WHERE r.id = p.render_job_id AND j.value IS NOT NULL AND j.value != '') AS scenesReady, (SELECT json_array_length(r.prediction_ids) FROM render_jobs r WHERE r.id = p.render_job_id) AS scenesTotal FROM projects p LEFT JOIN project_assets a ON a.project_id = p.id WHERE p.owner_id = ? GROUP BY p.id ORDER BY p.updated_at DESC LIMIT 100`).bind(account.id).all();
-    return Response.json({ projects: result.results });
+    const result = await env.DB.prepare(`SELECT p.id, p.title, p.status, p.listing_url AS listingUrl, p.listing_address AS listingAddress, p.beds, p.baths, p.square_feet AS squareFeet, p.price, p.short_message AS shortMessage, p.aspect, p.resolution, p.generation_engine AS generationEngine, p.target_duration AS targetDuration, p.created_at AS createdAt, p.updated_at AS updatedAt, p.final_history_id AS finalHistoryId, p.render_job_id AS renderJobId, COUNT(a.id) AS assetCount, (SELECT c.id FROM project_assets c WHERE c.project_id = p.id ORDER BY c.sort_order, c.created_at LIMIT 1) AS coverAssetId, (SELECT h.expires_at FROM generation_history h WHERE h.id = p.final_history_id) AS videoExpiresAt, (SELECT r.status FROM render_jobs r WHERE r.id = p.render_job_id) AS jobStatus, (SELECT COUNT(*) FROM render_jobs r, json_each(r.segment_urls) j WHERE r.id = p.render_job_id AND j.value IS NOT NULL AND j.value != '') AS scenesReady, (SELECT json_array_length(r.prediction_ids) FROM render_jobs r WHERE r.id = p.render_job_id) AS scenesTotal, (SELECT COUNT(*) FROM credit_ledger c WHERE c.project_id = p.id AND c.type = 'project_reservation') AS refundable FROM projects p LEFT JOIN project_assets a ON a.project_id = p.id WHERE p.owner_id = ? GROUP BY p.id ORDER BY p.updated_at DESC LIMIT 100`).bind(account.id).all();
+    const projects = result.results as Array<Record<string, unknown>>;
+    // A stopped order is "holding" once the automatic retries are used up
+    // (or it sat failed past the recovery window): the dashboard shows the
+    // holding message instead of a progress bar that never moves. Only
+    // orders with a failed job need the extra lookup.
+    const failed = projects.filter((project) => project.jobStatus === "failed" && project.renderJobId);
+    if (failed.length) {
+      const jobs = await env.DB.prepare(`SELECT r.id, r.error AS error, r.updated_at AS updatedAt, COALESCE((SELECT CAST(value AS INTEGER) FROM platform_settings WHERE key = 'job_recoveries:' || r.id), 0) AS recoveries FROM render_jobs r WHERE r.id IN (${failed.map(() => "?").join(",")})`).bind(...failed.map((project) => project.renderJobId)).all<{ id: string; error: string | null; updatedAt: number; recoveries: number }>();
+      const byId = new Map(jobs.results.map((job) => [job.id, job]));
+      for (const project of failed) {
+        const job = byId.get(String(project.renderJobId));
+        if (job) project.holding = isHoldingJob({ status: "failed", updatedAt: job.updatedAt, error: job.error }, job.recoveries) ? 1 : 0;
+      }
+    }
+    return Response.json({ projects });
   } catch (error) { return jsonError(error); }
 }
 
