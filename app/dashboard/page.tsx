@@ -22,6 +22,10 @@ const MAKING = ["queued", "generating", "stitching", "saving"];
 /* A video still "Starting" after a few minutes never reached the engines
    (a dropped connection or the hourly limit); offer to start it again. */
 const STUCK_AFTER = 3 * 60 * 1000;
+/* The customer-facing holding message. Keep the wording in sync with
+   HOLDING_MESSAGE in app/api/_lib/render-jobs.ts — the same words go in the
+   notification and the email. */
+const HOLDING_MESSAGE = "We're looking into this — your video is taking a little longer than usual. This can happen with a technical issue or a high volume of submissions. We're on it and we'll get back to you as soon as it's ready.";
 const videoStatus: Record<string, string> = {
   draft: "Saved",
   approval: "Received",
@@ -36,7 +40,7 @@ const videoStatus: Record<string, string> = {
   failed: "Needs attention",
   cancelled: "Stopped",
 };
-const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", draft: "Saved", history: "History" };
+const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", cancelled: "Stopped", draft: "Saved", history: "History" };
 const discover = [
   { title: "Content package", text: "The full set: hero film, vertical reel, story teaser, feed posts and graphics, sized for every channel. $83 full package.", shape: "set" },
   { title: "Hero listing film", text: "One polished film from your listing photos. $39.", shape: "wide" },
@@ -135,6 +139,16 @@ export default function CustomerDashboard() {
     await load();
   }
 
+  async function refundProject(id: string) {
+    if (!window.confirm("Return 1 video credit to your account and stop this order?")) return;
+    setError(""); setMessage("");
+    const response = await fetch(`/api/projects/${id}/refund`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "The refund could not be issued. Please try again."); return; }
+    setMessage("Refund issued — 1 video credit was returned to your account.");
+    await load();
+  }
+
   async function removeOrders(list: Order[]) {
     let failed = 0;
     let busy = false;
@@ -202,7 +216,7 @@ export default function CustomerDashboard() {
     setSelectedKeys((keys) => keys.includes(key) ? keys.filter((selected) => selected !== key) : [...keys, key]);
   }
 
-  const counts: Record<Filter, number> = { all: orders.length, production: 0, completed: 0, failed: 0, draft: 0, history: 0 };
+  const counts: Record<Filter, number> = { all: orders.length, production: 0, completed: 0, failed: 0, cancelled: 0, draft: 0, history: 0 };
   for (const order of orders) counts[order.group] += 1;
   const visibleOrders = orders.filter((order) => filter === "all" || order.group === filter);
   // History: every video ever ordered, newest first, one row each.
@@ -232,6 +246,7 @@ export default function CustomerDashboard() {
     const expired = project.status === "completed" && !project.finalHistoryId;
     const stuck = project.status === "submitted" && checkedAt > 0 && checkedAt - project.updatedAt > STUCK_AFTER;
     const canRetry = project.status === "failed" || stuck;
+    const holding = Boolean(project.holding);
     const until = project.videoExpiresAt ? `Available until ${shortDate(project.videoExpiresAt)}` : "";
     const progress = productionProgress(project);
     return <li className="dlv" key={item.key}>
@@ -239,15 +254,16 @@ export default function CustomerDashboard() {
       <div className="dlv-text">
         <strong>{item.title}</strong>
         <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : "", progress?.detail || ""].filter(Boolean).join(" · ")}</small>
-        {progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
+        {holding ? <span className="dlv-note">{HOLDING_MESSAGE}</span> : progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
       </div>
-      <span className={`status status-${item.group}`}><i />{progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
-      {(project.finalHistoryId || canRetry || expired) && <div className="dlv-actions">
+      <span className={`status status-${item.group}`}><i />{holding ? "Taking longer" : progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
+      {(project.finalHistoryId || canRetry || expired || (holding && project.refundable)) && <div className="dlv-actions">
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
           <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></svg>Download</a>
         </>}
         {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
+        {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
         {expired && <span className="dlv-note">Download expired — <a href="mailto:info@redaphoto.com">contact us</a></span>}
       </div>}
     </li>;
@@ -298,7 +314,7 @@ export default function CustomerDashboard() {
         <div className="ws-bar">
           <h2 id="orders-title" className="sr-only">Your orders</h2>
           {orders.length > 0 ? <div className="tabs" role="tablist" aria-label="Filter orders">
-            {(["all", "production", "completed", "failed", "draft", "history"] as Filter[]).filter((group) => group === "all" || counts[group] > 0 || filter === group).map((group) => <button key={group} type="button" role="tab" aria-selected={filter === group} className={filter === group ? "active" : ""} onClick={() => { setFilter(group); if (group === "history") { setSelecting(false); setSelectedKeys([]); } }}>{filterLabels[group]}<span>{counts[group]}</span></button>)}
+            {(["all", "production", "completed", "failed", "cancelled", "draft", "history"] as Filter[]).filter((group) => group === "all" || counts[group] > 0 || filter === group).map((group) => <button key={group} type="button" role="tab" aria-selected={filter === group} className={filter === group ? "active" : ""} onClick={() => { setFilter(group); if (group === "history") { setSelecting(false); setSelectedKeys([]); } }}>{filterLabels[group]}<span>{counts[group]}</span></button>)}
           </div> : <span />}
           <div className="ws-bar-tools">
             {orders.length > 0 && filter !== "history" && <button type="button" className="text-btn" onClick={() => { setSelecting((value) => !value); setSelectedKeys([]); }}>{selecting ? "Done" : "Select"}</button>}
@@ -313,6 +329,7 @@ export default function CustomerDashboard() {
             const vertical = project.aspect === "vertical";
             const stuck = project.status === "submitted" && checkedAt > 0 && checkedAt - project.updatedAt > STUCK_AFTER;
             const canRetry = project.status === "failed" || stuck;
+            const holding = Boolean(project.holding);
             const coverKey = project.coverAssetId ? `${project.id}/${project.coverAssetId}` : "";
             return <li className="hist-row" key={project.id}>
               <span className={`hist-thumb${vertical ? " tall" : ""}`}>
@@ -324,15 +341,16 @@ export default function CustomerDashboard() {
               <div className="hist-text">
                 <strong>{project.title}</strong>
                 <small>{[orderTitle.get(project.id) && orderTitle.get(project.id) !== project.title ? orderTitle.get(project.id) as string : "", dateTime(project.createdAt), project.targetDuration ? `${project.targetDuration} sec` : "", aspectLabel(project.aspect)].filter(Boolean).join(" · ")}</small>
-                {progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
+                {holding ? <span className="dlv-note">{HOLDING_MESSAGE}</span> : progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
               </div>
-              <span className={`status status-${group}`}><i />{progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
+              <span className={`status status-${group}`}><i />{holding ? "Taking longer" : progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
               <div className="hist-actions">
                 {project.finalHistoryId && <>
                   <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: project.title, historyId: project.finalHistoryId as string, vertical })}>Watch</button>
                   <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}>Download</a>
                 </>}
                 {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
+                {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
               </div>
             </li>;
           })}
