@@ -20,7 +20,7 @@ import { ProviderError, acquireLease, backoff, createPrediction, maxActive, read
    is stored (D1 job row + R2 manifest), so a refresh, a redeploy or a restart
    just means the next step carries on. */
 
-export const QUEUE_KINDS = new Set(["studio-series", "studio-single", "customer-series"]);
+export const QUEUE_KINDS = new Set(["studio-series", "studio-single", "customer-series", "ad-series"]);
 const PENDING_TIMEOUT_MS = 3 * 60 * 1000;   // a send with no confirmed ID after this is sent again
 const JOB_TIME_LIMIT_MS = 6 * 60 * 60 * 1000; // a video still unfinished after this is stopped (credit restored)
 const COPY_WINDOW_MS = 50 * 60 * 1000;       // engine copies of finished scenes expire after about an hour
