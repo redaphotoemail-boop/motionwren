@@ -969,6 +969,9 @@ function openFlow(f){openPlan();}
 window.addEventListener('message',e=>{const d=e.data||{};if(d.type==='mw:open')openFlow(d.flow);});
 (function(){const f=new URLSearchParams(location.search).get('flow');if(f)openFlow(f);})();
 document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(!planModal.hidden)closePlan();});
+/* The host page opens a flow as soon as this arrives: the plan is ready the
+   moment this script has run, with no need to wait for web fonts. */
+toParent('mw:ready');
 })();
 </script>
 </body></html>
