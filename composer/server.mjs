@@ -44,6 +44,7 @@ const ELEVEN_FORMAT = process.env.ELEVENLABS_MUSIC_FORMAT || "mp3_44100_128";
 const REPLICATE_BASE = process.env.REPLICATE_API_BASE || "https://api.replicate.com";
 const MAX_CLIP_BYTES = 400 * 1024 * 1024;
 const MAX_MUSIC_BYTES = 60 * 1024 * 1024;
+const MAX_VOICEOVER_BYTES = 20 * 1024 * 1024;
 const KEY = /^[A-Za-z0-9_-]{8,100}$/;
 
 /** key -> { status, error, stage, startedAt, finishedAt, outputBytes, duration, width, height, musicSource, log } */
@@ -309,9 +310,43 @@ export function photoClipArgs({ image, move, width, height, fps, seconds, output
   return ["-hide_banner", "-y", "-nostdin", "-i", image, "-vf", vf, "-frames:v", String(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "14", "-pix_fmt", "yuv420p", "-an", output];
 }
 
+/* ---------- subtitles (Studio Ads) ---------- */
+
+/* Subtitle lines → a complete .ass file for ffmpeg's subtitles filter.
+   Mirrors app/ads-creative.ts buildAssText (the Worker side); the two must
+   stay in the same format. The container ships Liberation Sans. */
+const SUBTITLE_FONT_SIZE = { small: 36, medium: 48, large: 64 }; // at 1080p height
+export function assText(lines, { position = "bottom", size = "medium", height = 1080 } = {}) {
+  const fontSize = Math.max(16, Math.round(SUBTITLE_FONT_SIZE[size] * (height / 1080)));
+  const alignment = position === "top" ? 8 : 2; // 2 bottom-center, 8 top-center
+  const time = (seconds) => {
+    const clamped = Math.max(0, seconds);
+    const h = Math.floor(clamped / 3600), m = Math.floor((clamped % 3600) / 60), s = Math.floor(clamped % 60), c = Math.floor((clamped % 1) * 100);
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(c).padStart(2, "0")}`;
+  };
+  const events = (Array.isArray(lines) ? lines : [])
+    .filter((line) => line && typeof line.text === "string" && line.text.trim() && line.end > line.start)
+    .map((line) => `Dialogue: 0,${time(line.start)},${time(line.end)},AdDefault,,0,0,0,,${String(line.text).replace(/\r/g, "").replace(/\n/g, "\\N").trim()}`);
+  return [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    "PlayResX: 1280",
+    "PlayResY: 720",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: AdDefault,Liberation Sans,${fontSize},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,${alignment},20,20,40,1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ...events,
+    "",
+  ].join("\n");
+}
+
 /* ---------- the edit ---------- */
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -343,17 +378,36 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   } else filters.push("[sharp]null[carded]");
   // Films end by fading to black; a single clip just ends.
   filters.push(count > 1 ? `[carded]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]` : "[carded]fade=t=in:st=0:d=0.35[vout]");
+  // Subtitles burn in last, over the finished picture (cards and fades included).
+  let videoOut = "vout";
+  if (subtitles) {
+    const safe = String(subtitles).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    filters.push(`[vout]subtitles='${safe}'[vsub]`);
+    videoOut = "vsub";
+  }
   const args = ["-hide_banner", "-y", "-nostdin"];
   clips.forEach((file) => args.push("-i", file));
-  if (music) {
-    args.push("-i", music);
-    const tail = Math.min(2.5, duration / 4);
-    // One track for the whole film: never the scenes' own sound.
-    filters.push(`[${count}:a]aresample=48000,apad,atrim=duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.8,afade=t=out:st=${(duration - tail).toFixed(3)}:d=${tail.toFixed(3)},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
-  }
+  if (music) args.push("-i", music);
   for (const input of cardInputs) args.push(...input);
-  args.push("-filter_complex", filters.join(";"), "-map", "[vout]");
-  if (music) args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
+  // The voiceover goes after the cards, so its input index counts them.
+  const voiceIndex = voiceover ? count + (music ? 1 : 0) + cardInputs.length : -1;
+  if (voiceover) args.push("-i", voiceover);
+  const tail = Math.min(2.5, duration / 4);
+  const fades = `afade=t=in:st=0:d=0.8,afade=t=out:st=${(duration - tail).toFixed(3)}:d=${tail.toFixed(3)}`;
+  const trim = `aresample=48000,apad,atrim=duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS`;
+  if (music && voiceover) {
+    // Voiceover leads; the music ducks under it, then one mixed track.
+    filters.push(`[${count}:a]${trim},${fades},volume=0.35[mus]`);
+    filters.push(`[${voiceIndex}:a]${trim},${fades}[vo]`);
+    filters.push("[mus][vo]amix=inputs=2:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]");
+  } else if (music) {
+    // One track for the whole film: never the scenes' own sound.
+    filters.push(`[${count}:a]${trim},${fades},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
+  } else if (voiceover) {
+    filters.push(`[${voiceIndex}:a]${trim},${fades},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
+  }
+  args.push("-filter_complex", filters.join(";"), "-map", `[${videoOut}]`);
+  if (music || voiceover) args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
   else if (keepAudio && count === 1) args.push("-map", "0:a?", "-af", `afade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`, "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
   else args.push("-an");
   args.push("-c:v", "libx264", "-preset", "fast", "-crf", "17", "-tune", "film", "-profile:v", "high", "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps * 2), "-movflags", "+faststart", "-t", duration.toFixed(3), output);
@@ -374,6 +428,17 @@ function validSpec(spec) {
   if (!(spec.sceneSeconds > 0.5 && spec.sceneSeconds <= 60)) return "Scene length is out of range.";
   if (!(spec.crossfade >= 0 && spec.crossfade < spec.sceneSeconds / 2)) return "Crossfade is out of range.";
   if (spec.music && !spec.music.url && typeof spec.music.prompt !== "string") return "Music needs a prompt or a link.";
+  if (spec.subtitles !== undefined) {
+    const sub = spec.subtitles;
+    if (!sub || !Array.isArray(sub.lines) || sub.lines.length < 1 || sub.lines.length > 40) return "Subtitles need 1 to 40 lines.";
+    if (sub.position !== undefined && !["bottom", "top"].includes(sub.position)) return "Subtitle position must be bottom or top.";
+    if (sub.size !== undefined && !["small", "medium", "large"].includes(sub.size)) return "Subtitle size must be small, medium or large.";
+    for (const line of sub.lines) {
+      if (typeof line.text !== "string" || !line.text.trim() || line.text.length > 200) return "Each subtitle line needs text under 200 characters.";
+      if (!(line.start >= 0 && line.end > line.start && line.end <= spec.duration + 1)) return "Subtitle times must fit the film.";
+    }
+  }
+  if (spec.voiceover !== undefined && !(spec.voiceover && typeof spec.voiceover.url === "string" && /^https?:\/\//.test(spec.voiceover.url))) return "Voiceover needs a link.";
   return "";
 }
 
@@ -446,6 +511,23 @@ async function compose(key, spec) {
 
     job.stage = "music";
     const music = await getMusic(spec, dir, job);
+    // Studio Ads: a voiceover track to mix over the music, and subtitle
+    // lines to burn in. A bad voiceover fails the film (it was asked for);
+    // bad subtitles never do — the film is made without them.
+    let voiceover = null;
+    if (spec.voiceover?.url) {
+      voiceover = path.join(dir, "voiceover.mp3");
+      await download(spec.voiceover.url, voiceover, MAX_VOICEOVER_BYTES, "The voiceover");
+      const voiceInfo = await probe(voiceover);
+      if (!voiceInfo.audioStreams || voiceInfo.duration < 0.5) throw new Error("The voiceover is not usable audio.");
+    }
+    let subtitles = null;
+    if (spec.subtitles?.lines?.length) {
+      try {
+        subtitles = path.join(dir, "subtitles.ass");
+        await fs.writeFile(subtitles, assText(spec.subtitles.lines, { position: spec.subtitles.position, size: spec.subtitles.size, height: spec.height }));
+      } catch (error) { job.subtitlesError = String(error?.message || error).slice(0, 300); console.warn(`subtitles: skipped; ${job.subtitlesError}`); subtitles = null; }
+    }
 
     job.stage = "editing";
     const output = path.join(dir, "film.mp4");
@@ -465,7 +547,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { clips: files, music, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, speeds: spec.speeds };
+    const editInput = { clips: files, music, voiceover, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, speeds: spec.speeds };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.
@@ -478,7 +560,7 @@ async function compose(key, spec) {
     const check = await probe(output);
     if (!check.hasVideo || Math.abs(check.duration - spec.duration) > 0.25) throw new Error(`The edit came out ${round(check.duration, 2)} s instead of ${spec.duration} s.`);
     if (check.width !== spec.width || check.height !== spec.height) throw new Error(`The edit came out ${check.width}×${check.height}.`);
-    if (music && check.audioStreams !== 1) throw new Error("The edit is missing its music.");
+    if ((music || voiceover) && check.audioStreams !== 1) throw new Error("The edit is missing its sound.");
     // The free quality check: it only reports, it never fails or changes the film.
     if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards) }); }
     if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }
