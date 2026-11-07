@@ -401,6 +401,7 @@ p { text-wrap: pretty; }
 .status-production i, .status-warn i { background: var(--amber); animation: rec-blink 1.4s infinite; }
 .status-failed i, .status-bad i { background: var(--bad); }
 .status-draft i { background: #B9BCC1; }
+.status-cancelled i { background: #B9BCC1; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--faint); }
 .dot-ok { background: var(--ok); } .dot-bad { background: var(--bad); } .dot-warn { background: var(--amber); }
 .notice { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 16px; background: var(--surface); font-size: 14px; color: var(--ink-2); margin-top: 16px; }
