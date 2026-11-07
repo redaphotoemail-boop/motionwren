@@ -42,7 +42,7 @@ test("keeps the professional multi-shot crossfade workflow visible", async () =>
   // Multi-scene films are edited by our composer: crossfades and one music track.
   assert.match(source, /edited with crossfades and one music track/i);
   assert.match(jobs, /startComposerEdit/);
-  assert.match(jobs, /CROSSFADE_KINDS = new Set\(\["customer-series", "studio-series"\]\)/);
+  assert.match(jobs, /CROSSFADE_KINDS = new Set\(\["customer-series", "studio-series", "ad-series"\]\)/);
   assert.match(jobs, /CROSSFADE_KINDS\.has\(row\.kind\) \? 1 : 0/);
   assert.match(source, /secondsPerImage/);
   assert.match(source, /multiShotSecondsPerImage/);
