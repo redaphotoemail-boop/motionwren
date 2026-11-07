@@ -19,6 +19,7 @@ export default function HeroBackdrop({ interval = 6500 }: { interval?: number })
   const [{ active, previous }, setReel] = useState({ active: 0, previous: -1 });
   const [visible, setVisible] = useState(true);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     const node = rootRef.current;
@@ -28,6 +29,18 @@ export default function HeroBackdrop({ interval = 6500 }: { interval?: number })
     return () => observer.disconnect();
   }, []);
 
+  /* When a real video is dropped in later, it stops decoding the moment it
+     scrolls off-screen and resumes when it comes back — same as the
+     illustrated scenes already do. Invisible: nobody can see it while it
+     is off-screen. */
+  useEffect(() => {
+    if (!HERO_VIDEO) return;
+    const video = videoRef.current;
+    if (!video) return;
+    if (visible) video.play().catch(() => { /* Muted autoplay; a rejection leaves the poster frame. */ });
+    else video.pause();
+  }, [visible]);
+
   useEffect(() => {
     if (HERO_VIDEO || !visible || count < 2) return;
     const timer = window.setInterval(() => setReel((reel) => ({ active: (reel.active + 1) % count, previous: reel.active })), interval);
@@ -36,7 +49,7 @@ export default function HeroBackdrop({ interval = 6500 }: { interval?: number })
 
   if (HERO_VIDEO) {
     return <div ref={rootRef} className="cine-media" aria-hidden="true">
-      <video className="cine-video" src={HERO_VIDEO} poster={HERO_POSTER || undefined} autoPlay muted loop playsInline preload="metadata" />
+      <video ref={videoRef} className="cine-video" src={HERO_VIDEO} poster={HERO_POSTER || undefined} autoPlay muted loop playsInline preload="metadata" />
     </div>;
   }
 
