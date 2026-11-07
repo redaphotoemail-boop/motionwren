@@ -94,11 +94,15 @@ p { text-wrap: pretty; }
 .film-frame { position: absolute; inset: 0; opacity: 0; transition: opacity 1.3s ease; }
 .film-frame.on { opacity: 1; z-index: 1; }
 .film-frame.off { opacity: 0; z-index: 0; }
-.film-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; transform: scale(1.04); transform-origin: 50% 55%; will-change: transform; }
+.film-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; transform: scale(1.04); transform-origin: 50% 55%; }
 .film-frame.on.move-push svg, .film-frame.off.move-push svg { animation: film-push 7s linear forwards; }
 .film-frame.on.move-pan svg, .film-frame.off.move-pan svg { animation: film-pan 7s linear forwards; }
 .film-frame.on.move-pull svg, .film-frame.off.move-pull svg { animation: film-pull 7s linear forwards; }
 .film:not(.is-playing) .film-frame svg { animation-play-state: paused !important; }
+/* Only the frames being shown or crossfaded keep a compositing layer. The
+   hidden frame is opacity 0 with no animation running, so it needs no layer
+   held in memory — it gets one the moment it fades in, hidden by the fade. */
+.film-frame.on svg, .film-frame.off svg { will-change: transform; }
 @keyframes film-push { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.13) translate(-1%, -.8%); } }
 @keyframes film-pan { from { transform: scale(1.12) translate(2.2%, 0); } to { transform: scale(1.12) translate(-2.2%, -.4%); } }
 @keyframes film-pull { from { transform: scale(1.15) translate(.6%, .4%); } to { transform: scale(1.04) translate(0, 0); } }
@@ -152,11 +156,16 @@ p { text-wrap: pretty; }
 .cine-frame { position: absolute; inset: 0; opacity: 0; transition: opacity 1.8s ease; }
 .cine-frame.on { opacity: 1; z-index: 1; }
 .cine-frame.off { opacity: 0; z-index: 0; }
-.cine-frame > svg, .cine-frame > img, .cine-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.04); transform-origin: 50% 55%; will-change: transform; }
+.cine-frame > svg, .cine-frame > img, .cine-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.04); transform-origin: 50% 55%; }
 .cine-frame.on.move-push > *, .cine-frame.off.move-push > * { animation: film-push 9.5s linear forwards; }
 .cine-frame.on.move-pan > *, .cine-frame.off.move-pan > * { animation: film-pan 9.5s linear forwards; }
 .cine-frame.on.move-pull > *, .cine-frame.off.move-pull > * { animation: film-pull 9.5s linear forwards; }
 .cine-media:not(.is-playing) .cine-frame > * { animation-play-state: paused !important; }
+/* Only the frames being shown or crossfaded keep a compositing layer. The
+   hidden frame is opacity 0 with no animation running, so it needs no
+   full-screen layer held in memory — it gets one the moment it fades in,
+   hidden behind the 1.8s crossfade. */
+.cine-frame.on > *, .cine-frame.off > * { will-change: transform; }
 .cine-video { transform: none; }
 .cine-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(8, 10, 14, .52) 0%, rgba(8, 10, 14, .08) 20%, rgba(8, 10, 14, .18) 42%, rgba(8, 10, 14, .64) 72%, rgba(8, 10, 14, .86) 100%); }
 .cine-content { display: flex; flex-direction: column; align-items: center; text-align: center; padding-block: 140px clamp(52px, 10vh, 112px); }
