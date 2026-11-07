@@ -6,6 +6,7 @@ export default function EmailAuthForm({ mode }: { mode: "signin" | "signup" }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,7 +19,7 @@ export default function EmailAuthForm({ mode }: { mode: "signin" | "signup" }) {
       const response = await fetch(mode === "signup" ? "/api/auth/email/register" : "/api/auth/email/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "signup" ? { email, password, displayName: name } : { email, password }),
+        body: JSON.stringify(mode === "signup" ? { email, password, displayName: name, ageConfirmed: agreed } : { email, password }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Something went wrong. Please try again.");
@@ -50,6 +51,15 @@ export default function EmailAuthForm({ mode }: { mode: "signin" | "signup" }) {
         </span>
       </label>
       {error && <p className="form-error" role="alert">{error}</p>}
+      {mode === "signup" && (
+        <label className="consent-check">
+          <input type="checkbox" required checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+          <span>I am 18 or older and I agree to the <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span>
+        </label>
+      )}
+      {mode === "signin" && (
+        <p className="consent-note">By signing in you agree to our <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</p>
+      )}
       <button className="btn btn-ink btn-lg auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
       {mode === "signin" && <a className="auth-forgot" href="/signin/reset">Forgot password?</a>}
     </form>

@@ -5,13 +5,16 @@ import PropertyFilm from "../components/property-film";
 /* Shared two-column frame for sign-in, account creation and password reset. */
 export default function AuthFrame({ children }: { children: React.ReactNode }) {
   return (
-    <main className="auth">
+    <main className="auth" id="main-content">
       <section className="auth-panel">
         <Link href="/" className="auth-home" aria-label="MotionWren home"><Wordmark size={28} /></Link>
         <div className="auth-body">{children}</div>
         <nav className="auth-foot" aria-label="Legal">
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
+          <Link href="/refund">Refunds</Link>
+          <Link href="/cookies">Cookies</Link>
+          <Link href="/accessibility">Accessibility</Link>
           <a href="mailto:info@redaphoto.com">Contact</a>
         </nav>
       </section>

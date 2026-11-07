@@ -15,7 +15,7 @@
   --ink: #14161A;
   --ink-2: #2A2D33;
   --muted: #61666E;
-  --faint: #8F939A;
+  --faint: #64686F; /* was #8F939A: 2.82:1 on paper, below WCAG AA — now 5.12:1 */
   --line: #E2E4DF;
   --line-2: #D7DAD3;
   --dusk: #1C2440;
@@ -378,6 +378,21 @@ p { text-wrap: pretty; }
 .policy-body h2 { font-size: 22px; letter-spacing: -.02em; }
 .policy-body section p { margin: 10px 0 0; color: var(--ink-2); font-size: 16px; line-height: 1.65; max-width: 62ch; }
 .policy-note { margin-top: 36px; padding: 18px 20px; border-radius: 16px; background: var(--amber-soft); color: #6B4310; font-size: 14px; }
+.policy-note a { color: inherit; }
+
+/* Skip link: hidden until keyboard focus --------------------------------- */
+.skip-link { position: absolute; left: 16px; top: -60px; z-index: 100; padding: 10px 16px; border-radius: 12px; background: var(--ink); color: var(--surface); font-weight: 600; text-decoration: none; transition: top .15s; }
+.skip-link:focus-visible { top: 12px; outline: 3px solid var(--amber); outline-offset: 2px; }
+
+/* Cookie consent banner -------------------------------------------------- */
+.cookie-banner { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 90; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; max-width: 860px; margin: 0 auto; padding: 16px 20px; border-radius: 18px; background: var(--surface); color: var(--ink-2); font-size: 14px; line-height: 1.5; box-shadow: var(--lift); }
+.cookie-banner p { margin: 0; flex: 1 1 320px; }
+.cookie-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* Sign-up / sign-in consent ---------------------------------------------- */
+.consent-check { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); cursor: pointer; }
+.consent-check input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--ink); }
+.consent-note { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 
 /* Shared status language ------------------------------------------------ */
 .status { display: inline-flex; align-items: center; gap: 7px; font: 500 13px/1 var(--body); color: var(--ink-2); white-space: nowrap; }
