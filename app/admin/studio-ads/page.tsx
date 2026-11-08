@@ -10,6 +10,66 @@ import { AD_ASPECTS, AD_DURATIONS, adPlan, estimateAdCost, type AdAspect, type A
 import { AD_MUSIC_MOODS } from "../../ads-music-catalog";
 import { PageHead, money } from "../ui";
 
+/* Studio Ads redesign — layout only. Every rule is scoped under
+   .studio-ads, so no other admin page is touched. The shared classes
+   (mgr-page, panel, field, btn, ...) keep their global meaning; this
+   block only tunes spacing, rhythm, alignment and control styling
+   inside this tab. Same palette, same type, same copy, same fields. */
+const SA_STYLES = `
+.studio-ads.mgr-page { width: min(960px, 100% - 48px); gap: 28px; }
+.studio-ads .mgr-stack { gap: 28px; }
+.studio-ads .panel { display: grid; gap: 20px; align-content: start; padding: clamp(28px, 4vw, 40px); border-radius: 24px; }
+.studio-ads .panel-head { margin-bottom: 0; align-items: flex-start; }
+.studio-ads .panel-head h2 { font-size: 22px; }
+.studio-ads .panel-head .muted { max-width: 48ch; text-align: right; line-height: 1.55; }
+.studio-ads .panel > .muted { margin: 0; }
+.studio-ads .panel .btn { margin-top: 0; }
+.studio-ads .panel .note { margin-top: 0; }
+.studio-ads .notice { margin-top: 0; }
+.studio-ads .sa-tabs { display: inline-flex; gap: 2px; padding: 4px; border-radius: 999px; background: var(--surface); box-shadow: var(--lift); max-width: 100%; }
+.studio-ads .sa-tabs .btn { flex: 1 1 0; box-shadow: none; min-height: 44px; padding: 12px 20px; white-space: nowrap; }
+.studio-ads .sa-tabs .btn-white { background: transparent; color: var(--muted); }
+.studio-ads .sa-tabs .btn-white:hover { background: var(--paper); color: var(--ink); }
+.studio-ads .sa-tabs .btn-ink:hover { background: #000; }
+.studio-ads .field { gap: 10px; }
+.studio-ads .field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.studio-ads .field-row > .field { flex: 1 1 200px; min-width: 0; }
+.studio-ads .field input, .studio-ads .field select { min-height: 52px; }
+.studio-ads .field textarea { line-height: 1.55; }
+.studio-ads label.field-toggle { position: static; transform: none; display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-radius: 16px; background: var(--paper); color: var(--ink-2); font: 500 15px/1.55 var(--body); cursor: pointer; }
+.studio-ads label.field-toggle input[type="checkbox"] { flex: none; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--ink); cursor: pointer; }
+.studio-ads .sa-list { display: grid; gap: 10px; }
+.studio-ads .choice-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--paper); }
+.studio-ads .choice-row input[type="checkbox"] { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
+.studio-ads .engine-grid { gap: 12px; }
+.studio-ads label.engine-card { flex-direction: row; align-items: flex-start; gap: 12px; padding: 16px 18px; }
+.studio-ads label.engine-card input[type="checkbox"] { flex: none; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--ink); }
+.studio-ads label.engine-card > span { display: grid; gap: 2px; min-width: 0; }
+.studio-ads label.engine-card strong { font: 600 15px/1.4 var(--body); overflow-wrap: anywhere; }
+.studio-ads label.engine-card .muted { font-size: 13px; }
+.studio-ads .sa-actions { align-items: center; }
+.studio-ads .sa-actions .btn-danger { margin-left: auto; }
+.studio-ads button.panel { width: 100%; text-align: left; cursor: pointer; transition: box-shadow .2s var(--ease); }
+.studio-ads button.panel:hover { box-shadow: var(--lift); }
+.studio-ads .mgr-stack > p.muted { padding: 40px 20px; text-align: center; }
+@media (max-width: 640px) {
+  .studio-ads.mgr-page { width: calc(100% - 32px); }
+  .studio-ads .panel { padding: 24px 20px; }
+  .studio-ads .panel-head { flex-direction: column; gap: 6px; }
+  .studio-ads .panel-head .muted { text-align: left; max-width: none; }
+  .studio-ads .panel > .btn { width: 100%; }
+  .studio-ads .sa-tabs { width: 100%; }
+  .studio-ads .sa-tabs .btn { padding: 12px 10px; font-size: 13px; }
+  .studio-ads .field-row > .field { flex: 1 1 100%; }
+  .studio-ads .engine-grid { grid-template-columns: 1fr; }
+  .studio-ads .sa-actions .btn { flex: 1 1 100%; }
+  .studio-ads .sa-actions .btn-danger { margin-left: 0; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .studio-ads .engine-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+`;
+
 type AdRow = {
   id: string; title: string; hook: string | null; prompt: string;
   scenePrompts: string; sceneImages: string; engine: string; resolution: string;
@@ -242,11 +302,12 @@ export default function StudioAdsPage() {
   const squareCropped = aspect === "square" && (engine === "veo31Lite" || engine === "geminiOmni");
 
   return (
-    <div className="mgr-page">
+    <div className="mgr-page studio-ads">
+      <style>{SA_STYLES}</style>
       <PageHead eyebrow="Manager · Admin only" title="Studio Ads" sub="Commercials and social ads — your tool, not a client product. Same engines as Studio, a different prompt: premium, cinematic, realistic, never childish or cheesy." />
       {message ? <p className="notice">{message}</p> : null}
 
-      <div className="field-row" role="tablist" aria-label="Studio Ads sections">
+      <div className="sa-tabs" role="tablist" aria-label="Studio Ads sections">
         {(["create", "actors", "ads"] as const).map((value) => (
           <button key={value} type="button" className={`btn ${tab === value ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => setTab(value)}>
             {value === "create" ? "Create" : value === "actors" ? `Actors (${actors.length})` : `Ads (${ads.length})`}
@@ -258,21 +319,21 @@ export default function StudioAdsPage() {
         <div className="mgr-stack">
           <section className="panel">
             <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2><span className="muted small">Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</span></div>
-            <label className="field">Title<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Summer launch — 30 s reel" maxLength={120} /></label>
-            <label className="field">Opening hook — the first 2 seconds<textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="What must land before anyone scrolls past?" rows={2} maxLength={280} /></label>
-            <label className="field">What is this ad about?<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically." rows={3} maxLength={2000} /></label>
+            <label className="field"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Summer launch — 30 s reel" maxLength={120} /></label>
+            <label className="field"><span>Opening hook — the first 2 seconds</span><textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="What must land before anyone scrolls past?" rows={2} maxLength={280} /></label>
+            <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically." rows={3} maxLength={2000} /></label>
             <div className="field-row">
-              <label className="field">Format
+              <label className="field"><span>Format</span>
                 <select value={aspect} onChange={(event) => setAspect(event.target.value as AdAspect)}>
                   {AD_ASPECTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select>
               </label>
-              <label className="field">Length
+              <label className="field"><span>Length</span>
                 <select value={duration} onChange={(event) => setDuration(Number(event.target.value) as AdDuration)}>
                   {AD_DURATIONS.map((value) => <option key={value} value={value}>{value} seconds</option>)}
                 </select>
               </label>
-              <label className="field">Engine
+              <label className="field"><span>Engine</span>
                 <select value={engine} onChange={(event) => setEngine(event.target.value as StudioEngineKey)}>
                   {availableEngines.map((item) => <option key={item.key} value={item.key}>{item.name} — {money(item.pricePerSecond["1080p"] || 0)}/s at 1080p</option>)}
                 </select>
@@ -288,14 +349,14 @@ export default function StudioAdsPage() {
             <>
               <section className="panel">
                 <div className="panel-head"><h2>Images that become the video</h2><span className="muted small">JPG, PNG or WebP, up to 20 MB each, 20 per ad.</span></div>
-                <label className="field">Upload source images<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { uploadSource(event.target.files); event.target.value = ""; }} /></label>
+                <label className="field"><span>Upload source images</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { uploadSource(event.target.files); event.target.value = ""; }} /></label>
                 {detail.assets.length ? (
                   <div className="engine-grid">
                     {detail.assets.map((asset) => (
                       <label key={asset.id} className="engine-card">
                         <input type="checkbox" checked={sceneImages.some((item) => item.type === "source" && item.id === asset.id)} onChange={(event) => setSceneImages(event.target.checked ? [...sceneImages, { type: "source", id: asset.id }] : sceneImages.filter((item) => !(item.type === "source" && item.id === asset.id)))} />
-                        <strong>{asset.fileName}</strong>
-                        <span className="muted small">{(asset.sizeBytes / 1024).toFixed(0)} KB · scene image</span>
+                        <span><strong>{asset.fileName}</strong>
+                        <span className="muted small">{(asset.sizeBytes / 1024).toFixed(0)} KB · scene image</span></span>
                       </label>
                     ))}
                   </div>
@@ -306,7 +367,7 @@ export default function StudioAdsPage() {
               <section className="panel">
                 <div className="panel-head"><h2>Scenes</h2><span className="muted small">One prompt per scene for 30 s / 60 s ads — leave blank to use the ad prompt for that scene.</span></div>
                 {Array.from({ length: plan.count }, (_, index) => (
-                  <label key={index} className="field">Scene {index + 1} prompt
+                  <label key={index} className="field"><span>Scene {index + 1} prompt</span>
                     <input value={scenePrompts[index] || ""} onChange={(event) => { const next = [...scenePrompts]; next[index] = event.target.value; setScenePrompts(next); }} placeholder={index === 0 && hook ? `Hook: ${hook}` : "This scene, in your words"} maxLength={500} />
                   </label>
                 ))}
@@ -314,19 +375,23 @@ export default function StudioAdsPage() {
 
               <section className="panel">
                 <div className="panel-head"><h2>Actors in this ad</h2><span className="muted small">Pick saved actors — their photos stay in the library for the next ad.</span></div>
-                {actors.length ? actors.map((actor) => (
-                  <label key={actor.id} className="choice-row">
-                    <input type="checkbox" checked={linkedActorIds.includes(actor.id)} onChange={(event) => setLinkedActorIds(event.target.checked ? [...linkedActorIds, actor.id] : linkedActorIds.filter((id) => id !== actor.id))} />
-                    <span><strong>{actor.name}</strong> <span className="muted small">· {actor.photos.length} photo{actor.photos.length === 1 ? "" : "s"}{actor.photos.length ? ` (${[...new Set(actor.photos.map((photo) => photo.angle))].join(", ")})` : ""}</span></span>
-                  </label>
-                )) : <p className="muted">No actors saved yet — add them on the Actors tab.</p>}
+                {actors.length ? (
+                  <div className="sa-list">
+                    {actors.map((actor) => (
+                      <label key={actor.id} className="choice-row">
+                        <input type="checkbox" checked={linkedActorIds.includes(actor.id)} onChange={(event) => setLinkedActorIds(event.target.checked ? [...linkedActorIds, actor.id] : linkedActorIds.filter((id) => id !== actor.id))} />
+                        <span><strong>{actor.name}</strong> <span className="muted small">· {actor.photos.length} photo{actor.photos.length === 1 ? "" : "s"}{actor.photos.length ? ` (${[...new Set(actor.photos.map((photo) => photo.angle))].join(", ")})` : ""}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                ) : <p className="muted">No actors saved yet — add them on the Actors tab.</p>}
                 {detail.actors.length && imagePool.some((item) => item.type === "actor") ? (
                   <div className="engine-grid">
                     {imagePool.filter((item) => item.type === "actor").map((item) => (
                       <label key={item.id} className="engine-card">
                         <input type="checkbox" checked={sceneImages.some((entry) => entry.type === "actor" && entry.id === item.id)} onChange={(event) => setSceneImages(event.target.checked ? [...sceneImages, { type: "actor", id: item.id }] : sceneImages.filter((entry) => !(entry.type === "actor" && entry.id === item.id)))} />
-                        <strong>{item.label}</strong>
-                        <span className="muted small">use as a scene image</span>
+                        <span><strong>{item.label}</strong>
+                        <span className="muted small">use as a scene image</span></span>
                       </label>
                     ))}
                   </div>
@@ -336,14 +401,14 @@ export default function StudioAdsPage() {
               <section className="panel">
                 <div className="panel-head"><h2>Sound</h2><span className="muted small">{elevenlabsOn ? "Music is made fresh for each ad; voiceover is read by ElevenLabs." : "Off — the ad uses the sound the video engine already made."}</span></div>
                 <label className="field-toggle"><input type="checkbox" checked={elevenlabsOn} onChange={(event) => setElevenlabsOn(event.target.checked)} /> ElevenLabs sound — voiceover and music from ElevenLabs, on top of the sound the video already has. Off uses just the sound the video engine made.</label>
-                <label className="field">Music mood
+                <label className="field"><span>Music mood</span>
                   <select value={musicMood || ""} onChange={(event) => setMusicMood(event.target.value || null)} disabled={!elevenlabsOn}>
                     <option value="">Auto — matched to the format</option>
                     {AD_MUSIC_MOODS.map((mood) => <option key={mood.id} value={mood.id}>{mood.name} — {mood.blurb}</option>)}
                   </select>
                 </label>
-                <label className="field">Voiceover script<textarea value={voiceoverScript} onChange={(event) => setVoiceoverScript(event.target.value)} placeholder="What the voice says, exactly. Leave empty for music only." rows={3} maxLength={5000} disabled={!elevenlabsOn} /></label>
-                <label className="field">Voice
+                <label className="field"><span>Voiceover script</span><textarea value={voiceoverScript} onChange={(event) => setVoiceoverScript(event.target.value)} placeholder="What the voice says, exactly. Leave empty for music only." rows={3} maxLength={5000} disabled={!elevenlabsOn} /></label>
+                <label className="field"><span>Voice</span>
                   <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)} disabled={!elevenlabsOn || !voices.keyed || !voices.list.length}>
                     <option value="">First voice on the account</option>
                     {voices.list.map((voice) => <option key={voice.voiceId} value={voice.voiceId}>{voice.name}{voice.category ? ` · ${voice.category}` : ""}</option>)}
@@ -358,13 +423,13 @@ export default function StudioAdsPage() {
                 {subtitlesOn ? (
                   <>
                     <div className="field-row">
-                      <label className="field">Position
+                      <label className="field"><span>Position</span>
                         <select value={subtitlePosition} onChange={(event) => setSubtitlePosition(event.target.value as "bottom" | "top")}>
                           <option value="bottom">Bottom</option>
                           <option value="top">Top</option>
                         </select>
                       </label>
-                      <label className="field">Size
+                      <label className="field"><span>Size</span>
                         <select value={subtitleSize} onChange={(event) => setSubtitleSize(event.target.value as "small" | "medium" | "large")}>
                           <option value="small">Small</option>
                           <option value="medium">Medium</option>
@@ -372,16 +437,16 @@ export default function StudioAdsPage() {
                         </select>
                       </label>
                     </div>
-                    <label className="field">Subtitle lines — one per line<textarea value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} placeholder={"One line per subtitle.\nThey are timed evenly across the ad."} rows={4} /></label>
+                    <label className="field"><span>Subtitle lines — one per line</span><textarea value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} placeholder={"One line per subtitle.\nThey are timed evenly across the ad."} rows={4} /></label>
                   </>
                 ) : null}
               </section>
 
               <section className="panel">
                 <div className="panel-head"><h2>Make it</h2><span className="muted small">Status: {statusLabel[detail.ad.status] || detail.ad.status}{detail.job?.error ? ` — ${detail.job.error}` : ""}</span></div>
-                <div className="field-row">
+                <div className="field-row sa-actions">
                   <button type="button" className="btn btn-white" onClick={saveBrief} disabled={saving}>Save changes</button>
-                  <button type="button" className="btn btn-ink" onClick={() => generate(true)} disabled={saving || !detail.assets.length}>Generate draft — {money(estimateAdCost(engine, "480p", Math.min(10, duration) as AdDuration, Math.max(1, effectiveImages.length), true))}</button>
+                  <button type="button" className="btn btn-white" onClick={() => generate(true)} disabled={saving || !detail.assets.length}>Generate draft — {money(estimateAdCost(engine, "480p", Math.min(10, duration) as AdDuration, Math.max(1, effectiveImages.length), true))}</button>
                   <button type="button" className="btn btn-ink" onClick={() => generate(false)} disabled={saving || !detail.assets.length}>Generate full — {money(estimate)}</button>
                   <button type="button" className="btn btn-danger" onClick={deleteAd} disabled={saving}>Delete ad</button>
                 </div>
@@ -397,8 +462,8 @@ export default function StudioAdsPage() {
         <div className="mgr-stack">
           <section className="panel">
             <div className="panel-head"><h2>Save an actor</h2><span className="muted small">Upload once — front, side, three-quarter, silhouette — and pick them for any future ad.</span></div>
-            <label className="field">Name<input value={actorName} onChange={(event) => setActorName(event.target.value)} placeholder="e.g. Maya" maxLength={120} /></label>
-            <label className="field">Notes<input value={actorNotes} onChange={(event) => setActorNotes(event.target.value)} placeholder="Who they are, what they are for (optional)" maxLength={500} /></label>
+            <label className="field"><span>Name</span><input value={actorName} onChange={(event) => setActorName(event.target.value)} placeholder="e.g. Maya" maxLength={120} /></label>
+            <label className="field"><span>Notes</span><input value={actorNotes} onChange={(event) => setActorNotes(event.target.value)} placeholder="Who they are, what they are for (optional)" maxLength={500} /></label>
             <button type="button" className="btn btn-ink" onClick={createActor} disabled={saving}>Save actor</button>
           </section>
           {actors.map((actor) => (
@@ -436,7 +501,7 @@ function ActorCard({ actor, onUpload, onDelete, busy }: { actor: Actor; onUpload
         </div>
       ) : <p className="muted">No photos yet — add a front shot first, then a side and a three-quarter for the best face consistency.</p>}
       <div className="field-row">
-        <label className="field">Angle
+        <label className="field"><span>Angle</span>
           <select value={angle} onChange={(event) => setAngle(event.target.value)}>
             <option value="front">Front</option>
             <option value="side">Side</option>
@@ -445,7 +510,7 @@ function ActorCard({ actor, onUpload, onDelete, busy }: { actor: Actor; onUpload
             <option value="other">Other</option>
           </select>
         </label>
-        <label className="field">Add a photo<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { onUpload(actor.id, angle, event.target.files); event.target.value = ""; }} /></label>
+        <label className="field"><span>Add a photo</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { onUpload(actor.id, angle, event.target.files); event.target.value = ""; }} /></label>
       </div>
       <button type="button" className="btn btn-danger btn-sm" onClick={onDelete} disabled={busy}>Delete actor</button>
     </section>
