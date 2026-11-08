@@ -17,7 +17,7 @@ export async function GET() {
   try {
     const { env } = await import("cloudflare:workers");
     const admin = await requireAdmin(env);
-    const rows = await env.DB.prepare(`SELECT id, title, hook, prompt, scene_prompts AS scenePrompts, scene_images AS sceneImages, engine, resolution, aspect, target_duration AS targetDuration, subtitles, voiceover_script AS voiceoverScript, voice_id AS voiceId, music_mood AS musicMood, draft, status, render_job_id AS renderJobId, final_history_id AS finalHistoryId, cost_cents AS costCents, created_at AS createdAt, updated_at AS updatedAt FROM ad_projects WHERE owner_id = ? ORDER BY updated_at DESC LIMIT 50`).bind(admin.id).all();
+    const rows = await env.DB.prepare(`SELECT id, title, hook, prompt, scene_prompts AS scenePrompts, scene_images AS sceneImages, engine, resolution, aspect, target_duration AS targetDuration, subtitles, voiceover_script AS voiceoverScript, voice_id AS voiceId, music_mood AS musicMood, elevenlabs_on AS elevenlabsOn, draft, status, render_job_id AS renderJobId, final_history_id AS finalHistoryId, cost_cents AS costCents, created_at AS createdAt, updated_at AS updatedAt FROM ad_projects WHERE owner_id = ? ORDER BY updated_at DESC LIMIT 50`).bind(admin.id).all();
     return Response.json({ ads: rows.results || [] });
   } catch (error) { return jsonError(error); }
 }
@@ -54,9 +54,10 @@ export async function POST(request: Request) {
       voiceoverScript: cleanStr(body.voiceoverScript, 5000),
       voiceId: typeof body.voiceId === "string" && body.voiceId ? body.voiceId.slice(0, 120) : null,
       musicMood: adMusicMood(body.musicMood)?.id || null,
+      elevenlabsOn: body.elevenlabsOn === true ? 1 : 0,
       draft: body.draft === true ? 1 : 0,
     };
-    await env.DB.prepare(`INSERT INTO ad_projects (id, owner_id, title, hook, prompt, scene_prompts, scene_images, engine, resolution, aspect, target_duration, subtitles, voiceover_script, voice_id, music_mood, draft, status, render_job_id, final_history_id, cost_cents, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, NULL, 0, ?, ?)`).bind(ad.id, admin.id, ad.title, ad.hook, ad.prompt, ad.scenePrompts, ad.sceneImages, ad.engine, ad.resolution, ad.aspect, ad.targetDuration, ad.subtitles, ad.voiceoverScript, ad.voiceId, ad.musicMood, ad.draft, now, now).run();
+    await env.DB.prepare(`INSERT INTO ad_projects (id, owner_id, title, hook, prompt, scene_prompts, scene_images, engine, resolution, aspect, target_duration, subtitles, voiceover_script, voice_id, music_mood, elevenlabs_on, draft, status, render_job_id, final_history_id, cost_cents, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, NULL, 0, ?, ?)`).bind(ad.id, admin.id, ad.title, ad.hook, ad.prompt, ad.scenePrompts, ad.sceneImages, ad.engine, ad.resolution, ad.aspect, ad.targetDuration, ad.subtitles, ad.voiceoverScript, ad.voiceId, ad.musicMood, ad.elevenlabsOn, ad.draft, now, now).run();
     const photoCount = Math.max(1, sceneImages.length);
     return Response.json({ ad: { ...ad, status: "draft", renderJobId: null, finalHistoryId: null, costCents: 0, createdAt: now, updatedAt: now }, estimateCents: Math.round(estimateAdCost(engine, "1080p", targetDuration as 10 | 30 | 60, photoCount, ad.draft === 1) * 100) }, { status: 201 });
   } catch (error) { return jsonError(error); }

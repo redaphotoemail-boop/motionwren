@@ -46,6 +46,9 @@ const clip = (n) => `${base(files)}/s${n}.mp4`;
 const probe = (file) => JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", file]).toString());
 const frame = (file, t) => execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(t), "-i", file, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"]);
 const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banner", "-i", file, "-af", `${filter},volumedetect`, "-f", "null", "-"], { encoding: "utf8" }); return Number(/mean_volume: (-?[\d.]+)/.exec(out.stderr)?.[1] ?? -999); };
+// The scenes' 3 kHz tone, measured in one time window (atrim isolates it).
+const tone3k = "highpass=f=2950,highpass=f=2950,lowpass=f=3050,lowpass=f=3050";
+const tone3kWindow = (file, start, end) => meanDb(file, `atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,${tone3k}`);
 const save = async (key) => { const r = await api("GET", `/jobs/${key}/output`); const file = path.join(dir, `${key}.mp4`); writeFileSync(file, r.data); return file; };
 
 const subtitles = { lines: [{ start: 1, end: 3.5, text: "FIRST LINE" }, { start: 5, end: 7, text: "SECOND LINE" }], position: "bottom", size: "large" };
@@ -97,6 +100,47 @@ const spec = (over = {}) => ({ clips: [clip(1), clip(2)], width: 640, height: 36
   check("D1 a subtitle past the film is refused", badTime.status === 400, `${badTime.status} ${JSON.stringify(badTime.data).slice(0, 120)}`);
   const badVo = await api("POST", "/jobs/ads-bad-vo-01", spec({ voiceover: { url: "not-a-link" } }));
   check("D2 a voiceover without a link is refused", badVo.status === 400, `${badVo.status} ${JSON.stringify(badVo.data).slice(0, 120)}`);
+}
+
+/* E. Toggle-off Studio Ads: keepAudio across both scenes, no ElevenLabs sound. */
+{
+  // (d) Arg level: the multi-clip keepAudio path joins scene audio and maps one track.
+  const keepArgs = editArgs({ clips: ["a.mp4", "b.mp4"], keepAudio: true, width: 640, height: 360, fps: 24, crossfade: 0.5, duration: 8, sceneSeconds: 4.25, output: "o.mp4" });
+  const keepJoined = keepArgs.join(" ");
+  check("E1 keepAudio multi-clip joins scene audio with acrossfade and maps one track", keepJoined.includes("acrossfade=d=0.500") && keepJoined.includes("-map [aout]") && !keepArgs.includes("-an"), keepJoined.slice(keepJoined.indexOf("acrossfade"), keepJoined.indexOf("acrossfade") + 40));
+  const oneSilentArgs = editArgs({ clips: ["a.mp4", "b.mp4"], keepAudio: true, hasAudio: [true, false], width: 640, height: 360, fps: 24, crossfade: 0.5, duration: 8, sceneSeconds: 4.25, output: "o.mp4" });
+  check("E2 a scene with no audio is silence-filled, not dropped", oneSilentArgs.join(" ").includes("anullsrc") && oneSilentArgs.join(" ").includes("acrossfade=d=0.500"), "");
+  const noAudioArgs = editArgs({ clips: ["a.mp4", "b.mp4"], keepAudio: true, hasAudio: [false, false], width: 640, height: 360, fps: 24, crossfade: 0.5, duration: 8, sceneSeconds: 4.25, output: "o.mp4" });
+  check("E3 no scene audio at all stays silent (-an)", noAudioArgs.includes("-an") && !noAudioArgs.join(" ").includes("acrossfade"), "");
+
+  // (a) End to end: both scenes keep their 3 kHz tone, early and late.
+  const start = await api("POST", "/jobs/ads-keep-audio-01", spec({ music: undefined, voiceover: undefined, subtitles: undefined, keepAudio: true }));
+  check("E4 a keepAudio ad edit starts", start.status === 202, JSON.stringify(start.data).slice(0, 120));
+  const done = await waitDone("ads-keep-audio-01");
+  check("E5 the keepAudio film finishes", done.status === "done", done.error || "");
+  const file = await save("ads-keep-audio-01");
+  const info = probe(file);
+  const audio = info.streams.filter((s) => s.codec_type === "audio");
+  check("E6 exact length, asked size, one sound track", Math.abs(Number(info.format.duration) - 8) < 0.15 && info.streams.find((s) => s.codec_type === "video").width === 640 && audio.length === 1, `${info.format.duration} ${JSON.stringify(info.streams.map((s) => s.codec_type))}`);
+  const earlyDb = tone3kWindow(file, 1, 3), lateDb = tone3kWindow(file, 4.5, 5.5);
+  check("E7 the first scene's tone is audible early (1–3 s)", earlyDb > -45, `${earlyDb} dB`);
+  check("E8 the second scene's tone is audible late (4.5–5.5 s)", lateDb > -45, `${lateDb} dB`);
+
+  // (b) One scene with no audio stream at all: the film still finishes, the
+  // silent slot is quiet, and the other scene's tone is audible.
+  ff(["-f", "lavfi", "-i", "color=c=blue:s=640x360:r=24:d=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", path.join(dir, "s3.mp4")]);
+  const silentInfo = probe(path.join(dir, "s3.mp4"));
+  check("E9 the silent fixture really has no audio stream", silentInfo.streams.filter((s) => s.codec_type === "audio").length === 0, JSON.stringify(silentInfo.streams.map((s) => s.codec_type)));
+  const start2 = await api("POST", "/jobs/ads-keep-audio-02", spec({ clips: [`${base(files)}/s3.mp4`, clip(2)], music: undefined, voiceover: undefined, subtitles: undefined, keepAudio: true }));
+  check("E10 a keepAudio film with a silent scene starts", start2.status === 202, JSON.stringify(start2.data).slice(0, 120));
+  const done2 = await waitDone("ads-keep-audio-02");
+  check("E11 the silent-scene film finishes", done2.status === "done", done2.error || "");
+  const file2 = await save("ads-keep-audio-02");
+  const info2 = probe(file2);
+  check("E12 the silent-scene film has one sound track", info2.streams.filter((s) => s.codec_type === "audio").length === 1 && Math.abs(Number(info2.format.duration) - 8) < 0.15, `${info2.format.duration} ${JSON.stringify(info2.streams.map((s) => s.codec_type))}`);
+  const silentEarlyDb = tone3kWindow(file2, 1, 3), soundingLateDb = tone3kWindow(file2, 4.5, 5.5);
+  check("E13 the sounding scene's tone is audible late (4.5–5.5 s)", soundingLateDb > -45, `${soundingLateDb} dB`);
+  check("E14 the silent scene's slot is quiet early (1–3 s)", silentEarlyDb < -50, `${silentEarlyDb} dB`);
 }
 
 for (const server of [composer, files, eleven]) server.close();

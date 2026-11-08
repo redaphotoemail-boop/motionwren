@@ -125,6 +125,20 @@ Draft render (480p, capped at 10 s) costs roughly a third of the full render
   `app/ads-music-catalog.ts` (bold, cinematic, upbeat, minimal, luxe, warm —
   instrumental prompts written for commercials, never cheesy). The manifest's
   `edit.music.prompt` carries the mood; the composer makes one track per film.
+- ElevenLabs sound is OPTIONAL, one toggle for all of it, default OFF.
+  The Create form's Sound panel has an "ElevenLabs sound" checkbox; off,
+  the music mood, voiceover script and voice stay saved but disabled, so
+  turning it back on restores them. Off means the film keeps the sound
+  the video engine already made: `startAd` puts NO `music` key in
+  `manifest.edit` and never calls ElevenLabs at all — not even for a
+  stored voiceover script — so a missing key cannot fail the generate
+  (no 503). On means exactly today's behavior: music from the chosen
+  mood (or the format default) plus a voiceover synthesized first, so a
+  missing key fails before any generation money is spent. The estimate
+  line only mentions ElevenLabs billing when the toggle is on. Subtitles
+  are unaffected by the toggle: typed lines are used as-is, and a stored
+  script still feeds subtitle timing when off. Stored on `ad_projects`
+  as `elevenlabs_on` (0/1, default 0; `drizzle/0012_…`).
 - ElevenLabs voiceover (TTS): NEW — no TTS code exists in the repo today.
   New `app/api/_lib/elevenlabs.ts`: `listVoices()` (GET `/v1/voices`) and
   `synthesizeVoiceover()` (POST `/v1/text-to-speech/{voice_id}`,

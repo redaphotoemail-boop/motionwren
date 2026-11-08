@@ -179,6 +179,7 @@ export const adProjects = sqliteTable("ad_projects", {
   voiceoverScript: text("voiceover_script").notNull().default(""),
   voiceId: text("voice_id"),
   musicMood: text("music_mood"),
+  elevenlabsOn: integer("elevenlabs_on", { mode: "boolean" }).notNull().default(false),
   draft: integer("draft", { mode: "boolean" }).notNull().default(false),
   status: text("status").notNull().default("draft"),
   renderJobId: text("render_job_id"),

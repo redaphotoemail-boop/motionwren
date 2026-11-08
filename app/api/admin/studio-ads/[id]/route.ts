@@ -52,12 +52,12 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     const scenePrompts = Array.isArray(body.scenePrompts) ? body.scenePrompts.filter((item): item is string => typeof item === "string").slice(0, 12).map((item) => item.trim().slice(0, 500)) : [];
     const actorIds = Array.isArray(body.actorIds) ? [...new Set(body.actorIds.filter((item): item is string => typeof item === "string"))].slice(0, 8) : null;
     const now = Date.now();
-    await env.DB.prepare(`UPDATE ad_projects SET title = ?, hook = ?, prompt = ?, scene_prompts = ?, scene_images = ?, engine = ?, aspect = ?, target_duration = ?, subtitles = ?, voiceover_script = ?, voice_id = ?, music_mood = ?, draft = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(
+    await env.DB.prepare(`UPDATE ad_projects SET title = ?, hook = ?, prompt = ?, scene_prompts = ?, scene_images = ?, engine = ?, aspect = ?, target_duration = ?, subtitles = ?, voiceover_script = ?, voice_id = ?, music_mood = ?, elevenlabs_on = ?, draft = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(
       title, str(body.hook, 280), str(body.prompt, 2000), JSON.stringify(scenePrompts), JSON.stringify(sceneImages),
       engine, aspect, targetDuration,
       JSON.stringify({ on: subtitles.on === true, position: subtitles.position === "top" ? "top" : "bottom", size: subtitles.size === "small" || subtitles.size === "large" ? subtitles.size : "medium", lines: subtitleLines }),
       str(body.voiceoverScript, 5000), typeof body.voiceId === "string" && body.voiceId ? body.voiceId.slice(0, 120) : null,
-      adMusicMood(body.musicMood)?.id || null, body.draft === true ? 1 : 0, now, id, admin.id,
+      adMusicMood(body.musicMood)?.id || null, body.elevenlabsOn === true ? 1 : 0, body.draft === true ? 1 : 0, now, id, admin.id,
     ).run();
     if (actorIds !== null) {
       await env.DB.prepare(`DELETE FROM ad_project_actors WHERE ad_project_id = ?`).bind(id).run();

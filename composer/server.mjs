@@ -346,7 +346,7 @@ export function assText(lines, { position = "bottom", size = "medium", height = 
 
 /* ---------- the edit ---------- */
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -395,6 +395,13 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   const tail = Math.min(2.5, duration / 4);
   const fades = `afade=t=in:st=0:d=0.8,afade=t=out:st=${(duration - tail).toFixed(3)}:d=${tail.toFixed(3)}`;
   const trim = `aresample=48000,apad,atrim=duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS`;
+  // Toggle-off Studio Ads keep the scenes' own sound. Which scenes have an
+  // audio stream (probed by compose()); direct callers that pass none are
+  // assumed to have sound in every scene, as before. A film where no scene
+  // has sound at all stays silent (-an below) — loudnorm on pure silence
+  // is not a track worth making.
+  const audioFlags = Array.isArray(hasAudio) && hasAudio.length === count ? hasAudio.map(Boolean) : Array(count).fill(true);
+  const keepAudioMulti = Boolean(keepAudio && count > 1 && !music && !voiceover && audioFlags.some(Boolean));
   if (music && voiceover) {
     // Voiceover leads; the music ducks under it, then one mixed track.
     filters.push(`[${count}:a]${trim},${fades},volume=0.35[mus]`);
@@ -405,9 +412,29 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     filters.push(`[${count}:a]${trim},${fades},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
   } else if (voiceover) {
     filters.push(`[${voiceIndex}:a]${trim},${fades},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
+  } else if (keepAudioMulti) {
+    // Each scene's sound, trimmed to its share of the film, joined with the
+    // same crossfade as the picture (scene i starts at i*(d-X), which is
+    // what chained acrossfades produce). A scene with no audio stream gets
+    // silence in its slot, never a failure.
+    audioFlags.forEach((has, i) => {
+      if (has) filters.push(`[${i}:a]atrim=duration=${d.toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur=${d.toFixed(3)}[a${i}]`);
+      else filters.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${d.toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`);
+    });
+    let lastAudio = "a0";
+    if (X > 0) {
+      for (let i = 1; i < count; i += 1) {
+        filters.push(`[${lastAudio}][a${i}]acrossfade=d=${X.toFixed(3)}[xa${i}]`);
+        lastAudio = `xa${i}`;
+      }
+    } else {
+      filters.push(`${audioFlags.map((_, i) => `[a${i}]`).join("")}concat=n=${count}:v=0:a=1[xa${count - 1}]`);
+      lastAudio = `xa${count - 1}`;
+    }
+    filters.push(`[${lastAudio}]${trim},${fades},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]`);
   }
   args.push("-filter_complex", filters.join(";"), "-map", `[${videoOut}]`);
-  if (music || voiceover) args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
+  if (music || voiceover || keepAudioMulti) args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
   else if (keepAudio && count === 1) args.push("-map", "0:a?", "-af", `afade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`, "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "48000");
   else args.push("-an");
   args.push("-c:v", "libx264", "-preset", "fast", "-crf", "17", "-tune", "film", "-profile:v", "high", "-pix_fmt", "yuv420p", "-r", String(fps), "-g", String(fps * 2), "-movflags", "+faststart", "-t", duration.toFixed(3), output);
@@ -547,7 +574,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { clips: files, music, voiceover, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, speeds: spec.speeds };
+    const editInput = { clips: files, music, voiceover, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: infos.map((info) => info.audioStreams > 0), speeds: spec.speeds };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.

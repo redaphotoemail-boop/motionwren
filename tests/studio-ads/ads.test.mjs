@@ -4,7 +4,8 @@
    Plain node, no database, no provider. The lib is bundled with esbuild
    first, the way tests/scene-queue does it. */
 import http from "node:http";
-import { mkdtempSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -104,6 +105,119 @@ const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buil
   let missing = null;
   try { await listVoices(); } catch (error) { missing = error; }
   check("7c without a key the client fails honestly, before any call", missing instanceof ElevenLabsMissingKey && calls.length === 2, missing?.message || "");
+}
+
+/* 8. The ElevenLabs toggle in startAd: off means no music key, no
+   voiceover attempt and no ElevenLabs call at all (even with a script
+   stored); on keeps today's behavior. startAd is bundled separately —
+   ads-production pulls render-jobs, which needs next/* shims — and run
+   on a real in-memory SQLite seeded with the repo migrations plus an
+   in-memory R2 that captures the saved manifest. The queue-begin step
+   is faked to "not begun" so no provider call is made; the manifest is
+   saved before that step, so the assertions are unaffected. */
+{
+  process.env.ELEVENLABS_API_KEY = "test-eleven-key";
+  process.env.ELEVENLABS_API_BASE = `http://127.0.0.1:${eleven.address().port}`;
+  const PROD_OUT = join(mkdtempSync(join(tmpdir(), "mw-ads-prod-")), "prod.mjs");
+  await build({ entryPoints: [join(HERE, "..", "..", "app", "api", "_lib", "ads-production.ts")], bundle: true, platform: "node", format: "esm", outfile: PROD_OUT, alias: { "next/headers": join(HERE, "shim-headers.ts"), "next/navigation": join(HERE, "shim-headers.ts") }, logLevel: "warning" });
+  const prod = await import(pathToFileURL(PROD_OUT).href);
+  const { startAd, loadAd } = prod;
+
+  const makeTestDb = () => {
+    const db = new DatabaseSync(":memory:");
+    for (const file of readdirSync(join(HERE, "..", "..", "drizzle")).filter((f) => f.endsWith(".sql")).sort()) {
+      for (const statement of readFileSync(join(HERE, "..", "..", "drizzle", file), "utf8").split("--> statement-breakpoint")) {
+        const sql = statement.trim(); if (!sql) continue;
+        try { db.exec(sql); } catch (error) { if (!/already exists|duplicate column/i.test(error.message)) throw new Error(`${file}: ${error.message}`); }
+      }
+    }
+    const wrap = (sql, values = []) => ({
+      bind: (...next) => wrap(sql, next),
+      first: async () => db.prepare(sql).get(...values) ?? null,
+      all: async () => ({ results: db.prepare(sql).all(...values) }),
+      run: async () => {
+        if (/^UPDATE render_jobs SET status = 'generating'/.test(sql)) return { meta: { changes: 0 }, results: [] };
+        const r = db.prepare(sql).run(...values);
+        return { meta: { changes: Number(r.changes) }, results: [] };
+      },
+    });
+    return { raw: db, prepare: (sql) => wrap(sql), batch: async (list) => { const out = []; for (const s of list) out.push(await s.run()); return out; } };
+  };
+  const makeTestBucket = () => {
+    const store = new Map();
+    return {
+      store,
+      get: async (key) => store.has(key) ? { text: async () => String(store.get(key).value) } : null,
+      head: async (key) => store.has(key) ? { size: store.get(key).value.length } : null,
+      put: async (key, value, options = {}) => { let v = value; if (value && typeof value.getReader === "function") v = Buffer.from(await new Response(value).arrayBuffer()); else if (value instanceof ArrayBuffer) v = Buffer.from(value); store.set(key, { value: typeof v === "string" ? v : Buffer.from(v), meta: options.httpMetadata }); },
+      delete: async (key) => { store.delete(key); },
+    };
+  };
+  let seedCount = 0;
+  const seedAd = (db, elevenlabsOn) => {
+    seedCount += 1;
+    const id = `ad-toggle-${seedCount}`;
+    const now = Date.now();
+    db.raw.prepare(`INSERT INTO ad_projects (id, owner_id, title, hook, prompt, scene_prompts, scene_images, engine, resolution, aspect, target_duration, subtitles, voiceover_script, voice_id, music_mood, elevenlabs_on, draft, status, render_job_id, final_history_id, cost_cents, created_at, updated_at) VALUES (?, 'owner-1', 'Toggle test ad', '', 'A watch ad on a city rooftop at dusk.', '[]', '[]', 'wan3', '1080p', 'vertical', 10, ?, 'The city never sleeps. Neither does this watch.', 'v-rachel', 'bold', ?, 0, 'draft', NULL, NULL, 0, ?, ?)`).run(id, JSON.stringify({ on: true, position: "bottom", size: "medium", lines: [] }), elevenlabsOn, now, now);
+    db.raw.prepare(`INSERT INTO ad_assets (id, ad_project_id, owner_id, kind, r2_key, file_name, content_type, size_bytes, sort_order, created_at) VALUES (?, ?, 'owner-1', 'source', 'ads/test.jpg', 'test.jpg', 'image/jpeg', 1000, 0, ?)`).run(`asset-toggle-${seedCount}`, id, now);
+    return id;
+  };
+  const manifestFor = (bucket, jobId) => JSON.parse(String(bucket.store.get(`render-jobs/${jobId}/manifest.json`).value));
+
+  // 8a. Toggle OFF, script + voice + mood stored: no music, no voiceover,
+  // no ElevenLabs call — but subtitles still come from the script.
+  {
+    const db = makeTestDb(); const bucket = makeTestBucket();
+    const env = { DB: db, BUCKET: bucket };
+    const adId = seedAd(db, 0);
+    const ad = await loadAd(env, adId, "owner-1");
+    check("8a loadAd reads the toggle off", ad && ad.elevenlabsOn === 0, JSON.stringify(ad?.elevenlabsOn));
+    const callsBefore = calls.length;
+    const result = await startAd(env, ad, "owner-1", "https://example.test", "provider-token");
+    const manifest = manifestFor(bucket, result.jobId);
+    check("8b toggle OFF manifest has no music key", !("music" in (manifest.edit || {})), JSON.stringify(Object.keys(manifest.edit || {})));
+    check("8c toggle OFF manifest has no voiceover key", !("voiceover" in (manifest.edit || {})), JSON.stringify(Object.keys(manifest.edit || {})));
+    check("8d toggle OFF subtitles still come from the stored script", Array.isArray(manifest.edit?.subtitles?.lines) && manifest.edit.subtitles.lines.length >= 1 && manifest.edit.subtitles.lines.map((line) => line.text).join(" ").includes("Neither does this watch"), JSON.stringify(manifest.edit?.subtitles?.lines));
+    check("8e toggle OFF never calls ElevenLabs, even with a script stored", calls.length === callsBefore, `${callsBefore} -> ${calls.length}`);
+    check("8f toggle OFF stores no voiceover audio", !bucket.store.has(`render-jobs/${result.jobId}/voiceover.mp3`), "");
+  }
+
+  // 8g. Toggle ON: today's behavior — music present, voiceover synthesized.
+  {
+    const db = makeTestDb(); const bucket = makeTestBucket();
+    const env = { DB: db, BUCKET: bucket };
+    const adId = seedAd(db, 1);
+    const ad = await loadAd(env, adId, "owner-1");
+    check("8g loadAd reads the toggle on", ad && ad.elevenlabsOn === 1, JSON.stringify(ad?.elevenlabsOn));
+    const callsBefore = calls.length;
+    const result = await startAd(env, ad, "owner-1", "https://example.test", "provider-token");
+    const manifest = manifestFor(bucket, result.jobId);
+    check("8h toggle ON manifest carries the music mood", typeof manifest.edit?.music?.prompt === "string" && manifest.edit.music.prompt.length > 0, JSON.stringify(manifest.edit?.music));
+    check("8i toggle ON manifest carries the voiceover", manifest.edit?.voiceover?.saved === "voiceover.mp3", JSON.stringify(manifest.edit?.voiceover));
+    check("8j toggle ON synthesizes the voiceover through ElevenLabs", calls.length === callsBefore + 1 && /text-to-speech\/v-rachel/.test(calls.at(-1).url), calls.at(-1)?.url || "");
+    check("8k toggle ON stores the voiceover audio", bucket.store.has(`render-jobs/${result.jobId}/voiceover.mp3`), "");
+  }
+
+  // 8l. Toggle OFF with the key removed entirely: still succeeds, no call,
+  // no 503 — the generate does not depend on ElevenLabs at all when off.
+  {
+    delete process.env.ELEVENLABS_API_KEY;
+    const db = makeTestDb(); const bucket = makeTestBucket();
+    const env = { DB: db, BUCKET: bucket };
+    const adId = seedAd(db, 0);
+    const ad = await loadAd(env, adId, "owner-1");
+    const callsBefore = calls.length;
+    let result = null, error = null;
+    try { result = await startAd(env, ad, "owner-1", "https://example.test", "provider-token"); } catch (e) { error = e; }
+    check("8l toggle OFF works with no ElevenLabs key at all", result !== null && error === null, error?.message || "");
+    if (result) {
+      const manifest = manifestFor(bucket, result.jobId);
+      check("8m toggle OFF with no key still has no music or voiceover", !("music" in (manifest.edit || {})) && !("voiceover" in (manifest.edit || {})), JSON.stringify(Object.keys(manifest.edit || {})));
+    }
+    check("8n toggle OFF with no key makes no ElevenLabs call", calls.length === callsBefore, `${callsBefore} -> ${calls.length}`);
+    process.env.ELEVENLABS_API_KEY = "test-eleven-key";
+  }
+
   eleven.close();
 }
 

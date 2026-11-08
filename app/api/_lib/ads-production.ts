@@ -22,7 +22,7 @@ export type AdProjectRow = {
   id: string; title: string; hook: string | null; prompt: string;
   scenePrompts: string; sceneImages: string; engine: string; resolution: string;
   aspect: string; targetDuration: number; subtitles: string; voiceoverScript: string;
-  voiceId: string | null; musicMood: string | null; draft: number; status: string;
+  voiceId: string | null; musicMood: string | null; elevenlabsOn: number; draft: number; status: string;
   renderJobId: string | null; finalHistoryId: string | null; costCents: number;
 };
 
@@ -32,7 +32,7 @@ const ACTIVE_STATUSES = ["queued", "generating", "stitching", "saving", "complet
 const AD_GENERATING_STATUSES = ["queued", "generating", "stitching", "saving"];
 
 export async function loadAd(env: Env, adId: string, ownerId: string) {
-  return env.DB.prepare(`SELECT id, title, hook, prompt, scene_prompts AS scenePrompts, scene_images AS sceneImages, engine, resolution, aspect, target_duration AS targetDuration, subtitles, voiceover_script AS voiceoverScript, voice_id AS voiceId, music_mood AS musicMood, draft, status, render_job_id AS renderJobId, final_history_id AS finalHistoryId, cost_cents AS costCents FROM ad_projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(adId, ownerId).first<AdProjectRow>();
+  return env.DB.prepare(`SELECT id, title, hook, prompt, scene_prompts AS scenePrompts, scene_images AS sceneImages, engine, resolution, aspect, target_duration AS targetDuration, subtitles, voiceover_script AS voiceoverScript, voice_id AS voiceId, music_mood AS musicMood, elevenlabs_on AS elevenlabsOn, draft, status, render_job_id AS renderJobId, final_history_id AS finalHistoryId, cost_cents AS costCents FROM ad_projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(adId, ownerId).first<AdProjectRow>();
 }
 
 export function parseSceneImages(value: string): AdSceneImage[] {
@@ -124,7 +124,12 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
   const script = ad.voiceoverScript.trim();
   if (subtitles.on && !subtitles.lines.length && !script) throw new HttpError(409, "Subtitles are on but there is nothing to show: add subtitle lines or a voiceover script.");
   const subtitleLines = subtitles.on ? (subtitles.lines.length ? subtitles.lines : splitScriptToSubtitles(script, plan.totalSeconds)) : [];
-  const music = adMusicMood(ad.musicMood) || adMusicMood(defaultAdMusicMood(aspect, plan.totalSeconds));
+  // ElevenLabs sound is optional and off by default: the video engine
+  // usually already made sound. Off means no ElevenLabs call at all —
+  // no music key in the manifest, no voiceover synthesis — while the
+  // stored script still feeds subtitles. On keeps today's behavior.
+  const elevenlabsOn = ad.elevenlabsOn === 1;
+  const music = elevenlabsOn ? (adMusicMood(ad.musicMood) || adMusicMood(defaultAdMusicMood(aspect, plan.totalSeconds))) : null;
   const costCents = Math.round(estimateAdCost(engine, resolution, targetDuration, images.length, Boolean(ad.draft)) * 100);
 
   const jobId = crypto.randomUUID();
@@ -134,8 +139,9 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
   let voiceoverSaved = false;
   try {
     // Voiceover first: if ElevenLabs cannot make it, fail before any
-    // generation money is spent.
-    if (script) {
+    // generation money is spent. Skipped entirely when the toggle is
+    // off, even with a script stored — ElevenLabs is never called.
+    if (elevenlabsOn && script) {
       let voiceId = ad.voiceId || "";
       if (!voiceId) {
         const voices = await listVoices();
@@ -169,7 +175,7 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
     manifest.edit = {
       shareSeconds: plan.shareSeconds,
       crossfade: CROSSFADE_SECONDS,
-      music: { prompt: music.prompt },
+      ...(elevenlabsOn && music ? { music: { prompt: music.prompt } } : {}),
       ...(subtitleLines.length ? { subtitles: { lines: subtitleLines, position: subtitles.position, size: subtitles.size } } : {}),
       ...(voiceoverSaved ? { voiceover: { saved: "voiceover.mp3" } } : {}),
     };
