@@ -14,7 +14,7 @@ type AdRow = {
   id: string; title: string; hook: string | null; prompt: string;
   scenePrompts: string; sceneImages: string; engine: string; resolution: string;
   aspect: string; targetDuration: number; subtitles: string; voiceoverScript: string;
-  voiceId: string | null; musicMood: string | null; draft: number; status: string;
+  voiceId: string | null; musicMood: string | null; elevenlabsOn: number; draft: number; status: string;
   renderJobId: string | null; finalHistoryId: string | null; costCents: number;
   createdAt: number; updatedAt: number;
 };
@@ -48,6 +48,7 @@ export default function StudioAdsPage() {
   const [duration, setDuration] = useState<AdDuration>(10);
   const [draft, setDraft] = useState(false);
   const [musicMood, setMusicMood] = useState<string | null>(null);
+  const [elevenlabsOn, setElevenlabsOn] = useState(false);
   const [voiceoverScript, setVoiceoverScript] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [subtitlesOn, setSubtitlesOn] = useState(false);
@@ -89,6 +90,7 @@ export default function StudioAdsPage() {
     setDuration(([10, 30, 60] as const).includes(ad.targetDuration as AdDuration) ? ad.targetDuration as AdDuration : 10);
     setDraft(ad.draft === 1);
     setMusicMood(ad.musicMood);
+    setElevenlabsOn(ad.elevenlabsOn === 1);
     setVoiceoverScript(ad.voiceoverScript || "");
     setVoiceId(ad.voiceId || "");
     const subs = parseJson(ad.subtitles, { on: false, position: "bottom", size: "medium", lines: [] }) as { on: boolean; position: "bottom" | "top"; size: "small" | "medium" | "large"; lines: { text: string }[] };
@@ -124,7 +126,7 @@ export default function StudioAdsPage() {
     try {
       const response = await fetch("/api/admin/studio-ads", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, draft }),
+        body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be created.");
@@ -141,7 +143,7 @@ export default function StudioAdsPage() {
     try {
       const response = await fetch(`/api/admin/studio-ads/${detail.ad.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, draft }),
+        body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be saved.");
@@ -174,7 +176,7 @@ export default function StudioAdsPage() {
     setSaving(true); setMessage("");
     try {
       if (asDraft !== draft) {
-        await fetch(`/api/admin/studio-ads/${detail.ad.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, draft: asDraft }) });
+        await fetch(`/api/admin/studio-ads/${detail.ad.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft: asDraft }) });
       }
       const response = await fetch(`/api/admin/studio-ads/${detail.ad.id}/generate`, { method: "POST" });
       const result = await response.json();
@@ -278,7 +280,7 @@ export default function StudioAdsPage() {
             </div>
             {squareCropped ? <p className="note">Square on this engine is made at 16:9 and center-cropped by the editor — pick Kling, Wan, Hailuo or Runway for a native square frame.</p> : null}
             <label className="field-toggle"><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Draft render first — 480p, max 10 s, about a third of the full price, to check the idea before spending on the full render.</label>
-            <p className="muted small">Plan: {plan.count} scene{plan.count === 1 ? "" : "s"} × {plan.sceneSeconds}s · Estimated generation {money(estimate)}{draft ? " (draft)" : ""} — ElevenLabs voiceover and music are billed by ElevenLabs, not here.</p>
+            <p className="muted small">Plan: {plan.count} scene{plan.count === 1 ? "" : "s"} × {plan.sceneSeconds}s · Estimated generation {money(estimate)}{draft ? " (draft)" : ""}{elevenlabsOn ? " — ElevenLabs voiceover and music are billed by ElevenLabs, not here." : ""}</p>
             {!detail ? <button type="button" className="btn btn-ink" onClick={createAd} disabled={saving}>{saving ? "Creating…" : "Create ad"}</button> : null}
           </section>
 
@@ -332,21 +334,22 @@ export default function StudioAdsPage() {
               </section>
 
               <section className="panel">
-                <div className="panel-head"><h2>Sound</h2><span className="muted small">Music is made fresh for each ad; voiceover is read by ElevenLabs.</span></div>
+                <div className="panel-head"><h2>Sound</h2><span className="muted small">{elevenlabsOn ? "Music is made fresh for each ad; voiceover is read by ElevenLabs." : "Off — the ad uses the sound the video engine already made."}</span></div>
+                <label className="field-toggle"><input type="checkbox" checked={elevenlabsOn} onChange={(event) => setElevenlabsOn(event.target.checked)} /> ElevenLabs sound — voiceover and music from ElevenLabs, on top of the sound the video already has. Off uses just the sound the video engine made.</label>
                 <label className="field">Music mood
-                  <select value={musicMood || ""} onChange={(event) => setMusicMood(event.target.value || null)}>
+                  <select value={musicMood || ""} onChange={(event) => setMusicMood(event.target.value || null)} disabled={!elevenlabsOn}>
                     <option value="">Auto — matched to the format</option>
                     {AD_MUSIC_MOODS.map((mood) => <option key={mood.id} value={mood.id}>{mood.name} — {mood.blurb}</option>)}
                   </select>
                 </label>
-                <label className="field">Voiceover script<textarea value={voiceoverScript} onChange={(event) => setVoiceoverScript(event.target.value)} placeholder="What the voice says, exactly. Leave empty for music only." rows={3} maxLength={5000} /></label>
+                <label className="field">Voiceover script<textarea value={voiceoverScript} onChange={(event) => setVoiceoverScript(event.target.value)} placeholder="What the voice says, exactly. Leave empty for music only." rows={3} maxLength={5000} disabled={!elevenlabsOn} /></label>
                 <label className="field">Voice
-                  <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)} disabled={!voices.keyed || !voices.list.length}>
+                  <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)} disabled={!elevenlabsOn || !voices.keyed || !voices.list.length}>
                     <option value="">First voice on the account</option>
                     {voices.list.map((voice) => <option key={voice.voiceId} value={voice.voiceId}>{voice.name}{voice.category ? ` · ${voice.category}` : ""}</option>)}
                   </select>
                 </label>
-                {!voices.keyed ? <p className="note">Voiceover needs the ElevenLabs key — add ELEVENLABS_API_KEY as a Worker secret and it appears here. Music uses the same key.</p> : null}
+                {elevenlabsOn && !voices.keyed ? <p className="note">Voiceover needs the ElevenLabs key — add ELEVENLABS_API_KEY as a Worker secret and it appears here. Music uses the same key.</p> : null}
               </section>
 
               <section className="panel">
