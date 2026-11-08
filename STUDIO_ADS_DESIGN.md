@@ -81,15 +81,15 @@ Cost = engine $/s × sceneSeconds × scenes (catalog prices in
 
 | Ad | Wan 3.0 1080p | Kling 3.0 1080p | Runway 4.5 1080p |
 |---|---|---|---|
-| 10 s (4 scenes × 3 s) | $1.06 | $2.69 | $2.77 |
-| 30 s (9 × 4 s / 8 × 5 s) | $3.19 | $8.96 | $5.54 |
-| 60 s (12 × 6 s / 12 × 10 s) | $6.38 | $16.13 | $16.63 |
+| 10 s (4 scenes × 3 s) | $0.82 | $2.69 | $2.77 |
+| 30 s (9 × 4 s / 8 × 5 s) | $2.47 | $8.96 | $5.54 |
+| 60 s (12 × 6 s / 12 × 10 s) | $4.94 | $16.13 | $16.63 |
 
 Notes: longer ads waste engine time (a 60 s Runway film renders 120 s of
 clips, trimmed down) — that is the existing scene-planner's trade, not new.
 With 1 photo, 10 s is a single 10 s clip. 30 s with 3 photos is 3 × 12 s.
 Draft render (480p, capped at 10 s) costs roughly a third of the full render
-(Wan 3.0 480p is $0.035/s vs $0.0886/s at 1080p).
+(Wan 3.0 480p is $0.025/s vs $0.0686/s at 1080p).
 
 ## Engines — same catalog, no move presets
 
