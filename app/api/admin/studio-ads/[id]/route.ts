@@ -3,6 +3,7 @@ import { jsonError, requireAdmin } from "../../../_lib/account";
 import { adJobState, loadAd } from "../../../_lib/ads-production";
 import { adMusicMood } from "../../../../ads-music-catalog";
 import { AD_DURATIONS } from "../../../../ads-creative";
+import { cleanMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration } from "../../../../ads-master-prompt";
 import { isEngineKey } from "../../../../engine-providers";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -45,15 +46,20 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     if (title.length < 2) return Response.json({ error: "Give the ad a title (at least 2 characters)." }, { status: 400 });
     const engine = isEngineKey(body.engine) ? body.engine : ad.engine;
     const aspect = body.aspect === "horizontal" || body.aspect === "square" ? body.aspect : body.aspect === "vertical" ? "vertical" : ad.aspect;
-    const targetDuration = (AD_DURATIONS as readonly number[]).includes(Number(body.targetDuration)) ? Number(body.targetDuration) : ad.targetDuration;
+    /* A "Fix It In 20 Seconds" ad is locked to 30 s — see ads-master-prompt.ts. */
+    const template = resolveAdTemplate(body.template ?? ad.template);
+    const templateFields = cleanMasterPromptFields(body.templateFields ?? parseMasterPromptFields(ad.templateFields || ""));
+    const wantedDuration = (AD_DURATIONS as readonly number[]).includes(Number(body.targetDuration)) ? Number(body.targetDuration) : ad.targetDuration;
+    const targetDuration = resolveTemplateDuration(template, wantedDuration);
     const subtitles = (body.subtitles && typeof body.subtitles === "object" && !Array.isArray(body.subtitles)) ? body.subtitles as Record<string, unknown> : {};
     const subtitleLines = Array.isArray(subtitles.lines) ? subtitles.lines.filter((line) => line && typeof line === "object" && typeof (line as { text?: unknown }).text === "string").slice(0, 40) : [];
     const sceneImages = Array.isArray(body.sceneImages) ? body.sceneImages.filter((item): item is { type: "source" | "actor"; id: string } => typeof item === "object" && item !== null && (item.type === "source" || item.type === "actor") && typeof item.id === "string").slice(0, 20) : [];
     const scenePrompts = Array.isArray(body.scenePrompts) ? body.scenePrompts.filter((item): item is string => typeof item === "string").slice(0, 12).map((item) => item.trim().slice(0, 500)) : [];
     const actorIds = Array.isArray(body.actorIds) ? [...new Set(body.actorIds.filter((item): item is string => typeof item === "string"))].slice(0, 8) : null;
     const now = Date.now();
-    await env.DB.prepare(`UPDATE ad_projects SET title = ?, hook = ?, prompt = ?, scene_prompts = ?, scene_images = ?, engine = ?, aspect = ?, target_duration = ?, subtitles = ?, voiceover_script = ?, voice_id = ?, music_mood = ?, elevenlabs_on = ?, draft = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(
+    await env.DB.prepare(`UPDATE ad_projects SET title = ?, hook = ?, prompt = ?, scene_prompts = ?, scene_images = ?, template = ?, template_fields = ?, engine = ?, aspect = ?, target_duration = ?, subtitles = ?, voiceover_script = ?, voice_id = ?, music_mood = ?, elevenlabs_on = ?, draft = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(
       title, str(body.hook, 280), str(body.prompt, 2000), JSON.stringify(scenePrompts), JSON.stringify(sceneImages),
+      template, JSON.stringify(templateFields),
       engine, aspect, targetDuration,
       JSON.stringify({ on: subtitles.on === true, position: subtitles.position === "top" ? "top" : "bottom", size: subtitles.size === "small" || subtitles.size === "large" ? subtitles.size : "medium", lines: subtitleLines }),
       str(body.voiceoverScript, 5000), typeof body.voiceId === "string" && body.voiceId ? body.voiceId.slice(0, 120) : null,

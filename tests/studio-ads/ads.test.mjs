@@ -32,7 +32,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(mkdtempSync(join(tmpdir(), "mw-ads-")), "lib.mjs");
 await build({ entryPoints: [join(HERE, "entry.ts")], bundle: true, platform: "node", format: "esm", outfile: OUT, logLevel: "warning" });
 const lib = await import(pathToFileURL(OUT).href);
-const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buildAssText, estimateAdCost, splitScriptToSubtitles, AD_MUSIC_MOODS, adMusicMood, defaultAdMusicMood, ElevenLabsMissingKey, listVoices, synthesizeVoiceover } = lib;
+const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buildAssText, estimateAdCost, splitScriptToSubtitles, AD_MUSIC_MOODS, adMusicMood, defaultAdMusicMood, ElevenLabsMissingKey, listVoices, synthesizeVoiceover, AD_TEMPLATES, MASTER_PROMPT_DURATION, MASTER_PROMPT_FIELD_DEFS, MASTER_PROMPT_TEMPLATE, buildMasterPromptPrompt, cleanMasterPromptFields, emptyMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration } = lib;
 
 /* 1. The theme: premium and realistic, nothing real-estate. */
 {
@@ -218,7 +218,82 @@ const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buil
     process.env.ELEVENLABS_API_KEY = "test-eleven-key";
   }
 
+  // 8o. Template ad (10 s stored on purpose — startAd must coerce it to
+  // 30 s): the filled master prompt is the job prompt and the scene theme.
+  const seedTemplateAd = (db) => {
+    seedCount += 1;
+    const id = `ad-template-${seedCount}`;
+    const now = Date.now();
+    const fields = { product: "AI tracking gimbal", problem: "Filming alone means shaky shots and missed moments.", whoFor: "creators filming alone with a phone", proof: "Holds the shot steady for a full 30-second take", price: "$29.99", honestDownside: "Needs a flat surface to stand on.", callToAction: "Tap the orange cart" };
+    db.raw.prepare(`INSERT INTO ad_projects (id, owner_id, title, hook, prompt, scene_prompts, scene_images, template, template_fields, engine, resolution, aspect, target_duration, subtitles, voiceover_script, voice_id, music_mood, elevenlabs_on, draft, status, render_job_id, final_history_id, cost_cents, created_at, updated_at) VALUES (?, 'owner-1', 'Template test ad', '', 'A gimbal demo.', '[]', '[]', 'fix-it-20', ?, 'wan3', '1080p', 'vertical', 10, '{}', '', NULL, NULL, 0, 0, 'draft', NULL, NULL, 0, ?, ?)`).run(id, JSON.stringify(fields), now, now);
+    // Six source images: a 30 s plan needs more than one photo (one photo
+    // caps at the longest single scene, 15 s on Wan 3.0).
+    for (let i = 0; i < 6; i += 1) {
+      db.raw.prepare(`INSERT INTO ad_assets (id, ad_project_id, owner_id, kind, r2_key, file_name, content_type, size_bytes, sort_order, created_at) VALUES (?, ?, 'owner-1', 'source', ?, ?, 'image/jpeg', 1000, ?, ?)`).run(`asset-template-${seedCount}-${i}`, id, `ads/test-${i}.jpg`, `test-${i}.jpg`, i, now);
+    }
+    return id;
+  };
+  {
+    const db = makeTestDb(); const bucket = makeTestBucket();
+    const env = { DB: db, BUCKET: bucket };
+    const adId = seedTemplateAd(db);
+    const ad = await loadAd(env, adId, "owner-1");
+    check("10a loadAd reads the template and its fields", ad && ad.template === "fix-it-20" && JSON.parse(ad.templateFields).product === "AI tracking gimbal", JSON.stringify(ad?.template));
+    const result = await startAd(env, ad, "owner-1", "https://example.test", "provider-token");
+    const job = db.raw.prepare(`SELECT prompt, duration FROM render_jobs WHERE id = ?`).get(result.jobId);
+    check("10b template ad stores the filled master prompt as the job prompt", typeof job?.prompt === "string" && job.prompt.includes("AI tracking gimbal") && job.prompt.includes("$29.99") && job.prompt.includes("16 CFR Part 465") && job.prompt.includes("Fix It In 20 Seconds"), String(job?.prompt || "").slice(0, 120));
+    check("10c template ad coerces its stored 10 s to the 30 s the prompt needs", job?.duration === 30, `duration=${job?.duration}`);
+    const manifest = manifestFor(bucket, result.jobId);
+    check("10d template scenes carry the master prompt, not the cinematic theme", JSON.stringify(manifest).includes("AI tracking gimbal") && !JSON.stringify(manifest).includes(ADS_THEME), "");
+  }
+
+  // 10e. Cinematic control: the job prompt is still ADS_THEME, duration kept.
+  {
+    const db = makeTestDb(); const bucket = makeTestBucket();
+    const env = { DB: db, BUCKET: bucket };
+    const adId = seedAd(db, 0);
+    const ad = await loadAd(env, adId, "owner-1");
+    const result = await startAd(env, ad, "owner-1", "https://example.test", "provider-token");
+    const job = db.raw.prepare(`SELECT prompt, duration FROM render_jobs WHERE id = ?`).get(result.jobId);
+    check("10e cinematic ad still stores ADS_THEME and keeps its 10 s", job?.prompt === ADS_THEME && job?.duration === 10, `duration=${job?.duration}`);
+  }
+
   eleven.close();
+}
+
+/* 9. "Fix It In 20 Seconds" master-prompt template: the picker, the
+   7 fill-ins, the structure, the rules and the legal DO / DON'T, copied
+   from the master prompt file in its own words — and nothing from the
+   file's starting slate baked in. */
+{
+  const filled = {
+    product: "AI tracking gimbal",
+    problem: "Filming alone means shaky shots and missed moments.",
+    whoFor: "creators filming alone with a phone",
+    proof: "Holds the shot steady for a full 30-second take",
+    price: "$29.99",
+    honestDownside: "Needs a flat surface to stand on.",
+    callToAction: "Tap the orange cart",
+  };
+  const text = buildMasterPromptPrompt(filled);
+  check("9a the picker offers cinematic and Fix It In 20 Seconds", AD_TEMPLATES.length === 2 && AD_TEMPLATES[0].id === "cinematic" && AD_TEMPLATES[0].label === "Cinematic premium" && AD_TEMPLATES[1].id === "fix-it-20" && AD_TEMPLATES[1].label === "Fix It In 20 Seconds", JSON.stringify(AD_TEMPLATES.map((t) => t.id)));
+  check("9b unknown templates fall back to cinematic", resolveAdTemplate(undefined) === "cinematic" && resolveAdTemplate("nope") === "cinematic" && resolveAdTemplate("fix-it-20") === "fix-it-20", "");
+  check("9c the template is 30 s: 10 s and 60 s both coerce to 30, cinematic keeps its length", MASTER_PROMPT_DURATION === 30 && resolveTemplateDuration("fix-it-20", 10) === 30 && resolveTemplateDuration("fix-it-20", 60) === 30 && resolveTemplateDuration("cinematic", 10) === 10 && resolveTemplateDuration("cinematic", 60) === 60 && resolveTemplateDuration("cinematic", 99) === 10, "");
+  check("9d exactly the 7 fill-in fields, in order", MASTER_PROMPT_FIELD_DEFS.map((d) => d.key).join(",") === "product,problem,whoFor,proof,price,honestDownside,callToAction", JSON.stringify(MASTER_PROMPT_FIELD_DEFS.map((d) => d.key)));
+  check("9e the filled prompt carries all 7 values", Object.values(filled).every((v) => text.includes(v)), "");
+  const idx = (s) => text.indexOf(s);
+  check("9f the structure is present in the file's fixed order", idx("0–3s HOOK") > -1 && idx("0–3s HOOK") < idx("3–8s PROBLEM") && idx("3–8s PROBLEM") < idx("8–20s DEMO") && idx("8–20s DEMO") < idx("20–25s PROOF") && idx("20–25s PROOF") < idx("25–30s CALL TO ACTION"), "");
+  check("9g the structure keeps the file's wording", text.includes("already moving") && text.includes("change something on screen every 2–4 seconds") && text.includes("Last frame should match the first frame so the video loops seamlessly") && text.includes('Never start with a logo, a greeting, or "hey guys."'), "");
+  check("9h rules 1–9 are present verbatim", text.includes("Hook in the first 3 seconds or the video fails") && text.includes("Show, don't tell") && text.includes("never stretch one video past 30 seconds") && text.includes("End on the payoff, then stop") && text.includes("21–30 seconds"), "");
+  check("9i the legal DO / DON'T are present verbatim", text.includes("Disclose the affiliate link ON SCREEN in the video") && text.includes("#ad") && text.includes("I earn a commission if you buy") && text.includes("16 CFR Part 465") && text.includes("$53,088") && text.includes("NEVER let an AI person/avatar claim it used, tried, or liked the product") && text.includes("NEVER fake what the product does") && text.includes("NEVER imply a brand sponsors or endorses you") && text.includes("NEVER hide the affiliate relationship") && text.includes("NEVER buy followers or views") && text.includes("NEVER build for TikTok Creator Rewards with fully AI videos") && text.includes("NEVER make earnings or income claims") && text.includes("Label any AI-generated realistic person, voice, or scene"), "");
+  check("9j the series rule names Fix It In 20 Seconds", text.includes('Every video belongs to the same repeatable series: "Fix It In 20 Seconds."') && text.includes("Same opening pattern, same promise"), "");
+  check("9k no starting-slate product or price is baked into the template", !/gimbal|lav mic|ring light|Ulanzi|Lamicall|tripod|\$29\.99|\$39\.99|\$23\.99|\$29\.95|\$34\.99/i.test(MASTER_PROMPT_TEMPLATE), "");
+  const empty = buildMasterPromptPrompt(emptyMasterPromptFields());
+  check("9l an empty field keeps its bracket hint, so the structure stays complete", empty.includes("PRODUCT: [product name]") && empty.includes("PRICE: [price]") && empty.includes('CALL TO ACTION: [one action only, e.g. "tap the orange cart"]'), "");
+  check("9m cleaning trims, caps and drops unknown keys; bad JSON parses empty", cleanMasterPromptFields({ product: "  Gimbal  ", price: "x".repeat(100), nope: 1 }).product === "Gimbal" && cleanMasterPromptFields({ price: "x".repeat(100) }).price.length === 40 && !("nope" in cleanMasterPromptFields({ nope: 1 })) && parseMasterPromptFields("not json").product === "" && parseMasterPromptFields(JSON.stringify(filled)).proof === filled.proof, "");
+  const themed = buildAdScenePrompt({ userPrompt: "A gimbal demo.", sceneIndex: 0, hook: "Steady shots, solo.", theme: text });
+  const plain = buildAdScenePrompt({ userPrompt: "A gimbal demo.", sceneIndex: 0, hook: "Steady shots, solo." });
+  check("9n the template theme replaces ADS_THEME in scene 0, cinematic stays untouched", themed.startsWith(text) && themed.includes("Steady shots, solo.") && plain.startsWith(ADS_THEME) && !text.includes(ADS_THEME), "");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

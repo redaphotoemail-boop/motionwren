@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { studioEngines, type StudioEngineKey } from "../../engine-catalog";
 import { AD_ASPECTS, AD_DURATIONS, adPlan, estimateAdCost, type AdAspect, type AdDuration } from "../../ads-creative";
+import { AD_TEMPLATES, MASTER_PROMPT_FIELD_DEFS, buildMasterPromptPrompt, emptyMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration, type AdTemplateId, type MasterPromptFields } from "../../ads-master-prompt";
 import { AD_MUSIC_MOODS } from "../../ads-music-catalog";
 import { PageHead, money } from "../ui";
 
@@ -28,6 +29,13 @@ const SA_STYLES = `
 .studio-ads .notice { margin-top: 0; }
 .studio-ads .sa-tabs { display: inline-flex; gap: 2px; padding: 4px; border-radius: 999px; background: var(--surface); box-shadow: var(--lift); max-width: 100%; }
 .studio-ads .sa-tabs .btn { flex: 1 1 0; box-shadow: none; min-height: 44px; padding: 12px 20px; white-space: nowrap; }
+.studio-ads .sa-picker { display: inline-flex; gap: 2px; padding: 4px; border-radius: 999px; background: var(--surface); box-shadow: var(--lift); max-width: 100%; }
+.studio-ads .sa-picker .btn { flex: 1 1 0; box-shadow: none; min-height: 44px; padding: 12px 20px; white-space: nowrap; }
+.studio-ads .sa-picker .btn-white { background: transparent; color: var(--muted); }
+.studio-ads .sa-picker .btn-white:hover { background: var(--paper); color: var(--ink); }
+.studio-ads .sa-picker .btn-ink:hover { background: #000; }
+.studio-ads .sa-prompt-preview summary { cursor: pointer; font: 600 14px/1.5 var(--body); color: var(--ink-2); }
+.studio-ads .sa-prompt-preview pre { margin: 12px 0 0; padding: 16px; border-radius: 14px; background: var(--paper); white-space: pre-wrap; overflow-wrap: anywhere; font: 400 13px/1.6 var(--body); color: var(--ink-2); }
 .studio-ads .sa-tabs .btn-white { background: transparent; color: var(--muted); }
 .studio-ads .sa-tabs .btn-white:hover { background: var(--paper); color: var(--ink); }
 .studio-ads .sa-tabs .btn-ink:hover { background: #000; }
@@ -60,6 +68,8 @@ const SA_STYLES = `
   .studio-ads .panel > .btn { width: 100%; }
   .studio-ads .sa-tabs { width: 100%; }
   .studio-ads .sa-tabs .btn { padding: 12px 10px; font-size: 13px; }
+  .studio-ads .sa-picker { width: 100%; }
+  .studio-ads .sa-picker .btn { padding: 12px 10px; font-size: 13px; }
   .studio-ads .field-row > .field { flex: 1 1 100%; }
   .studio-ads .engine-grid { grid-template-columns: 1fr; }
   .studio-ads .sa-actions .btn { flex: 1 1 100%; }
@@ -72,7 +82,7 @@ const SA_STYLES = `
 
 type AdRow = {
   id: string; title: string; hook: string | null; prompt: string;
-  scenePrompts: string; sceneImages: string; engine: string; resolution: string;
+  scenePrompts: string; sceneImages: string; template: string; templateFields: string; engine: string; resolution: string;
   aspect: string; targetDuration: number; subtitles: string; voiceoverScript: string;
   voiceId: string | null; musicMood: string | null; elevenlabsOn: number; draft: number; status: string;
   renderJobId: string | null; finalHistoryId: string | null; costCents: number;
@@ -101,6 +111,9 @@ export default function StudioAdsPage() {
 
   // Create / brief form.
   const [title, setTitle] = useState("");
+  const [template, setTemplate] = useState<AdTemplateId>("cinematic");
+  const [prevDuration, setPrevDuration] = useState<AdDuration>(10);
+  const [templateFields, setTemplateFields] = useState<MasterPromptFields>(emptyMasterPromptFields());
   const [hook, setHook] = useState("");
   const [prompt, setPrompt] = useState("");
   const [engine, setEngine] = useState<StudioEngineKey>("wan3");
@@ -145,9 +158,12 @@ export default function StudioAdsPage() {
     setDetail(data);
     const ad = data.ad;
     setTitle(ad.title); setHook(ad.hook || ""); setPrompt(ad.prompt);
+    const adTemplate = resolveAdTemplate(ad.template);
+    setTemplate(adTemplate);
+    setTemplateFields(parseMasterPromptFields(ad.templateFields || ""));
     setEngine((ad.engine as StudioEngineKey) || "wan3");
     setAspect(ad.aspect === "horizontal" || ad.aspect === "square" ? ad.aspect : "vertical");
-    setDuration(([10, 30, 60] as const).includes(ad.targetDuration as AdDuration) ? ad.targetDuration as AdDuration : 10);
+    setDuration(resolveTemplateDuration(adTemplate, ad.targetDuration));
     setDraft(ad.draft === 1);
     setMusicMood(ad.musicMood);
     setElevenlabsOn(ad.elevenlabsOn === 1);
@@ -180,13 +196,25 @@ export default function StudioAdsPage() {
   const plan = useMemo(() => adPlan(engine, "1080p", duration, Math.max(1, effectiveImages.length), draft), [engine, duration, effectiveImages.length, draft]);
   const estimate = useMemo(() => estimateAdCost(engine, "1080p", duration, Math.max(1, effectiveImages.length), draft), [engine, duration, effectiveImages.length, draft]);
 
+  const filledMasterPrompt = useMemo(() => template === "fix-it-20" ? buildMasterPromptPrompt(templateFields) : "", [template, templateFields]);
+
+  /* Picking the template locks the length to 30 s (the master prompt is
+     21–30 s — 10 s cannot hold its structure, 60 s would stretch past
+     it). Switching back restores the length picked before. */
+  const selectTemplate = (next: AdTemplateId) => {
+    if (next === template) return;
+    if (next === "fix-it-20") { setPrevDuration(duration); setDuration(30); }
+    else setDuration(prevDuration);
+    setTemplate(next);
+  };
+
   async function createAd() {
     if (title.trim().length < 2) { setMessage("Give the ad a title first."); return; }
     setSaving(true); setMessage("");
     try {
       const response = await fetch("/api/admin/studio-ads", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
+        body: JSON.stringify({ title, hook, prompt, template, templateFields, scenePrompts, sceneImages, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be created.");
@@ -203,7 +231,7 @@ export default function StudioAdsPage() {
     try {
       const response = await fetch(`/api/admin/studio-ads/${detail.ad.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
+        body: JSON.stringify({ title, hook, prompt, template, templateFields, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be saved.");
@@ -236,7 +264,7 @@ export default function StudioAdsPage() {
     setSaving(true); setMessage("");
     try {
       if (asDraft !== draft) {
-        await fetch(`/api/admin/studio-ads/${detail.ad.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, hook, prompt, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft: asDraft }) });
+        await fetch(`/api/admin/studio-ads/${detail.ad.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, hook, prompt, template, templateFields, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft: asDraft }) });
       }
       const response = await fetch(`/api/admin/studio-ads/${detail.ad.id}/generate`, { method: "POST" });
       const result = await response.json();
@@ -320,8 +348,33 @@ export default function StudioAdsPage() {
           <section className="panel">
             <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2><span className="muted small">Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</span></div>
             <label className="field"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Summer launch — 30 s reel" maxLength={120} /></label>
+            <div className="field"><span>Template</span>
+              <div className="sa-picker" role="radiogroup" aria-label="Prompt template">
+                {AD_TEMPLATES.map((item) => (
+                  <button key={item.id} type="button" role="radio" aria-checked={template === item.id} className={`btn ${template === item.id ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => selectTemplate(item.id)}>{item.label}</button>
+                ))}
+              </div>
+              <span className="muted small">{AD_TEMPLATES.find((item) => item.id === template)?.blurb}</span>
+            </div>
+            {template === "fix-it-20" ? (
+              <>
+                {MASTER_PROMPT_FIELD_DEFS.map((def) => (
+                  <label key={def.key} className="field"><span>{def.label}</span>
+                    {def.multiline ? (
+                      <textarea value={templateFields[def.key]} onChange={(event) => setTemplateFields({ ...templateFields, [def.key]: event.target.value })} placeholder={def.placeholder} rows={2} maxLength={def.maxLength} />
+                    ) : (
+                      <input value={templateFields[def.key]} onChange={(event) => setTemplateFields({ ...templateFields, [def.key]: event.target.value })} placeholder={def.placeholder} maxLength={def.maxLength} />
+                    )}
+                  </label>
+                ))}
+                <details className="sa-prompt-preview">
+                  <summary>See the full prompt this template will send</summary>
+                  <pre>{filledMasterPrompt}</pre>
+                </details>
+              </>
+            ) : null}
             <label className="field"><span>Opening hook — the first 2 seconds</span><textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="What must land before anyone scrolls past?" rows={2} maxLength={280} /></label>
-            <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically." rows={3} maxLength={2000} /></label>
+            <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={template === "fix-it-20" ? "Anything else the video should show or say — the Fix It In 20 Seconds structure is layered on top automatically." : "The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically."} rows={3} maxLength={2000} /></label>
             <div className="field-row">
               <label className="field"><span>Format</span>
                 <select value={aspect} onChange={(event) => setAspect(event.target.value as AdAspect)}>
@@ -329,7 +382,7 @@ export default function StudioAdsPage() {
                 </select>
               </label>
               <label className="field"><span>Length</span>
-                <select value={duration} onChange={(event) => setDuration(Number(event.target.value) as AdDuration)}>
+                <select value={duration} disabled={template === "fix-it-20"} onChange={(event) => setDuration(Number(event.target.value) as AdDuration)}>
                   {AD_DURATIONS.map((value) => <option key={value} value={value}>{value} seconds</option>)}
                 </select>
               </label>
@@ -339,8 +392,10 @@ export default function StudioAdsPage() {
                 </select>
               </label>
             </div>
+            {template === "fix-it-20" ? <p className="note">Fix It In 20 Seconds is 21–30 s — the length is locked to 30 s. Switch back to Cinematic premium to pick another length.</p> : null}
             {squareCropped ? <p className="note">Square on this engine is made at 16:9 and center-cropped by the editor — pick Kling, Wan, Hailuo or Runway for a native square frame.</p> : null}
             <label className="field-toggle"><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Draft render first — 480p, max 10 s, about a third of the full price, to check the idea before spending on the full render.</label>
+            {template === "fix-it-20" && draft ? <p className="note">A draft is 10 s at 480p — it previews the opening only (hook, problem, start of the demo), not the full 21–30 s structure. The full structure is only in the 30 s render.</p> : null}
             <p className="muted small">Plan: {plan.count} scene{plan.count === 1 ? "" : "s"} × {plan.sceneSeconds}s · Estimated generation {money(estimate)}{draft ? " (draft)" : ""}{elevenlabsOn ? " — ElevenLabs voiceover and music are billed by ElevenLabs, not here." : ""}</p>
             {!detail ? <button type="button" className="btn btn-ink" onClick={createAd} disabled={saving}>{saving ? "Creating…" : "Create ad"}</button> : null}
           </section>
