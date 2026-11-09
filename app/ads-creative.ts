@@ -47,15 +47,18 @@ export function actorBlock(actors: AdActorRef[]): string {
 }
 
 /* One scene's full prompt: theme first, then the hook on scene 0, then the
-   user's scene (or whole-ad) prompt, then the actor block. */
-export function buildAdScenePrompt({ userPrompt, scenePrompt, hook, sceneIndex, actors }: {
+   user's scene (or whole-ad) prompt, then the actor block. The theme is
+   ADS_THEME unless the caller passes one — a "Fix It In 20 Seconds" ad
+   passes its filled master prompt here instead, in the same first slot. */
+export function buildAdScenePrompt({ userPrompt, scenePrompt, hook, sceneIndex, actors, theme }: {
   userPrompt: string;
   scenePrompt?: string;
   hook?: string;
   sceneIndex: number;
   actors?: AdActorRef[];
+  theme?: string;
 }): string {
-  const parts = [ADS_THEME];
+  const parts = [theme && theme.trim() ? theme.trim() : ADS_THEME];
   if (sceneIndex === 0 && hook?.trim()) parts.push(`Opening hook — the first two seconds must land this: ${hook.trim()}.`);
   const scene = (scenePrompt || "").trim() || userPrompt.trim();
   if (scene) parts.push(scene);
