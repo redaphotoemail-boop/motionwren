@@ -7,7 +7,8 @@
    for a single clip, no reality check). It never imports the real-estate
    prompt module. */
 
-import { ADS_THEME, adAspectRatio, adPlan, buildAdScenePrompt, estimateAdCost, splitScriptToSubtitles, type AdActorRef, type AdAspect, type AdDuration, type SubtitleLine, type SubtitleStyle } from "../../ads-creative";
+import { ADS_THEME, adAspectRatio, adPlan, buildAdScenePrompt, estimateAdCost, splitScriptToSubtitles, type AdActorRef, type AdAspect, type SubtitleLine, type SubtitleStyle } from "../../ads-creative";
+import { buildMasterPromptPrompt, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration, type AdTemplateId } from "../../ads-master-prompt";
 import { adMusicMood, defaultAdMusicMood } from "../../ads-music-catalog";
 import { CROSSFADE_SECONDS, engineUpscales } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
@@ -20,7 +21,7 @@ type Env = { DB: D1Database; BUCKET: R2Bucket };
 
 export type AdProjectRow = {
   id: string; title: string; hook: string | null; prompt: string;
-  scenePrompts: string; sceneImages: string; engine: string; resolution: string;
+  scenePrompts: string; sceneImages: string; template: string; templateFields: string; engine: string; resolution: string;
   aspect: string; targetDuration: number; subtitles: string; voiceoverScript: string;
   voiceId: string | null; musicMood: string | null; elevenlabsOn: number; draft: number; status: string;
   renderJobId: string | null; finalHistoryId: string | null; costCents: number;
@@ -31,8 +32,11 @@ export type AdSceneImage = { type: "source" | "actor"; id: string };
 const ACTIVE_STATUSES = ["queued", "generating", "stitching", "saving", "completed"];
 const AD_GENERATING_STATUSES = ["queued", "generating", "stitching", "saving"];
 
+/* NOTE: this SELECT names the 0013 columns (template, template_fields) —
+   it errors with "no such column" until migration 0013 has run in the D1
+   console (merge, then run the migration, then use — same order as 0012). */
 export async function loadAd(env: Env, adId: string, ownerId: string) {
-  return env.DB.prepare(`SELECT id, title, hook, prompt, scene_prompts AS scenePrompts, scene_images AS sceneImages, engine, resolution, aspect, target_duration AS targetDuration, subtitles, voiceover_script AS voiceoverScript, voice_id AS voiceId, music_mood AS musicMood, elevenlabs_on AS elevenlabsOn, draft, status, render_job_id AS renderJobId, final_history_id AS finalHistoryId, cost_cents AS costCents FROM ad_projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(adId, ownerId).first<AdProjectRow>();
+  return env.DB.prepare(`SELECT id, title, hook, prompt, scene_prompts AS scenePrompts, scene_images AS sceneImages, template, template_fields AS templateFields, engine, resolution, aspect, target_duration AS targetDuration, subtitles, voiceover_script AS voiceoverScript, voice_id AS voiceId, music_mood AS musicMood, elevenlabs_on AS elevenlabsOn, draft, status, render_job_id AS renderJobId, final_history_id AS finalHistoryId, cost_cents AS costCents FROM ad_projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(adId, ownerId).first<AdProjectRow>();
 }
 
 export function parseSceneImages(value: string): AdSceneImage[] {
@@ -113,7 +117,15 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
   const engine = isEngineKey(ad.engine) ? ad.engine : "wan3";
   const resolution = ad.draft ? "480p" as const : engineResolution(engine);
   const aspect = (ad.aspect === "vertical" || ad.aspect === "horizontal" || ad.aspect === "square" ? ad.aspect : "vertical") as AdAspect;
-  const targetDuration = ([10, 30, 60] as const).includes(ad.targetDuration as AdDuration) ? ad.targetDuration as AdDuration : 10;
+  /* The template decides the length and the theme: a "Fix It In 20 Seconds"
+     ad is locked to 30 s (10 s cannot hold its structure, 60 s would
+     stretch past the 30 s the prompt forbids) and its filled master prompt
+     — structure, rules, legal DO / DON'T — sits where ADS_THEME sits for
+     a cinematic ad: first in every scene prompt and as the job's stored
+     prompt. A cinematic ad is exactly today's behavior. */
+  const template: AdTemplateId = resolveAdTemplate(ad.template);
+  const targetDuration = resolveTemplateDuration(template, ad.targetDuration);
+  const theme = template === "fix-it-20" ? buildMasterPromptPrompt(parseMasterPromptFields(ad.templateFields)) : ADS_THEME;
   const images = await resolveSceneImages(env, ad, ownerId);
   if (!images.length) throw new HttpError(409, "Upload at least one image for this ad.");
   const actors = await loadAdActorRefs(env, ad.id, ownerId);
@@ -153,7 +165,7 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
       voiceoverSaved = true;
     }
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'ad-series', 'starting', '[]', '[]', NULL, ?, 'ad', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, ownerId, ADS_THEME, resolution, aspect, plan.totalSeconds, costCents, webhookToken, now, now),
+      env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'ad-series', 'starting', '[]', '[]', NULL, ?, 'ad', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, ownerId, theme, resolution, aspect, plan.totalSeconds, costCents, webhookToken, now, now),
       env.DB.prepare(`UPDATE ad_projects SET status = 'queued', render_job_id = ?, cost_cents = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(jobId, costCents, now, ad.id, ownerId),
     ]);
 
@@ -166,7 +178,7 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
       await env.DB.prepare(`UPDATE ${image.table === "ad_assets" ? "ad_assets" : "ad_actor_photos"} SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, image.id, ownerId).run();
       const imageUrl = `${origin}/api/provider-assets/${image.id}?token=${assetToken}`;
       photos.push({ key: image.r2Key, link: imageUrl });
-      const prompt = buildAdScenePrompt({ userPrompt: ad.prompt, scenePrompt: scenePrompts[index] || "", hook: ad.hook || "", sceneIndex: index, actors });
+      const prompt = buildAdScenePrompt({ userPrompt: ad.prompt, scenePrompt: scenePrompts[index] || "", hook: ad.hook || "", sceneIndex: index, actors, theme });
       inputs.push(buildEngineInput(engine, { imageUrl, prompt, duration: sceneSeconds, resolution, aspectRatio: adAspectRatio(engine, aspect) }));
     }
     const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos);
