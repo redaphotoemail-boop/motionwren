@@ -171,6 +171,8 @@ export const adProjects = sqliteTable("ad_projects", {
   prompt: text("prompt").notNull().default(""),
   scenePrompts: text("scene_prompts").notNull().default("[]"),
   sceneImages: text("scene_images").notNull().default("[]"),
+  template: text("template").notNull().default("cinematic"),
+  templateFields: text("template_fields").notNull().default("{}"),
   engine: text("engine").notNull().default("wan3"),
   resolution: text("resolution").notNull().default("1080p"),
   aspect: text("aspect").notNull().default("vertical"),
