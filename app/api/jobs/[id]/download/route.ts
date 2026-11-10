@@ -6,8 +6,8 @@ function safeName(value: string) {
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  if (!(await isOwnerRequest())) return Response.json({ error: "Owner access required." }, { status: 401 });
   const { env } = await import("cloudflare:workers");
+  if (!(await isOwnerRequest(env))) return Response.json({ error: "Owner access required." }, { status: 401 });
   const { id } = await context.params;
   const job = await env.DB.prepare(`SELECT id, client_name AS clientName, client_email AS clientEmail, business_name AS businessName, project_name AS projectName, package_seconds AS packageSeconds, style, notes, status, photo_count AS photoCount, created_at AS createdAt FROM client_jobs WHERE id = ?`).bind(id).first<Record<string, unknown>>();
   if (!job) return Response.json({ error: "Project not found." }, { status: 404 });
