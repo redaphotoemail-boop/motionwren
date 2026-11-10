@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "../_lib/account";
-import { HISTORY_COOKIE as COOKIE, historyOwnerIds, uploadBody } from "../_lib/history-owners";
+import { historyOwnerIds, uploadBody } from "../_lib/history-owners";
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 function safeVideoUrl(value: unknown) {
@@ -76,7 +76,6 @@ export async function POST(request: Request) {
     }
 
     const response = NextResponse.json({ item: { id, prompt, engine, category, resolution, aspect, duration, costCents, createdAt, videoUrl: `/api/history/${id}/video`, downloadUrl: `/api/history/${id}/video?download=1` } });
-    response.cookies.set(COOKIE, ownerId, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
     return response;
   } catch {
     return NextResponse.json({ error: "The generated video could not be added to history." }, { status: 500 });
