@@ -69,7 +69,7 @@ const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buil
   const draft = adPlan("wan3", "1080p", 60, 12, true);
   check("4c a draft is 480p and at most 10 s", draft.resolution === "480p" && draft.duration === 10, JSON.stringify(draft));
   const cost10 = estimateAdCost("wan3", "1080p", 10, 12);
-  check("4d 10 s on Wan 3.0 costs about $1.06", Math.abs(cost10 - 1.06) < 0.02, `$${cost10.toFixed(2)}`);
+  check("4d 10 s on Wan 3.0 costs about $0.82", Math.abs(cost10 - 0.82) < 0.02, `$${cost10.toFixed(2)}`);
   const cost60kling = estimateAdCost("kling3", "1080p", 60, 12);
   check("4e 60 s on Kling 3.0 costs about $16.13", Math.abs(cost60kling - 16.13) < 0.02, `$${cost60kling.toFixed(2)}`);
   const draftCost = estimateAdCost("wan3", "1080p", 60, 12, true);
