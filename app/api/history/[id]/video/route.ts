@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { configuredAdmins, getGoogleSession } from "../../../_lib/account";
-import { getChatGPTUser } from "../../../../chatgpt-auth";
 import { historyOwnerIds } from "../../../_lib/history-owners";
 
 /* The owner may open any customer's video (the manager's "Download current
-   delivery" link); customers only their own. */
+   delivery" link); customers only their own. Owner here means the signed-in
+   session whose email is in FRAME_MOTION_ADMIN_EMAILS — never a
+   caller-supplied identity header. */
 async function viewerIsOwner(env: { DB: D1Database; [key: string]: unknown }) {
   try {
-    const identity = (await getGoogleSession(env)) || (await getChatGPTUser());
+    const identity = await getGoogleSession(env);
     return Boolean(identity && configuredAdmins(env).has(identity.email.toLowerCase()));
   } catch {
     return false;

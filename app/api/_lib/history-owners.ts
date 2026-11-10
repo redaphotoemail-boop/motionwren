@@ -1,14 +1,12 @@
-import { getChatGPTUser } from "../../chatgpt-auth";
 import { getGoogleSession, type AccountEnv } from "./account";
-
-export const HISTORY_COOKIE = "fm_history_id";
 
 /**
  * Account ids whose saved videos the current visitor may list, play and
- * download: the signed-in session (Google or email), plus the development
- * identity headers where they are trusted. The old fm_history_id cookie is no
- * longer accepted: it was unsigned, so anyone could set it to another
- * account's id (email accounts have guessable ids) and download their videos.
+ * download: the signed-in session (Google or email) only. The old
+ * fm_history_id cookie is no longer accepted: it was unsigned, so anyone
+ * could set it to another account's id (email accounts have guessable ids)
+ * and download their videos. Caller-supplied identity headers are never
+ * accepted either (see the removed app/chatgpt-auth.ts).
  */
 export async function historyOwnerIds(env: AccountEnv): Promise<string[]> {
   let sessionId: string | null = null;
@@ -17,8 +15,7 @@ export async function historyOwnerIds(env: AccountEnv): Promise<string[]> {
   } catch {
     sessionId = null;
   }
-  const headerId = (await getChatGPTUser())?.id || null;
-  return [...new Set([sessionId, headerId].filter((value): value is string => Boolean(value)))];
+  return sessionId ? [sessionId] : [];
 }
 
 /**

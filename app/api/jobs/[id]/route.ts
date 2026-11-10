@@ -12,16 +12,17 @@ async function loadJob(id: string) {
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  if (!(await isOwnerRequest())) return NextResponse.json({ error: "Owner access required." }, { status: 401 });
+  const { env } = await import("cloudflare:workers");
+  if (!(await isOwnerRequest(env))) return NextResponse.json({ error: "Owner access required." }, { status: 401 });
   const { id } = await context.params;
   const job = await loadJob(id);
   return job ? NextResponse.json({ job }) : NextResponse.json({ error: "Project not found." }, { status: 404 });
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  if (!(await isOwnerRequest())) return NextResponse.json({ error: "Owner access required." }, { status: 401 });
+  const { env } = await import("cloudflare:workers");
+  if (!(await isOwnerRequest(env))) return NextResponse.json({ error: "Owner access required." }, { status: 401 });
   try {
-    const { env } = await import("cloudflare:workers");
     const { id } = await context.params;
     const body = await request.json() as { status?: string };
     if (!body.status || !STATUSES.has(body.status)) return NextResponse.json({ error: "Choose a valid production status." }, { status: 400 });

@@ -1,5 +1,3 @@
-import { getChatGPTUser } from "../../chatgpt-auth";
-import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 import { HttpError, audit } from "./account";
 import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
@@ -15,7 +13,6 @@ const CROSSFADE_KINDS = new Set(["customer-series", "studio-series", "ad-series"
 /* Engine shown in History for jobs made before manifests existed. */
 const KIND_ENGINE: Record<string, string> = { "ai-transition": "wan27", "clean-transition": "slideshow", "series-stitch": "stitched" };
 
-export const OWNER_COOKIE = "fm_history_id";
 export const ACTIVE_STATUSES = ["starting", "generating", "stitching", "saving"] as const;
 
 export type RenderJobRow = {
@@ -38,20 +35,6 @@ export type RenderJobRow = {
   createdAt: number;
   updatedAt: number;
 };
-
-export async function currentOwner(create = false) {
-  // Development identity only where trusted; see identityHeadersTrusted().
-  const authenticatedId = (await getChatGPTUser())?.id;
-  if (authenticatedId) return authenticatedId;
-  const store = await cookies();
-  return store.get(OWNER_COOKIE)?.value || (create ? crypto.randomUUID() : null);
-}
-
-export function setOwnerCookie(response: Response, ownerId: string) {
-  const target = response as Response & { cookies?: { set: (name: string, value: string, options: Record<string, unknown>) => void } };
-  target.cookies?.set(OWNER_COOKIE, ownerId, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 });
-  return response;
-}
 
 export function safeReplicateUrl(value: unknown) {
   if (typeof value !== "string") return null;

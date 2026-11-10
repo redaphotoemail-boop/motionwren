@@ -9,9 +9,9 @@ export async function POST() {
 }
 
 export async function GET() {
-  if (!(await isOwnerRequest())) return NextResponse.json({ error: "Owner access required." }, { status: 401 });
+  const { env } = await import("cloudflare:workers");
+  if (!(await isOwnerRequest(env))) return NextResponse.json({ error: "Owner access required." }, { status: 401 });
   try {
-    const { env } = await import("cloudflare:workers");
     const jobs = await env.DB.prepare(`SELECT id, client_name AS clientName, client_email AS clientEmail, business_name AS businessName, project_name AS projectName, package_seconds AS packageSeconds, style, notes, status, photo_count AS photoCount, created_at AS createdAt, updated_at AS updatedAt, completed_at AS completedAt FROM client_jobs ORDER BY created_at DESC LIMIT 200`).all();
     return NextResponse.json({ jobs: jobs.results });
   } catch {

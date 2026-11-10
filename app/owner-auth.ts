@@ -1,17 +1,14 @@
-import { getChatGPTUser, requireChatGPTUser } from "./chatgpt-auth";
-import { redirect } from "next/navigation";
+import { configuredAdmins, getGoogleSession, type AccountEnv } from "./api/_lib/account";
 
-const OWNER_EMAIL = "reda.photoemail@gmail.com";
-
-export async function requireOwner(returnTo: string) {
-  const user = await requireChatGPTUser(returnTo);
-  if (user.email.toLowerCase() !== OWNER_EMAIL) {
-    redirect("/?owner=restricted");
+/* Owner access is the signed-in session only: the account whose email is in
+   FRAME_MOTION_ADMIN_EMAILS (the same check requireAdmin uses). No API route
+   accepts a caller-supplied identity header as authentication — the old
+   ChatGPT identity-header path (app/chatgpt-auth.ts) is removed entirely. */
+export async function isOwnerRequest(env: AccountEnv): Promise<boolean> {
+  try {
+    const identity = await getGoogleSession(env);
+    return Boolean(identity && configuredAdmins(env).has(identity.email.toLowerCase()));
+  } catch {
+    return false;
   }
-  return user;
-}
-
-export async function isOwnerRequest() {
-  const user = await getChatGPTUser();
-  return Boolean(user && user.email.toLowerCase() === OWNER_EMAIL);
 }

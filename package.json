@@ -18,6 +18,7 @@
     "test:review": "node --no-warnings tests/film-review/reality.test.mjs",
     "test:ads": "node --no-warnings tests/studio-ads/ads.test.mjs && node --no-warnings tests/composer/ads-edit.test.mjs",
     "test:failed-orders": "node --no-warnings tests/failed-orders/failed-orders.test.mjs",
+    "test:auth": "node --no-warnings tests/auth/auth.test.mjs",
     "test:headers": "node --no-warnings tests/worker/security-headers.test.mjs"
   },
   "dependencies": {
