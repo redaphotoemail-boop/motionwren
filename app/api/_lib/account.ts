@@ -1,4 +1,3 @@
-import { getChatGPTUser } from "../../chatgpt-auth";
 import { headers } from "next/headers";
 
 export type AccountEnv = {
@@ -70,8 +69,10 @@ export async function deleteGoogleSession(env: AccountEnv, token: string | null)
 }
 
 export async function requireAccount(env: AccountEnv): Promise<Account> {
-  const googleIdentity = await getGoogleSession(env);
-  const identity = googleIdentity || await getChatGPTUser();
+  // The signed-in session cookie is the only identity an API route accepts.
+  // Caller-supplied identity headers are never trusted (see the removed
+  // app/chatgpt-auth.ts): anyone could send them and claim any account.
+  const identity = await getGoogleSession(env);
   if (!identity) throw new HttpError(401, "Authentication required.");
   const now = Date.now();
   const role = configuredAdmins(env).has(identity.email.toLowerCase()) ? "admin" : "customer";
