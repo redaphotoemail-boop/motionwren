@@ -43,7 +43,7 @@ export const studioEngines: StudioEngine[] = [
     firstLastFrame: false,
     realEstate: true,
     badge: "UPSCALED 1080P",
-    pricePerSecond: { "480p": 0.035, "720p": 0.07, "1080p": 0.0886 }, // 720p price + Topaz upscale; native 1080p would be $0.14/s
+    pricePerSecond: { "480p": 0.025, "720p": 0.05, "1080p": 0.0686 }, // 720p price + Topaz upscale; native 1080p on Replicate is $0.10/s (billing) / $0.20/s (list)
     upscaleTo1080: true,
   },
   {
@@ -84,7 +84,7 @@ export const studioEngines: StudioEngine[] = [
     audio: false,
     firstLastFrame: true,
     realEstate: true,
-    pricePerSecond: { "480p": 0.0125, "720p": 0.02, "1080p": 0.0386 },
+    pricePerSecond: { "480p": 0.025, "720p": 0.04, "1080p": 0.0586 },
     upscaleTo1080: true,
   },
   {
@@ -138,7 +138,6 @@ export const studioEngines: StudioEngine[] = [
     realEstate: true,
     badge: "VALUE PRO",
     pricePerSecond: { "720p": 0.05, "1080p": 0.08 },
-    unavailable: "Google removed the model Replicate points to (404) on Nov 5, 2026.",
   },
   {
     key: "luma",
@@ -151,7 +150,7 @@ export const studioEngines: StudioEngine[] = [
     firstLastFrame: false,
     realEstate: true,
     badge: "NEW",
-    pricePerSecond: { "720p": 0.06, "1080p": 0.24 }, // list prices reported by a third party; confirm on Replicate
+    pricePerSecond: { "720p": 0.06, "1080p": 0.24 }, // confirmed on Replicate's pricing table
   },
   {
     key: "wan27",
