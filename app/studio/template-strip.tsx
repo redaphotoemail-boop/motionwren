@@ -40,7 +40,11 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       <button type="button" role="switch" aria-checked={value.on} aria-label="Use a template" className={value.on ? "ml-switch on" : "ml-switch"} disabled={disabled} onClick={toggle}><i/></button>
     </div>
     {value.on && <>
-      {templates.length > 1 && <div className="tpl-row">{templates.map((item) => <button type="button" key={item.id} className={value.id === item.id ? "tpl-card active" : "tpl-card"} onClick={() => onChange({ ...value, id: item.id })} disabled={disabled}><span className="tpl-meta">{item.durationSeconds} s · vertical · up to {item.photoSlots} photos</span><strong>{item.name}</strong></button>)}</div>}
+      <div className="tpl-grid" role="radiogroup" aria-label="Templates">{templates.map((item) => <button type="button" role="radio" aria-checked={value.id === item.id} key={item.id} className={value.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => onChange({ ...value, id: item.id })} disabled={disabled}>
+        <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{item.durationSeconds}<small>s</small></b>}</span>
+        <strong>{item.name}</strong>
+        <small>{item.photoSlots} photos · vertical</small>
+      </button>)}</div>
       {chosen && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosen.name}</strong> · {chosen.durationSeconds} s vertical · hard cuts · up to {chosen.photoSlots} photos{plan ? ` · uses ${plan.count} of your photos` : ""}{cost !== null ? ` · engine cost about $${cost.toFixed(2)}` : ""}</p>
         {LIBRARY_TEMPLATE_FIELD_DEFS.map((def) => <label key={def.key} className="tpl-field"><span>{def.label}</span><input value={value.fields[def.key]} maxLength={def.maxLength} placeholder={def.placeholder} disabled={disabled} onChange={(event) => onChange({ ...value, fields: { ...value.fields, [def.key]: event.target.value } })}/></label>)}

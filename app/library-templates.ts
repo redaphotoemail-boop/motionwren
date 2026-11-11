@@ -29,6 +29,8 @@ export type LibraryTemplate = {
   photoSlots: number;
   musicMood: string;
   source: string;
+  /** A short preview clip shown on the template's tile, when one exists. */
+  previewUrl?: string;
 };
 
 export const LIBRARY_TEMPLATES: LibraryTemplate[] = [
