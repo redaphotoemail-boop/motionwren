@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
-import { suggestSound } from "../../_lib/film-sound";
+import { suggestSound, writeOptions } from "../../_lib/film-sound";
 import { frameKey, loadManifest } from "../../_lib/production";
 import { getRenderJob } from "../../_lib/render-jobs";
 
@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     const owner = await requireAdmin(env);
-    const body = await request.json().catch(() => ({})) as { images?: unknown; jobId?: unknown; sceneSeconds?: unknown; totalSeconds?: unknown };
+    const body = await request.json().catch(() => ({})) as { action?: unknown; target?: unknown; index?: unknown; current?: unknown; lines?: unknown; instruction?: unknown; images?: unknown; jobId?: unknown; sceneSeconds?: unknown; totalSeconds?: unknown };
     let images: Uint8Array[] = [];
     let sceneSeconds = Math.max(2, Math.min(15, Number(body.sceneSeconds) || 5));
     let totalSeconds = Math.max(5, Math.min(120, Number(body.totalSeconds) || 30));
@@ -32,6 +32,14 @@ export async function POST(request: Request) {
         images.push(Uint8Array.from(atob(match[1]), (character) => character.charCodeAt(0)));
       }
     } else return NextResponse.json({ error: "Send the scenes' photos or a film." }, { status: 400 });
+    if (body.action === "options") {
+      const lines = Array.isArray(body.lines) ? body.lines.slice(0, 12).map((line) => String(line ?? "").slice(0, 500)) : [];
+      const result = await writeOptions(env, images, {
+        target: body.target === "film" ? "film" : "scene", index: Math.max(0, Math.min(images.length - 1, Number(body.index) || 0)),
+        current: String(body.current ?? "").slice(0, 3000), lines, instruction: String(body.instruction ?? "more").slice(0, 200),
+      }, sceneSeconds, totalSeconds);
+      return NextResponse.json(result);
+    }
     const suggestion = await suggestSound(env, images, sceneSeconds, totalSeconds);
     return NextResponse.json(suggestion);
   } catch (error) {

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, isLibraryTemplateVisible, parseLibraryEnabled } from "../../library-templates";
 import { PageHead } from "../ui";
+import { MusicLibrary } from "./music-library";
 
 export default function LibraryStudioPage() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
@@ -60,6 +61,7 @@ export default function LibraryStudioPage() {
           </section>
         ))}
         {!LIBRARY_TEMPLATES.length && loaded ? <p className="muted">No templates recorded yet.</p> : null}
+        <MusicLibrary />
       </div>
     </div>
   );

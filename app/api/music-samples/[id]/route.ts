@@ -1,3 +1,4 @@
+import { anyTrackId, trackAudio } from "../../_lib/music-library";
 import { musicTemplate, sampleKey } from "../../../music-catalog";
 
 /* The short sample of a music template, for the plan's play buttons. Public
@@ -7,7 +8,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   if (!musicTemplate(id)) return Response.json({ error: "Not found." }, { status: 404 });
   const { env } = await import("cloudflare:workers");
-  const object = await env.BUCKET.get(sampleKey(id));
+  let object = await env.BUCKET.get(sampleKey(id));
+  // No sample made yet: let the customer hear one of the library's tracks of that style.
+  if (!object?.body) { const kept = await anyTrackId(env, id).catch(() => null); if (kept) object = await trackAudio(env, kept); }
   if (!object?.body) return Response.json({ error: "This sample is not ready yet." }, { status: 404 });
   const bytes = new Uint8Array(await new Response(object.body).arrayBuffer());
   const headers: Record<string, string> = { "Content-Type": "audio/mpeg", "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600" };

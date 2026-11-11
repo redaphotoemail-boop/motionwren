@@ -6,6 +6,7 @@ import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent
 import { engineResolution } from "../../engine-providers";
 import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } from "./film-review";
 import { soundLayers } from "./film-sound";
+import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, engineCost, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { motionLabel } from "../../motion-label";
@@ -438,7 +439,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const speeds = segments.map((_, index) => !moves[index] && isSidewaysMove(manifest.inputs[index]?.prompt) ? SIDEWAYS_SPEED : 1);
   const clips = segments.map((url, index) => manifest.saved[index] && !moves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
   if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
-  const edit = manifest.edit || {};
+  let edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
   const key = editKey(row.id, attempt);
@@ -454,16 +455,30 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   // no generated music — the scenes keep their own sound (keepAudio below).
   // Never fall through to the customer musicPrompt fallback here.
   const adNoSound = manifest.ads && !edit.music;
+  let musicChoice: { url: string } | null = null;
   const music = adNoSound ? null
     : count === 1 && !manifest.ads ? null
     : edit.sound?.noMusic ? null
     : edit.music?.saved
       ? { url: jobFileLink(origin, row, "music.mp3") }
       : { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), required: tries < EDIT_TRIES };
+  // A style with enough kept tracks takes the least-used one instead of paying for a new track.
+  if (music && "prompt" in music && !edit.music?.saved && count > 1 && !manifest.ads) {
+    try {
+      const track = await pickTrack(env, styleOfPrompt(music.prompt), duration + 0.5);
+      const audio = track ? await trackAudio(env, track.id) : null;
+      if (track && audio) {
+        await storeResponse(env.BUCKET, musicKey(row.id), new Response(audio.body), "audio/mpeg");
+        await markUsed(env, track.id);
+        edit = { ...edit, music: { prompt: music.prompt, saved: musicKey(row.id), source: "library", libraryId: track.id } };
+        musicChoice = { url: jobFileLink(origin, row, "music.mp3") };
+      }
+    } catch { /* the library is a saving, never a requirement: make new music instead */ }
+  }
   const layers = soundLayers(edit.sound, (file) => jobFileLink(origin, row, file), share, crossfade, duration);
-  manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "" };
+  manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "", ...(edit.music && !edit.music.saved ? { music: { ...edit.music, seconds: duration } } : {}) };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: true } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: true } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -516,7 +531,15 @@ async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   if (state.music && !edit.music?.saved) {
     try {
       await storeResponse(env.BUCKET, musicKey(row.id), await editFile(env, row.id, key, "music"), "audio/mpeg");
-      manifest.edit = { ...manifest.edit, music: { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), saved: musicKey(row.id), source: state.musicSource } };
+      const prompt = edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration });
+      manifest.edit = { ...manifest.edit, music: { prompt, saved: musicKey(row.id), source: state.musicSource } };
+      // Keep what ElevenLabs made (not the weaker backup engine) so the library grows.
+      const style = styleOfPrompt(prompt);
+      const seconds = edit.music?.seconds || row.duration;
+      if (style && state.musicSource === "elevenlabs" && !manifest.ads) {
+        const stored = await env.BUCKET.get(musicKey(row.id));
+        if (stored) await addTrack(env, { style, seconds, source: "elevenlabs", data: await stored.arrayBuffer() });
+      }
     } catch { /* the next edit simply makes music again */ }
   }
   if (manifest.cards) manifest.cardsNote = state.cards ? "added" : `not added: ${String(state.cardsError || "the editor left them off").slice(0, 200)}`;

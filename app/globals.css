@@ -1619,3 +1619,16 @@ button, a, select, .btn { touch-action: manipulation; }
   .fin-sound .fin-line { grid-template-columns: 52px minmax(0, 1fr); }
   .fin-line > img, .fin-n { width: 52px; height: 40px; }
 }
+
+/* script: more options */
+.fin-more { margin-top: 6px; }
+.fin-tray { display: grid; gap: 10px; margin-top: 10px; padding: 12px; border-radius: 14px; background: rgba(127,127,127,.08); }
+.fin-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fin-chips button, .fin-ask button { border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.fin-chips button:disabled, .fin-ask button:disabled { opacity: .5; cursor: default; }
+.fin-ask { display: flex; gap: 6px; }
+.fin-ask input { flex: 1; min-width: 0; }
+.fin-choices { display: grid; gap: 8px; }
+.fin-choices button { text-align: left; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 14px; line-height: 1.45; cursor: pointer; display: grid; gap: 4px; }
+.fin-choices button:hover { border-color: currentColor; }
+.fin-choices small { opacity: .6; font-size: 12px; }

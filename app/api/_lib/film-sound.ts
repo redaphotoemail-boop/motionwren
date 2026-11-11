@@ -50,20 +50,22 @@ function readJson(text: string): { scenes?: { voice?: unknown; sfx?: unknown }[]
 
 export const aiAvailable = (env: unknown) => Boolean((env as { AI?: AiBinding } | null)?.AI) || Boolean(secret("CF_ACCOUNT_ID") && secret("CF_AI_TOKEN"));
 
-const DESCRIBE = `Describe this real-estate photograph for a narrator in under 30 words: the room or area, its two or three most appealing features, and any natural sound sources that are visible (running water, a fire, trees or wind, a pool, a street, birds, a kitchen). List only what is visible.`;
+const DESCRIBE = `You are a real-estate photographer's assistant. Describe this property photograph for a narrator in about 55 words. Name the room or area, the specific materials and finishes you can see (stone, oak, marble, brass, tile), the light (morning sun, warm evening glow, floor-to-ceiling windows), the layout and view, the two or three most appealing features, and any natural sound sources visible (running water, a fire, trees or wind, a pool, a street, birds, a kitchen). Only what is visible. No guessing.`;
+
+const NARRATOR = `You are an award-winning luxury real-estate narrator. You tell a story, not a list: you make the viewer feel what it is like to stand in each space — the morning light, the quiet, the way one room opens into the next. Use concrete, specific details from the scene descriptions (materials, light, views, layout), vivid but credible verbs, and a calm, confident pace. Never invent facts that are not described: no prices, no square footage, no neighbourhood names, no exclamation marks, no clichés like "dream home" or "must see".`;
 
 /* Reads each photo, then writes one line per scene, one script for the whole film, and the sounds each scene would really have. */
 export async function suggestSound(env: unknown, images: Uint8Array[], sceneSeconds: number, totalSeconds: number): Promise<SoundSuggestion> {
   if (!aiAvailable(env)) throw new Error("The scene reader (Cloudflare AI) is not connected.");
   const notes: string[] = [];
-  for (const image of images) notes.push(clean(await cloudflareRun(env, image, DESCRIBE, 90), 220) || "an interior view of the property");
+  for (const image of images) notes.push(clean(await cloudflareRun(env, image, DESCRIBE, 160), 420) || "an interior view of the property");
   const perScene = wordsFor(sceneSeconds), perFilm = wordsFor(totalSeconds);
   const list = notes.map((note, index) => `Scene ${index + 1}: ${note}`).join("\n");
-  const prompt = `You write narration for a professional real-estate video. Here is what each scene shows, in order:\n${list}\n\nReturn JSON only, no other text, in exactly this shape:\n{"scenes":[{"voice":"...","sfx":"..."}],"film":"..."}\n- "scenes" has exactly ${notes.length} items, one per scene, in order.\n- "voice": one polished sentence of narration for that scene, at most ${perScene} words, naming only what the scene shows. No prices, no invented facts, no exclamation marks.\n- "sfx": a short description of the natural sounds that scene would really have (for example "soft water running over stone"), or "" when nothing in it makes a sound. Never music, never voices.\n- "film": one flowing narration for the whole film, at most ${perFilm} words, that moves smoothly from scene to scene as a single story, opening with a welcome and closing with a short invitation.`;
+  const prompt = `${NARRATOR}\n\nHere is what each scene shows, in order:\n${list}\n\nReturn JSON only, no other text, in exactly this shape:\n{"scenes":[{"voice":"...","sfx":"..."}],"film":"..."}\n- "scenes" has exactly ${notes.length} items, one per scene, in order.\n- "voice": narration for that scene using as much of the time as it has, between ${Math.max(4, perScene - 4)} and ${perScene} words, built from the most distinctive detail in that scene. Each scene continues the story from the one before; never repeat an opening or an adjective.\n- "sfx": a short description of the natural sounds that scene would really have (for example "soft water running over stone"), or "" when nothing in it makes a sound. Never music, never voices.\n- "film": one flowing narration for the whole film, at most ${perFilm} words, that moves smoothly from scene to scene as a single story with a beginning, a middle and an ending, opening with a welcome and closing with a short invitation. Use nearly all ${perFilm} words.`;
   let parsed: ReturnType<typeof readJson> = null; let detail = "";
   for (const model of TEXT_MODELS) {
     try {
-      const found = readJson(await aiText(env, model, prompt));
+      const found = readJson(await aiText(env, model, prompt, 1400));
       if (found?.scenes?.length) { parsed = found; break; }
       detail = `${model.split("/").pop()} did not return the lines in a usable form.`;
     } catch (error) { detail = `${model.split("/").pop()}: ${error instanceof Error ? error.message : "no answer"}`.slice(0, 200); }
@@ -75,6 +77,51 @@ export async function suggestSound(env: unknown, images: Uint8Array[], sceneSeco
   });
   const film = trimWords(clean(parsed?.film, 2000), perFilm) || scenes.map((scene) => scene.voice).join(" ");
   return { scenes, film, source: parsed ? "ai" : "basic", ...(parsed ? {} : { detail }) };
+}
+
+/* ---- more options for one line (or the whole script) ---- */
+
+export type OptionRequest = { target: "scene" | "film"; index?: number; current: string; lines: string[]; instruction: string };
+const INSTRUCTIONS: Record<string, string> = {
+  more: "Say more: richer and more detailed than the current text, using every word the time allows.",
+  shorter: "Shorter and punchier, keeping the single best detail.",
+  specific: "More specific to what the photo actually shows: name the exact materials, light, layout and view.",
+  story: "More storytelling: make the viewer feel what it is like to be in the space, with a sense of moment and movement.",
+  different: "A completely different angle from the current text, on the same scene.",
+};
+export const OPTION_KEYS = Object.keys(INSTRUCTIONS);
+
+function readOptions(text: string): string[] {
+  const body = text.replace(/```(?:json)?/gi, "");
+  const start = body.indexOf("{"), end = body.lastIndexOf("}");
+  if (start < 0 || end <= start) return [];
+  const raw = body.slice(start, end + 1);
+  for (const candidate of [raw, raw.replace(/,\s*([}\]])/g, "$1")]) {
+    try { const value = JSON.parse(candidate) as { options?: unknown }; if (Array.isArray(value.options)) return value.options.filter((item): item is string => typeof item === "string"); } catch { /* next */ }
+  }
+  return [];
+}
+
+/* Three fresh versions of one scene's line, or of the whole script. */
+export async function writeOptions(env: unknown, images: Uint8Array[], request: OptionRequest, sceneSeconds: number, totalSeconds: number): Promise<{ options: string[] }> {
+  if (!aiAvailable(env)) throw new Error("The scene reader (Cloudflare AI) is not connected.");
+  const film = request.target === "film";
+  const wanted = film ? images : [images[request.index ?? 0] || images[0]];
+  const notes: string[] = [];
+  for (const image of wanted) notes.push(clean(await cloudflareRun(env, image, DESCRIBE, 160), 420) || "an interior view of the property");
+  const limit = film ? wordsFor(totalSeconds) : wordsFor(sceneSeconds);
+  const instruction = INSTRUCTIONS[request.instruction] || clean(request.instruction, 200) || INSTRUCTIONS.different;
+  const around = film ? "" : request.lines.map((line, index) => line.trim() ? `Scene ${index + 1} line: ${line.trim()}` : "").filter(Boolean).join("\n");
+  const scene = film ? notes.map((note, index) => `Scene ${index + 1}: ${note}`).join("\n") : `This scene shows: ${notes[0]}`;
+  const prompt = `${NARRATOR}\n\n${scene}\n${around ? `\nThe other lines in the film, for continuity (do not repeat them):\n${around}\n` : ""}\nCurrent text: ${request.current.trim() || "(none yet)"}\n\nRewrite it. ${instruction}\nReturn JSON only: {"options":["...","...","..."]}\nThree genuinely different versions, each at most ${limit} words${film ? ", flowing as one story across all scenes" : ", fitting the story around it"}.`;
+  let options: string[] = []; let detail = "";
+  for (const model of TEXT_MODELS) {
+    try { options = readOptions(await aiText(env, model, prompt, 1200)); if (options.length) break; detail = `${model.split("/").pop()} did not return options.`; }
+    catch (error) { detail = `${model.split("/").pop()}: ${error instanceof Error ? error.message : "no answer"}`.slice(0, 200); }
+  }
+  const cleaned = options.map((text) => trimWords(clean(text, 2000), limit)).filter(Boolean).slice(0, 3);
+  if (!cleaned.length) throw new Error(`The writer could not make new versions. ${detail}`.trim());
+  return { options: cleaned };
 }
 
 /* ---- making the audio ---- */
