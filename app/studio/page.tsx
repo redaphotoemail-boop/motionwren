@@ -290,7 +290,8 @@ export default function Home() {
   const [historyFilter, setHistoryFilter] = useState<"all" | "film" | "clip" | "upscale">("all");
   const [localThumbs, setLocalThumbs] = useState<Record<string, string[]>>({});
   const [sending, setSending] = useState<Sending | null>(null);
-  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [dismissed, setDismissedState] = useState<string[]>(() => { try { return JSON.parse(window.localStorage.getItem("mw-hidden-jobs") || "[]") as string[]; } catch { return []; } });
+  const setDismissed = (update: (list: string[]) => string[]) => setDismissedState((list) => { const next = update(list).slice(-200); try { window.localStorage.setItem("mw-hidden-jobs", JSON.stringify(next)); } catch { /* hiding is just not remembered */ } return next; });
   const overlayJobs = useRef(new Map<string, { branding: RealEstateBranding; prompt: string; category: string }>());
   const production = useStudioJobs({ onFinished: jobFinished, onRestore: restoreJobs });
   const singleJob = jobIds.single ? production.jobs[jobIds.single] : undefined;
