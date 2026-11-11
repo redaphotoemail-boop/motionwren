@@ -213,6 +213,7 @@ async function getMusic(spec, dir, job) {
 }
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
+import { analyzeVideo, assignClips, recipeChain, recipeDuration, validRecipe } from "./wrencut.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 
@@ -383,11 +384,18 @@ export function layerArgs({ inputs, duration, output }) {
   return args;
 }
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
   const filters = [];
+  let last = "v0";
+  if (recipe) {
+    // A WrenCut template: each clip is a shot moved and joined as the recipe says.
+    const built = recipeChain({ recipe, width, height, fps, starts, strength: Number.isFinite(strength) ? strength : 1 });
+    filters.push(...built.filters);
+    last = built.last;
+  } else {
   clips.forEach((_, i) => {
     // Each scene: hold its last frame if it runs short, take its share, one size and frame rate.
     // A slower scene (orbits and pans): the camera covers less of the scene, so less is made up.
@@ -395,7 +403,6 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     const slow = speed < 1 ? `setpts=PTS/${speed.toFixed(3)},minterpolate=fps=${fps}:mi_mode=blend,` : "";
     filters.push(`[${i}:v]${slow}tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},setsar=1,format=yuv420p[v${i}]`);
   });
-  let last = "v0";
   if (X === 0 && count > 1) {
     // Hard cuts (a library template): a zero-duration xfade is invalid,
     // so the trimmed clips are concatenated instead — the same shape as
@@ -408,6 +415,7 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
       filters.push(`[${last}][v${i}]xfade=transition=fade:duration=${X.toFixed(3)}:offset=${offset.toFixed(3)}[x${i}]`);
       last = `x${i}`;
     }
+  }
   }
   const fadeOut = Math.min(0.8, duration / 6);
   // Sharpen: the engines' clips come out soft, so restore edge contrast on the finished film (luma only, kept subtle).
@@ -506,6 +514,7 @@ function validSpec(spec) {
   if (!(spec.sceneSeconds > 0.5 && spec.sceneSeconds <= 60)) return "Scene length is out of range.";
   if (!(spec.crossfade >= 0 && spec.crossfade < spec.sceneSeconds / 2)) return "Crossfade is out of range.";
   if (spec.grade !== undefined && spec.grade !== "warm") return "Unknown colour grade.";
+  if (spec.recipe !== undefined) { const bad = validRecipe(spec.recipe); if (bad) return bad; if (Math.abs(recipeDuration(spec.recipe) - spec.duration) > 0.3) return "The film length must match the recipe."; }
   if (spec.music && !spec.music.url && typeof spec.music.prompt !== "string") return "Music needs a prompt or a link.";
   if (spec.subtitles !== undefined) {
     const sub = spec.subtitles;
@@ -597,6 +606,14 @@ async function compose(key, spec) {
     const infos = await Promise.all(files.map(probe));
     infos.forEach((info, i) => { if (!info.hasVideo || info.duration < 0.5) throw new Error(`Scene ${i + 1} is not a usable video.`); });
     const fps = [24, 25, 30].reduce((best, value) => Math.abs(value - infos[0].fps) < Math.abs(best - infos[0].fps) ? value : best, 30);
+    // A WrenCut template: the clips are spread over the recipe's shots (a clip can fill more than one).
+    let editFiles = files, recipeInput = {};
+    if (spec.recipe) {
+      const picks = assignClips(spec.recipe, infos.map((info) => info.duration));
+      editFiles = picks.map((pick) => files[pick.clip]);
+      recipeInput = { recipe: spec.recipe, starts: picks.map((pick) => pick.start), strength: spec.recipeStrength };
+    }
+    const editDuration = spec.recipe ? recipeDuration(spec.recipe) : spec.duration;
 
     job.stage = "music";
     const music = await getMusic(spec, dir, job);
@@ -654,7 +671,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { clips: files, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: infos.map((info) => info.audioStreams > 0), speeds: spec.speeds, grade: spec.grade };
+    const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => infos[files.indexOf(file)].audioStreams > 0), speeds: spec.speeds, grade: spec.grade };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.
@@ -741,6 +758,23 @@ async function streamFile(res, file, type) {
   }
 }
 
+const publicAnalysis = (key) => { const job = jobs.get(key); return job ? { key, status: job.status, stage: job.stage, error: job.error, recipe: job.recipe } : { key, status: "unknown" }; };
+async function analyzeJob(key, link) {
+  const job = jobs.get(key);
+  const dir = path.join(ROOT, key);
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, "reference.mp4");
+    await download(link, file, 300 * 1024 * 1024, "The reference video");
+    const info = await probe(file);
+    if (!info.hasVideo || info.duration < 2 || info.duration > 180) throw new Error("The reference must be a video between 2 seconds and 3 minutes.");
+    job.stage = "reading";
+    job.recipe = await analyzeVideo(file, { duration: info.duration, fps: info.fps || 30, width: info.width, height: info.height, onStage: (stage) => { job.stage = stage; } });
+    job.status = "done"; job.stage = "done";
+  } catch (error) { job.status = "failed"; job.error = String(error?.message || error).slice(0, 400); }
+  finally { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); }
+}
+
 export function createServer() {
   return http.createServer(async (req, res) => {
     try {
@@ -760,6 +794,23 @@ export function createServer() {
         catch (error) { console.warn(`music sample: ${error.message}`); return send(res, 502, { error: String(error.message || "The sample could not be made.").slice(0, 400) }); }
         try { return await streamFile(res, made.out, "audio/mpeg"); }
         finally { await fs.rm(made.dir, { recursive: true, force: true }).catch(() => undefined); }
+      }
+      // WrenCut: read a reference edit into a recipe (numbers only; the video is deleted when done).
+      const reading = /^\/analyze\/([^/]+)$/.exec(url.pathname);
+      if (reading && KEY.test(reading[1])) {
+        const key = `analyze-${reading[1]}`;
+        if (req.method === "POST") {
+          const body = await readJson(req);
+          if (typeof body.url !== "string" || !/^https?:\/\//.test(body.url)) return send(res, 400, { error: "A link to the video is needed." });
+          const existing = jobs.get(key);
+          if (existing && existing.status !== "failed") return send(res, 200, publicAnalysis(key));
+          jobs.set(key, { status: "running", stage: "downloading", startedAt: Date.now() });
+          void analyzeJob(key, body.url);
+          return send(res, 202, publicAnalysis(key));
+        }
+        if (req.method === "GET") return send(res, jobs.has(key) ? 200 : 404, publicAnalysis(key));
+        if (req.method === "DELETE") { jobs.delete(key); await fs.rm(path.join(ROOT, key), { recursive: true, force: true }); return send(res, 200, { ok: true }); }
+        return send(res, 405, { error: "Method not allowed." });
       }
       const match = /^\/jobs\/([^/]+)(\/output|\/music|\/still\/[1-9])?$/.exec(url.pathname);
       if (!match || !KEY.test(match[1])) return send(res, 404, { error: "Not found." });
