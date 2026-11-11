@@ -1449,3 +1449,6 @@ p { text-wrap: pretty; }
 .credits-options button:disabled:hover { background: var(--paper); transform: none; }
 
 .prod-motion { display: block; opacity: .75; }
+/* iPhone: no zoom when tapping buttons quickly or focusing a field. */
+button, a, select, .btn { touch-action: manipulation; }
+@media (hover: none) { .studio-app input, .studio-app select, .studio-app textarea { font-size: 16px; } }

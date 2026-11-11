@@ -15,9 +15,10 @@ const ENDPOINTS: Record<StudioEngineKey, string> = {
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
+  h3: "https://api.replicate.com/v1/models/minimax/h3/predictions",
 };
 
-const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite"]);
+const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3"]);
 
 export async function POST(request: Request) {
   try {
