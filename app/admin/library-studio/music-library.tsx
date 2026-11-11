@@ -68,35 +68,37 @@ export function MusicLibrary() {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-head"><h2>Music library</h2><span className="muted small">{tracks.length} track{tracks.length === 1 ? "" : "s"}</span></div>
-      <p className="muted">Every track ElevenLabs makes for a film is kept here. Once a style has enough tracks, new films reuse the least-played one instead of paying for new music. Add your own licensed instrumentals to fill it faster.</p>
-      <label className="field-toggle">Reuse a style once it has
-        <input type="number" min={0} max={50} value={target} disabled={busy} onChange={(event) => setTarget(Number(event.target.value))} onBlur={() => { void send({ action: "target", target }); }} style={{ width: 64, margin: "0 8px" }} />
-        tracks that are long enough <span className="muted small">(0 = always make new)</span>
-      </label>
-      {message ? <p className="notice">{message}</p> : null}
+    <section className="panel ml">
+      <header className="ml-head"><div><h2>Music library</h2><p>Tracks kept for reuse, so new films stop paying for new music.</p></div><span className="ml-count">{tracks.length} track{tracks.length === 1 ? "" : "s"}</span></header>
+      <div className="ml-rule">
+        <span>Reuse a style once it has</span>
+        <input type="number" min={0} max={50} value={target} disabled={busy} onChange={(event) => setTarget(Number(event.target.value))} onBlur={() => { void send({ action: "target", target }); }} aria-label="Tracks needed before reuse" />
+        <span>tracks <small>(0 = always make new)</small></span>
+      </div>
+      {message ? <p className="ml-note">{message}</p> : null}
       {MUSIC_TEMPLATES.map((template) => {
         const own = tracks.filter((track) => track.style === template.id);
         const ready = own.filter((track) => track.active).length;
+        const reusing = target > 0 && ready >= target;
         return (
-          <div key={template.id} style={{ marginTop: 16 }}>
-            <div className="panel-head"><h3>{template.name}</h3><span className="muted small">{ready} of {target} ready{ready >= target && target > 0 ? " · reusing" : ""}</span></div>
-            {own.length === 0 ? <p className="muted small">None yet — the next film in this style adds one.</p> : own.map((track) => (
-              <div key={track.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", flexWrap: "wrap" }}>
-                <button type="button" className="btn" onClick={() => play(track.id)}>{playing === track.id ? "Pause" : "Play"}</button>
-                <span style={{ flex: 1, minWidth: 140, opacity: track.active ? 1 : .5 }}>{track.name}<span className="muted small"> · {Math.round(track.seconds)} s · {track.source === "upload" ? "added by you" : "ElevenLabs"} · used {track.uses}×</span></span>
-                <label className="field-toggle"><input type="checkbox" checked={track.active} disabled={busy} onChange={(event) => { void send({ action: "update", id: track.id, active: event.target.checked }); }} /> On</label>
-                <button type="button" className="btn" disabled={busy} onClick={() => { if (window.confirm(`Delete "${track.name}"? Films already made keep their copy.`)) void send({ action: "delete", id: track.id }); }}>Delete</button>
-              </div>
-            ))}
+          <div key={template.id} className="ml-style">
+            <div className="ml-style-head"><div><h3>{template.name}</h3><small>{template.blurb}</small></div><span className={reusing ? "ml-state on" : "ml-state"}>{reusing ? "Reusing" : `${ready} of ${target}`}</span></div>
+            <div className="ml-bar" aria-hidden><i style={{ width: `${target > 0 ? Math.min(100, (ready / target) * 100) : 100}%` }} /></div>
+            {own.length === 0 ? <p className="ml-empty">The next film in this style adds the first track.</p> : <ul className="ml-tracks">{own.map((track) => (
+              <li key={track.id} className={track.active ? "" : "off"}>
+                <button type="button" className="ml-play" onClick={() => play(track.id)} aria-label={playing === track.id ? "Pause" : "Play"}>{playing === track.id ? "❚❚" : "▶"}</button>
+                <span className="ml-name"><strong>{track.name}</strong><small>{Math.round(track.seconds)} s · {track.source === "upload" ? "Added by you" : "ElevenLabs"} · used {track.uses}×</small></span>
+                <button type="button" role="switch" aria-checked={track.active} aria-label={`${track.name} on`} className={track.active ? "ml-switch on" : "ml-switch"} disabled={busy} onClick={() => { void send({ action: "update", id: track.id, active: !track.active }); }}><i /></button>
+                <button type="button" className="ml-del" disabled={busy} aria-label={`Delete ${track.name}`} onClick={() => { if (window.confirm(`Delete "${track.name}"? Films already made keep their copy.`)) void send({ action: "delete", id: track.id }); }}>Delete</button>
+              </li>
+            ))}</ul>}
           </div>
         );
       })}
-      <div style={{ marginTop: 20, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <strong>Add a track</strong>
+      <div className="ml-add">
+        <div><strong>Add your own track</strong><small>Any licensed instrumental, mp3.</small></div>
         <select value={style} onChange={(event) => setStyle(event.target.value)} disabled={busy}>{MUSIC_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>
-        <input type="file" accept="audio/mpeg,.mp3" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
+        <label className="ml-file">Choose mp3<input type="file" accept="audio/mpeg,.mp3" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} /></label>
       </div>
     </section>
   );
