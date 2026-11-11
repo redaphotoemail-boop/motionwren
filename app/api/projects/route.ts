@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const generationEngine = body.generationEngine === "fast" ? "fast" : "studio";
     const resolution = generationEngine === "fast" ? "720p" : "1080p";
     // 10 s story teaser, 20 s reel, 30 s hero film, 60 s luxury hero (50 s from older orders).
-    const targetDuration = [10, 20, 30, 50, 60].includes(Number(body.targetDuration)) ? Number(body.targetDuration) : 20;
+    const targetDuration = [0, 10, 20, 30, 50, 60].includes(Number(body.targetDuration)) ? Number(body.targetDuration) : 20;
     await env.DB.prepare(`INSERT INTO projects (id, owner_id, title, status, listing_url, listing_address, beds, baths, square_feet, price, short_message, aspect, resolution, generation_engine, target_duration, agent_name, agent_email, agent_phone, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, account.id, title, value("listingUrl", 1000), value("listingAddress", 240), value("beds", 12), value("baths", 12), value("squareFeet", 20), value("price", 30), value("shortMessage", 280), aspect, resolution, generationEngine, targetDuration, value("agentName"), value("agentEmail"), value("agentPhone"), now, now).run();
     // The music template chosen in the plan ("Choose your music"); kept with the order.
     const music = await saveMusicChoice(env, id, body.music);

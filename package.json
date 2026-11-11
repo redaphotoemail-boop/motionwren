@@ -13,6 +13,7 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
+    "test:pricing": "node tests/pricing.test.mjs",
     "test:queue": "node --no-warnings tests/scene-queue/scene-queue.test.mjs",
     "test:composer": "node --no-warnings tests/composer/composer.test.mjs && node --no-warnings tests/composer/qc.test.mjs",
     "test:review": "node --no-warnings tests/film-review/reality.test.mjs",

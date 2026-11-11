@@ -1,3 +1,4 @@
+import { autoQuote } from "../../pricing";
 import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
 import { HttpError } from "./account";
@@ -51,8 +52,10 @@ export async function holdForApproval(env: Env, project: Project, ownerId: strin
 export async function startOrder(env: Env, project: Project, ownerId: string, origin: string, providerToken: string) {
   if (project.renderJobId && ["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return { jobId: project.renderJobId, status: project.status, resumed: true };
   if (!["submitted", "failed", "approval"].includes(project.status)) throw new HttpError(409, "Submit the project before starting production.");
-  const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder, r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 20`).bind(project.id, ownerId).all<{ id: string; sortOrder: number; r2Key: string }>();
+  const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder, r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 24`).bind(project.id, ownerId).all<{ id: string; sortOrder: number; r2Key: string }>();
   if (assets.results.length < 2) throw new HttpError(409, "At least two photographs are required.");
+  // Automatic length (target 0): each photo is a 5-second scene, so the film is as long as the photos allow.
+  const targetSeconds = project.targetDuration || autoQuote(assets.results.length).seconds;
   let jobId = "";
   try {
     // The manager's selected engine (platform_settings defaultEngine); Wan 3.0
@@ -71,12 +74,12 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // in their chosen order (see scenePlan): a 20-second reel uses the first 4.
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
     // "3"/"5" fix the scene timing; "auto" and unset choose it by the video's length.
-    const plan = scenePlan(engine, resolution, project.targetDuration, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), sceneTimingSetting(timingRow?.value));
+    const plan = scenePlan(engine, resolution, targetSeconds, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), targetSeconds ? sceneTimingSetting(timingRow?.value) : 5);
     const scenes = assets.results.slice(0, plan.count);
     const sceneSeconds = plan.sceneSeconds;
     const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'customer-series', 'starting', '[]', '[]', NULL, ?, 'real estate', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, ownerId, STATIC_LOCK, resolution, project.aspect, project.targetDuration, costCents, webhookToken, now, now),
+      env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'customer-series', 'starting', '[]', '[]', NULL, ?, 'real estate', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, ownerId, STATIC_LOCK, resolution, project.aspect, targetSeconds, costCents, webhookToken, now, now),
       env.DB.prepare(`UPDATE projects SET status = 'queued', generation_engine = ?, resolution = ?, render_job_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(engine, resolution, jobId, now, project.id, ownerId),
     ]);
 
@@ -98,7 +101,7 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // The final edit: each scene's share on screen and the film's one music track.
     if (engine === "photo") manifest.photoMoves = inputs.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
-    manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: project.targetDuration, choice: await readMusicChoice(env, project.id) }) } };
+    manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
