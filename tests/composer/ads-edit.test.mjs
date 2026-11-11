@@ -143,6 +143,47 @@ const spec = (over = {}) => ({ clips: [clip(1), clip(2)], width: 640, height: 36
   check("E14 the silent scene's slot is quiet early (1–3 s)", silentEarlyDb < -50, `${silentEarlyDb} dB`);
 }
 
+/* F. Library templates: hard cuts (crossfade 0) and per-line subtitle styles. */
+{
+  // (a) Arg level: crossfade 0 concats the trimmed clips, never an xfade.
+  const hardArgs = editArgs({ clips: ["a.mp4", "b.mp4"], width: 640, height: 360, fps: 24, crossfade: 0, duration: 8, sceneSeconds: 4, output: "o.mp4" });
+  const hardJoined = hardArgs.join(" ");
+  check("F1 crossfade 0 emits a concat filter and no xfade", hardJoined.includes("concat=n=2:v=1:a=0") && !hardJoined.includes("xfade"), hardJoined.slice(hardJoined.indexOf("concat"), hardJoined.indexOf("concat") + 40));
+  const softArgs = editArgs({ clips: ["a.mp4", "b.mp4"], width: 640, height: 360, fps: 24, crossfade: 0.5, duration: 8, sceneSeconds: 4.25, output: "o.mp4" });
+  check("F2 a real crossfade still chains xfades, no concat", softArgs.join(" ").includes("xfade=transition=fade:duration=0.500") && !softArgs.join(" ").includes("concat=n=2"), "");
+
+  // (b) End to end: a 2-clip crossfade-0 job finishes at the right length.
+  const start = await api("POST", "/jobs/ads-hard-cut-01", spec({ crossfade: 0, sceneSeconds: 4, duration: 8, music: undefined, voiceover: undefined, subtitles: undefined }));
+  check("F3 a hard-cut ad edit starts", start.status === 202, JSON.stringify(start.data).slice(0, 120));
+  const done = await waitDone("ads-hard-cut-01");
+  check("F4 the hard-cut film finishes", done.status === "done", done.error || "");
+  const file = await save("ads-hard-cut-01");
+  const info = probe(file);
+  check("F5 the hard-cut film is exactly 8 s at the asked size", Math.abs(Number(info.format.duration) - 8) < 0.15 && info.streams.find((s) => s.codec_type === "video").width === 640, `${info.format.duration} ${JSON.stringify(info.streams.map((s) => s.codec_type))}`);
+  // The cut itself is hard: the frame just before the join is the first
+  // scene (red) and the frame just after is the second (lime).
+  const before = frame(file, 3.9), after = frame(file, 4.1);
+  check("F6 the join is a hard cut — the picture changes across it", !before.equals(after), `${before.length} vs ${after.length} bytes`);
+
+  // (c) .ass per-line styles mirror the Worker side: grouped styles,
+  // centre alignment 5, and one Style line when no line has its own style.
+  const styled = assText([
+    { start: 0, end: 17, text: "Treztive", position: "top", size: "small" },
+    { start: 0, end: 4.25, text: "Restaurant", position: "center", size: "large" },
+    { start: 5, end: 7, text: "Plain line" },
+  ], { position: "bottom", size: "medium", height: 360 });
+  check("F7 the composer .ass groups per-line styles — top 8, centre 5, bottom 2", (styled.match(/^Style:/gm) || []).length === 3 && /,8,20,20,40,1/.test(styled) && /,5,20,20,0,1/.test(styled) && /,2,20,20,40,1/.test(styled), styled.split("\n").filter((line) => line.startsWith("Style:")).join(" | "));
+  check("F8 the composer dialogues reference their own styles", styled.includes("AdTopSmall") && styled.includes("AdCenterLarge") && styled.includes("AdDefault"), "");
+  const plain = assText([{ start: 1, end: 3.5, text: "First line" }, { start: 5, end: 7, text: "Second line" }], { position: "bottom", size: "medium", height: 360 });
+  check("F9 with no per-line styles the composer emits exactly one Style line and every dialogue is AdDefault", (plain.match(/^Style:/gm) || []).length === 1 && plain.split("\n").filter((line) => line.startsWith("Dialogue:")).every((line) => line.includes(",AdDefault,")) && plain.includes("Liberation Sans,16,"), "");
+
+  // (d) Bad per-line styles are refused, not rendered.
+  const badPos = await api("POST", "/jobs/ads-bad-sub-pos-01", spec({ subtitles: { lines: [{ start: 1, end: 3, text: "bad", position: "side" }] } }));
+  check("F10 a subtitle line with a bad position is refused", badPos.status === 400, `${badPos.status} ${JSON.stringify(badPos.data).slice(0, 120)}`);
+  const badSize = await api("POST", "/jobs/ads-bad-sub-size-01", spec({ subtitles: { lines: [{ start: 1, end: 3, text: "bad", size: "huge" }] } }));
+  check("F11 a subtitle line with a bad size is refused", badSize.status === 400, `${badSize.status} ${JSON.stringify(badSize.data).slice(0, 120)}`);
+}
+
 for (const server of [composer, files, eleven]) server.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
