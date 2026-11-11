@@ -9,6 +9,7 @@ import { LIBRARY_TEMPLATES, isLibraryTemplateVisible, parseLibraryEnabled } from
 
 export default function TemplateStrip() {
   const [enabled, setEnabled] = useState<Record<string, boolean> | null>(null);
+  const [on, setOn] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/admin/library-studio", { cache: "no-store" }).then(async (response) => {
@@ -20,12 +21,15 @@ export default function TemplateStrip() {
   const templates = LIBRARY_TEMPLATES.filter((item) => isLibraryTemplateVisible(item.id, enabled || {}));
   if (!enabled || !templates.length) return null;
   return <section className="tpl-strip" aria-label="Templates">
-    <div className="tpl-head"><strong>Start from a template</strong><small>Same edit, same effects, your photos.</small></div>
-    <div className="tpl-row">{templates.map((item) => <a key={item.id} className="tpl-card" href={`/admin/studio-ads?template=${item.id}`}>
+    <div className="tpl-top">
+      <div className="tpl-head"><strong>Use a template</strong><small>Same edit, same effects, your photos. Off by default.</small></div>
+      <button type="button" role="switch" aria-checked={on} aria-label="Use a template" className={on ? "ml-switch on" : "ml-switch"} onClick={() => setOn(!on)}><i/></button>
+    </div>
+    {on && <div className="tpl-row">{templates.map((item) => <a key={item.id} className="tpl-card" href={`/admin/studio-ads?template=${item.id}`}>
       <span className="tpl-meta">{item.durationSeconds} s · vertical · {item.photoSlots} photos</span>
       <strong>{item.name}</strong>
       <small>{item.blurb.split(" — ")[0]}</small>
       <em>Use this template →</em>
-    </a>)}</div>
+    </a>)}</div>}
   </section>;
 }
