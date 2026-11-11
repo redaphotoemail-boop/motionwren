@@ -1447,3 +1447,5 @@ p { text-wrap: pretty; }
 .off-reason { font-size: 12px; color: var(--muted, #777); }
 .credits-options button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 .credits-options button:disabled:hover { background: var(--paper); transform: none; }
+
+.prod-motion { display: block; opacity: .75; }

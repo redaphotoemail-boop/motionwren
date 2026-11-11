@@ -7,6 +7,7 @@ import { engineResolution } from "../../engine-providers";
 import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } from "./film-review";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, engineCost, studioEngine, type StudioEngineKey } from "../../engine-catalog";
+import { motionLabel } from "../../motion-label";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -830,6 +831,7 @@ export function publicJob(row: RenderJobRow) {
     resolution: row.resolution,
     category: row.category,
     costCents: row.costCents,
+    motion: motionLabel(row.prompt),
   };
 }
 
