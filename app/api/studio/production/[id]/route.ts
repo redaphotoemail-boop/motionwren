@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
-import { advanceRenderJob, beginQueue, getRenderJob, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
+import { advanceRenderJob, beginQueue, getRenderJob, jobCardsNote, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
 import { MAX_FRAME_BYTES, framesPresent, loadManifest, storeFrameBytes } from "../../../_lib/production";
 import type { JobAction } from "../../../_lib/scene-queue";
 import { studioToken } from "../../../_lib/studio-token";
@@ -56,19 +56,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const result = await startOverJob(env, row, token, new URL(request.url).origin);
       if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
       const fresh = result.id ? await getRenderJob(env, result.id) : null;
-      return NextResponse.json({ replaced: id, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
+      return NextResponse.json({ replaced: id, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
     }
     if (["resume", "retry-scene", "regenerate-scene", "reassemble"].includes(String(body.action))) {
       const scene = Number.isInteger(body.scene) ? Number(body.scene) : null;
       const result = await runJobAction(env, row, body.action as JobAction, scene, token, webhook);
       if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
       const fresh = await getRenderJob(env, id);
-      return NextResponse.json({ redo: result.redo, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
+      return NextResponse.json({ redo: result.redo, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
     }
 
     if (row.status !== "starting") {
       // Already started (a second click, or the server carried on by itself).
-      return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row) } });
+      return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row), cardsNote: await jobCardsNote(env, row) } });
     }
     const manifest = await loadManifest(env, id);
     if (!manifest) return NextResponse.json({ error: "This video's settings were not saved. Please start again." }, { status: 409 });
@@ -79,6 +79,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // first scene is sent right away if the engine has room.
     if (await beginQueue(env, id)) { const fresh = await getRenderJob(env, id); if (fresh) await advanceRenderJob(env, fresh, token, webhook); }
     const fresh = await getRenderJob(env, id);
-    return NextResponse.json({ job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
+    return NextResponse.json({ job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
   } catch (error) { return jsonError(error); }
 }

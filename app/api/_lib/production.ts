@@ -53,6 +53,8 @@ export type ProductionManifest = {
   photoHybrid?: boolean;
   /** The opening property card and closing agent card, burned into the film by the editor. */
   cards?: ListingCards;
+  /** What the editor did with the cards: "added", or why they were left off. */
+  cardsNote?: string;
   nextAt?: number[];      // earliest time the scene may be sent (again)
   waits?: number[];       // provider waits/hiccups since the last try (not tries)
   reasons?: WaitReason[]; // why a scene is waiting, for the progress view

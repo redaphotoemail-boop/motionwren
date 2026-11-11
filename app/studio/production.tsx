@@ -37,6 +37,7 @@ export type StudioJob = {
   category: string;
   costCents: number;
   motion?: string;
+  cardsNote?: string;
   scenes?: SceneInfo[] | null;
   provider?: ProviderNote | null;
 };
@@ -255,6 +256,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         <span className="prod-eyebrow">{active ? <><i className="prod-dot" />In production</> : job.status === "succeeded" ? "Ready" : "Stopped"}</span>
         <strong>{title}</strong>
         {job.motion && <small className="prod-motion">Movement: {job.motion}</small>}
+        {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
         {!active && job.status === "failed" && job.error && <small className="prod-reason prod-raw">Why: {String(job.error).slice(0, 400)}</small>}
       </div>
