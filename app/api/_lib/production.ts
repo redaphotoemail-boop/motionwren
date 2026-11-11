@@ -78,6 +78,8 @@ export type ProductionManifest = {
   edit?: {
     shareSeconds?: number;
     crossfade?: number;
+    /** A library template applied to this film: its colour grade (cuts, text and music are in the other edit fields). */
+    grade?: "warm";
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over
