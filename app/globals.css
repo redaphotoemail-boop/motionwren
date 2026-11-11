@@ -880,7 +880,7 @@ p { text-wrap: pretty; }
 .studio-app .workspace > .direction-panel, .studio-app .workspace > .upscale-controls { grid-area: direction; }
 .studio-app .workspace > .output-panel { grid-area: output; position: sticky; top: 24px; }
 .series-area { display: grid; gap: 18px; }
-.series-workspace { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "source quality" "output quality"; gap: 18px; align-items: start; }
+.series-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "quality output"; gap: 18px; align-items: start; }
 .series-workspace > .series-source { grid-area: source; }
 .series-workspace > .quality-panel { grid-area: quality; }
 .series-workspace > .series-output { grid-area: output; position: sticky; top: 24px; }
