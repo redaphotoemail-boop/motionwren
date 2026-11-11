@@ -159,6 +159,13 @@ export default function StudioAdsPage() {
   }, []);
 
   useEffect(() => { void Promise.resolve().then(() => loadAll()); }, [loadAll]);
+  // Arriving from Studio's template picker: /admin/studio-ads?template=<id> starts that template.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("template");
+    const found = LIBRARY_TEMPLATES.find((item) => item.id === wanted);
+    if (found) setLibraryTemplate(found.id);
+    if (found) { setAspect("vertical"); setMusicMood("luxe"); }
+  }, []);
 
   const loadDetail = useCallback(async (adId: string) => {
     const response = await fetch(`/api/admin/studio-ads/${adId}`, { cache: "no-store" });
