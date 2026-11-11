@@ -21,12 +21,13 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   wan27: "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions",
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
+  h3: "https://api.replicate.com/v1/models/minimax/h3/predictions",
   luma: "https://api.replicate.com/v1/models/luma/ray-3.2/predictions",
   photo2: "", // made by our own editor, never sent to a provider
   photo3: "",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "luma", "photo", "photo2", "photo3"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3", "luma", "photo", "photo2", "photo3"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -80,6 +81,6 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan27") return { first_frame: options.imageUrl, prompt, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   if (engine === "wan3") return { image: options.imageUrl, prompt, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
-  // h3lite: image-to-video takes the photo's own shape; 720p here means its 768P.
+  // h3lite and h3: image-to-video takes the photo's own shape; 720p here means its 768P (480P only on Lite).
   return { first_frame_image: options.imageUrl, prompt, duration: options.duration, resolution: options.resolution === "480p" ? "480P" : "768P" };
 }
