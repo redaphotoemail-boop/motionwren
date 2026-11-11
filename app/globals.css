@@ -1675,3 +1675,6 @@ button, a, select, .btn { touch-action: manipulation; }
 .ml-file { display: inline-flex; justify-content: center; padding: 14px 22px; border-radius: 999px; background: var(--ink); color: var(--paper); font-weight: 600; font-size: 15px; cursor: pointer; }
 .ml-file input { display: none; }
 @media (min-width: 720px) { .ml-add { grid-template-columns: 1fr auto auto; align-items: center; } }
+
+/* The stability and real-estate locks stay applied in the prompts; the green notes are hidden to keep the page clean. */
+.stability-badge, .real-estate-lock, .real-estate-scene-lock { display: none !important; }
