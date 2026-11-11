@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { Metric, PageHead, cents } from "../ui";
-import { cardFeeCents } from "../../cost-model";
+import { COST_RATES, cardFeeCents, musicCentsForSeconds } from "../../cost-model";
+import { engineCost, studioEngines } from "../../engine-catalog";
+import type { StudioEngineKey } from "../../engine-catalog";
 
 type Lines = { videoCents: number; musicCents: number; editCents: number; reviewCents: number; totalCents: number };
 type Totals = Lines & { videos: number; finished: number; perFinishedCents: number; priceCents: number; musicSeconds: number };
@@ -13,6 +15,50 @@ type CostData = { month: Segment; allTime: Segment; recent: Row[]; fixedMonthly:
 
 const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
 const placed = (value: number) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+
+/* One 20-second video, line by line, from the catalog prices. An estimate: the video engine's list price × seconds, music and editing from cost-model.ts. */
+const BREAKDOWN_SECONDS = 20;
+const SINGLE_PRICE_CENTS = 2900;
+function TwentySecondBreakdown() {
+  const engines = studioEngines.filter((engine) => !engine.unavailable);
+  const [key, setKey] = useState<StudioEngineKey>((engines.find((engine) => engine.key === "photo3") || engines[0]).key);
+  const engine = engines.find((item) => item.key === key) || engines[0];
+  const [resolution, setResolution] = useState(engine.resolutions.includes("1080p") ? "1080p" : engine.resolutions[engine.resolutions.length - 1]);
+  const res = (engine.resolutions as string[]).includes(resolution) ? resolution : engine.resolutions[engine.resolutions.length - 1];
+  const video = Math.round(engineCost(engine.key, res as never, BREAKDOWN_SECONDS) * 100);
+  const music = musicCentsForSeconds(BREAKDOWN_SECONDS + COST_RATES.musicExtraSeconds);
+  const edit = Math.round(COST_RATES.editPerFilm * 100);
+  const review = Math.round(COST_RATES.reviewCloudflareCents + COST_RATES.reviewClaudeCents);
+  const total = video + music + edit + review;
+  const fee = cardFeeCents(SINGLE_PRICE_CENTS, 1);
+  const left = SINGLE_PRICE_CENTS - total - fee;
+  const lines: Array<[string, number, string]> = [
+    ["Video engine", video, `${engine.name} at ${res}, ${BREAKDOWN_SECONDS} seconds of scenes at its list price`],
+    ["Music", music, `One track, ${BREAKDOWN_SECONDS + COST_RATES.musicExtraSeconds} seconds at $${COST_RATES.musicPerMinute.toFixed(2)} a minute`],
+    ["Editing", edit, "Joining the scenes and mixing the music"],
+    ["Quality review", review, "Automatic check of the finished film"],
+  ];
+  return <section className="panel" aria-label="One 20-second video">
+    <p className="eyebrow">One 20-second video, every cost</p>
+    <div className="filters">
+      <label>Engine <select value={engine.key} onChange={(event) => setKey(event.target.value as StudioEngineKey)}>{engines.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}</select></label>
+      <div className="tabs" role="radiogroup" aria-label="Resolution">{engine.resolutions.map((value) => <button key={value} type="button" role="radio" aria-checked={res === value} className={res === value ? "active" : ""} onClick={() => setResolution(value)}>{value}</button>)}</div>
+    </div>
+    <div className="hero-total">{cents(total)}</div>
+    <p className="muted">What it costs us to make, before the card fee. The Single plan sells it for {cents(SINGLE_PRICE_CENTS)}.</p>
+    <div className="cost-lines">
+      {lines.map(([label, value, note]) => <div key={label}>
+        <div><span>{label}</span><strong>{cents(value)} <small style={{ display: "inline" }}>{pct(value, total)}%</small></strong></div>
+        <div className="bar" aria-hidden="true"><i style={{ width: `${pct(value, total)}%` }} /></div>
+        <small>{note}</small>
+      </div>)}
+      <div><div><span>Card fee on {cents(SINGLE_PRICE_CENTS)}</span><strong>{cents(fee)}</strong></div><small>{COST_RATES.cardPercent}% + ${COST_RATES.cardFixed.toFixed(2)} per charge</small></div>
+      <div><div><span>Left from one sale</span><strong>{cents(left)} <small style={{ display: "inline" }}>{pct(left, SINGLE_PRICE_CENTS)}% margin</small></strong></div><small>Price − all costs − card fee</small></div>
+    </div>
+    <p className="fine">Catalog list prices, not a bill. Real films also pay for retried scenes. Your measured average across finished films is shown above.</p>
+  </section>;
+}
 
 export default function FinancePage() {
   const [costs, setCosts] = useState<CostData | null>(null);
@@ -148,6 +194,7 @@ export default function FinancePage() {
       </div>
       <p className="fine">The video engine is almost all of it. Retried scenes and failed attempts are billed by Replicate too but are not in this average, so your Replicate bill runs higher; open its billing page for the exact total.</p>
     </section>}
+    <TwentySecondBreakdown />
     <div className="filters">
       <div className="tabs" role="radiogroup" aria-label="Which videos">
         {([["customer", "Client orders"], ["studio", "My tests"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={who === value} className={who === value ? "active" : ""} onClick={() => setWho(value)}>{text}</button>)}
