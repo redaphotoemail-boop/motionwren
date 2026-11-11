@@ -66,6 +66,8 @@ export type EditState = {
   depthScenes?: number;
   depthFallbacks?: number;
   depthError?: string;
+  cards?: boolean;
+  cardsError?: string;
 };
 
 export type FilmCheck = { status: "pass" | "warn" | "fail" | "error"; flags: { level: "warn" | "fail"; code: string; at?: number; message: string }[]; metrics?: Record<string, number>; error?: string; checkedAt: number };

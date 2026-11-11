@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { advanceRenderJob, cancelProviderJob, getRenderJob, jobScenes, providerNote, publicJob } from "../../_lib/render-jobs";
+import { advanceRenderJob, cancelProviderJob, getRenderJob, jobCardsNote, jobScenes, providerNote, publicJob } from "../../_lib/render-jobs";
 import { jsonError, requireAdmin } from "../../_lib/account";
 
 function validId(id: string) { return /^[0-9a-f-]{36}$/i.test(id); }
@@ -15,12 +15,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const token = process.env.REPLICATE_API_TOKEN || store.get("wan_replicate_token")?.value;
   let row = await getRenderJob(env, id, ownerId);
   if (!row) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-  if (!token) return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row) } }); // still shown; the server moves it on
+  if (!token) return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row), cardsNote: await jobCardsNote(env, row) } }); // still shown; the server moves it on
   const webhook = row.webhookToken ? `${new URL(request.url).origin}/api/webhooks/replicate/${id}?token=${row.webhookToken}` : undefined;
   // Webhooks normally move the job; checking also moves it, so a missed
   // callback never leaves it stuck (at most every few seconds).
   if (token && Date.now() - row.updatedAt > 6000) row = await advanceRenderJob(env, row, token, webhook) || row;
-  return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row), provider: await providerNote(env) } });
+  return NextResponse.json({ job: { ...publicJob(row), scenes: await jobScenes(env, row), cardsNote: await jobCardsNote(env, row), provider: await providerNote(env) } });
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {

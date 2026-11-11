@@ -516,6 +516,7 @@ async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
       manifest.edit = { ...manifest.edit, music: { prompt: edit.music?.prompt || musicPrompt({ aspect: row.aspect, duration: row.duration }), saved: musicKey(row.id), source: state.musicSource } };
     } catch { /* the next edit simply makes music again */ }
   }
+  if (manifest.cards) manifest.cardsNote = state.cards ? "added" : `not added: ${String(state.cardsError || "the editor left them off").slice(0, 200)}`;
   manifest.finalUrl = `composer:${key}`;
   await saveManifest(env, row.id, manifest);
   await saveComposedFilm(env, { ...row, status: "saving" }, key, { token, origin: webhookUrl ? new URL(webhookUrl).origin : "" }).catch(() => undefined); // stays "saving"; retried on the next step
@@ -838,6 +839,13 @@ export function publicJob(row: RenderJobRow) {
 /* Per-scene detail for the progress views: state, why it is waiting, when it
    goes next, tries, last provider message and engine job ID (the last two
    are shown to the manager only). */
+/* "added", "not added: why", or "" when no cards were asked for. */
+export async function jobCardsNote(env: { BUCKET: R2Bucket }, row: RenderJobRow): Promise<string> {
+  const loaded = await loadManifest(env, row.id);
+  if (!loaded?.cards) return "";
+  return loaded.cardsNote || (["stitching", "saving", "succeeded"].includes(row.status) ? "not added: the editor did not run for this film" : "");
+}
+
 export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
   const loaded = await loadManifest(env, row.id);
   if (!loaded) return null;
