@@ -9,6 +9,7 @@
 
 import { ADS_THEME, adAspectRatio, adPlan, buildAdScenePrompt, estimateAdCost, splitScriptToSubtitles, type AdActorRef, type AdAspect, type SubtitleLine, type SubtitleStyle } from "../../ads-creative";
 import { buildMasterPromptPrompt, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration, type AdTemplateId } from "../../ads-master-prompt";
+import { LIBRARY_TEMPLATE_THEME, libraryTemplateEstimate, libraryTemplateOverlayLines, libraryTemplatePlan, parseLibraryTemplateFields, type LibraryTemplateId } from "../../library-templates";
 import { adMusicMood, defaultAdMusicMood } from "../../ads-music-catalog";
 import { CROSSFADE_SECONDS, engineUpscales } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
@@ -122,27 +123,43 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
      stretch past the 30 s the prompt forbids) and its filled master prompt
      — structure, rules, legal DO / DON'T — sits where ADS_THEME sits for
      a cinematic ad: first in every scene prompt and as the job's stored
-     prompt. A cinematic ad is exactly today's behavior. */
+     prompt. A cinematic ad is exactly today's behavior. A library
+     template ad is locked to its recorded structure instead — 17 s
+     vertical for Restaurant Interior, its warm golden theme, hard cuts
+     (crossfade 0), its Luxe & warm music mood, and its text overlays
+     burned in over the user's own subtitles. */
   const template: AdTemplateId = resolveAdTemplate(ad.template);
   const targetDuration = resolveTemplateDuration(template, ad.targetDuration);
-  const theme = template === "fix-it-20" ? buildMasterPromptPrompt(parseMasterPromptFields(ad.templateFields)) : ADS_THEME;
+  const library = parseLibraryTemplateFields(ad.templateFields || "");
+  const libraryTemplate: LibraryTemplateId = library.libraryTemplate;
+  const theme = libraryTemplate !== "none" ? LIBRARY_TEMPLATE_THEME : template === "fix-it-20" ? buildMasterPromptPrompt(parseMasterPromptFields(ad.templateFields)) : ADS_THEME;
   const images = await resolveSceneImages(env, ad, ownerId);
   if (!images.length) throw new HttpError(409, "Upload at least one image for this ad.");
   const actors = await loadAdActorRefs(env, ad.id, ownerId);
-  const plan = adPlan(engine, resolution, targetDuration, images.length, Boolean(ad.draft));
+  const plan = libraryTemplate !== "none"
+    ? libraryTemplatePlan(engine, resolution, images.length, Boolean(ad.draft))
+    : adPlan(engine, resolution, targetDuration, images.length, Boolean(ad.draft));
   const scenes = images.slice(0, plan.count);
   const sceneSeconds = plan.sceneSeconds;
   const subtitles = parseSubtitles(ad.subtitles);
   const script = ad.voiceoverScript.trim();
   if (subtitles.on && !subtitles.lines.length && !script) throw new HttpError(409, "Subtitles are on but there is nothing to show: add subtitle lines or a voiceover script.");
-  const subtitleLines = subtitles.on ? (subtitles.lines.length ? subtitles.lines : splitScriptToSubtitles(script, plan.totalSeconds)) : [];
+  const userSubtitleLines = subtitles.on ? (subtitles.lines.length ? subtitles.lines : splitScriptToSubtitles(script, plan.totalSeconds)) : [];
+  const subtitleLines = libraryTemplate !== "none"
+    ? [...libraryTemplateOverlayLines(libraryTemplate, library.fields, plan.totalSeconds, plan.shareSeconds), ...userSubtitleLines]
+    : userSubtitleLines;
   // ElevenLabs sound is optional and off by default: the video engine
   // usually already made sound. Off means no ElevenLabs call at all —
   // no music key in the manifest, no voiceover synthesis — while the
   // stored script still feeds subtitles. On keeps today's behavior.
   const elevenlabsOn = ad.elevenlabsOn === 1;
-  const music = elevenlabsOn ? (adMusicMood(ad.musicMood) || adMusicMood(defaultAdMusicMood(aspect, plan.totalSeconds))) : null;
-  const costCents = Math.round(estimateAdCost(engine, resolution, targetDuration, images.length, Boolean(ad.draft)) * 100);
+  // A library template's music mood is Luxe & warm — the route coerces it
+  // when the ad is saved, and "luxe" is the fallback if it is missing.
+  const musicMoodId = libraryTemplate !== "none" ? (ad.musicMood || "luxe") : ad.musicMood;
+  const music = elevenlabsOn ? (adMusicMood(musicMoodId) || adMusicMood(defaultAdMusicMood(aspect, plan.totalSeconds))) : null;
+  const costCents = Math.round((libraryTemplate !== "none"
+    ? libraryTemplateEstimate(engine, images.length, Boolean(ad.draft))
+    : estimateAdCost(engine, resolution, targetDuration, images.length, Boolean(ad.draft))) * 100);
 
   const jobId = crypto.randomUUID();
   const webhookToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
@@ -186,7 +203,7 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
     manifest.edit = {
       shareSeconds: plan.shareSeconds,
-      crossfade: CROSSFADE_SECONDS,
+      crossfade: libraryTemplate !== "none" ? 0 : CROSSFADE_SECONDS,
       ...(elevenlabsOn && music ? { music: { prompt: music.prompt } } : {}),
       ...(subtitleLines.length ? { subtitles: { lines: subtitleLines, position: subtitles.position, size: subtitles.size } } : {}),
       ...(voiceoverSaved ? { voiceover: { saved: "voiceover.mp3" } } : {}),
