@@ -136,6 +136,8 @@ export default function StudioAdsPage() {
   const [subtitleText, setSubtitleText] = useState("");
   const [scenePrompts, setScenePrompts] = useState<string[]>([]);
   const [sceneImages, setSceneImages] = useState<SceneImage[]>([]);
+  const [pending, setPending] = useState<File[]>([]);
+  const addPending = (files: FileList | null) => { if (files?.length) setPending((current) => [...current, ...Array.from(files)].slice(0, 20)); };
   const [linkedActorIds, setLinkedActorIds] = useState<string[]>([]);
 
   // Actors tab form.
@@ -280,7 +282,15 @@ export default function StudioAdsPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be created.");
-      setMessage(`Ad created. Estimated generation: ${money((result.estimateCents || 0) / 100)} — upload images below, then generate.`);
+      let uploaded = 0;
+      for (const file of pending) {
+        const form = new FormData();
+        form.append("file", file);
+        const up = await fetch(`/api/admin/studio-ads/${result.ad.id}/assets`, { method: "POST", body: form });
+        if (up.ok) uploaded += 1;
+      }
+      setPending([]);
+      setMessage(pending.length ? `Ad created with ${uploaded} of ${pending.length} image${pending.length === 1 ? "" : "s"}. Estimated generation: ${money((result.estimateCents || 0) / 100)}.` : `Ad created. Estimated generation: ${money((result.estimateCents || 0) / 100)} — upload images, then generate.`);
       await loadAll();
       await loadDetail(result.ad.id);
     } catch (error) { setMessage(error instanceof Error ? error.message : "The ad could not be created."); }
@@ -407,6 +417,29 @@ export default function StudioAdsPage() {
 
       {tab === "create" ? (
         <div className="mgr-stack">
+          {!detail ? <section className="panel">
+            <div className="panel-head"><h2>Images that become the video</h2><span className="muted small">Add your photos first. JPG, PNG or WebP, up to 20 MB each.</span></div>
+            <label className="field"><span>Choose images</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { addPending(event.target.files); event.target.value = ""; }} /></label>
+            {pending.length ? <div className="engine-grid">{pending.map((item, index) => <div key={item.name + index} className="engine-card"><span><strong>{item.name}</strong><span className="muted small">{(item.size / 1024).toFixed(0)} KB · scene {index + 1}</span></span><button type="button" className="btn btn-white btn-sm" onClick={() => setPending(pending.filter((_, position) => position !== index))}>Remove</button></div>)}</div> : <p className="muted">Nothing added yet. They are uploaded when you create the ad.</p>}
+          </section> : null}
+          {detail ? (
+          <section className="panel">
+            <div className="panel-head"><h2>Images that become the video</h2><span className="muted small">JPG, PNG or WebP, up to 20 MB each, 20 per ad.</span></div>
+            <label className="field"><span>Upload source images</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { uploadSource(event.target.files); event.target.value = ""; }} /></label>
+            {detail.assets.length ? (
+              <div className="engine-grid">
+                {detail.assets.map((asset) => (
+                  <label key={asset.id} className="engine-card">
+                    <input type="checkbox" checked={sceneImages.some((item) => item.type === "source" && item.id === asset.id)} onChange={(event) => setSceneImages(event.target.checked ? [...sceneImages, { type: "source", id: asset.id }] : sceneImages.filter((item) => !(item.type === "source" && item.id === asset.id)))} />
+                    <span><strong>{asset.fileName}</strong>
+                    <span className="muted small">{(asset.sizeBytes / 1024).toFixed(0)} KB · scene image</span></span>
+                  </label>
+                ))}
+              </div>
+            ) : <p className="muted">No source images yet — upload at least one to generate.</p>}
+            <p className="note">Tick the images to use as scenes, in the order they were uploaded. Actor photos can join the scenes from the Actors tab.</p>
+          </section>
+          ) : null}
           <section className="panel">
             <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2><span className="muted small">Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</span></div>
             <label className="field"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Summer launch — 30 s reel" maxLength={120} /></label>
@@ -484,22 +517,6 @@ export default function StudioAdsPage() {
 
           {detail ? (
             <>
-              <section className="panel">
-                <div className="panel-head"><h2>Images that become the video</h2><span className="muted small">JPG, PNG or WebP, up to 20 MB each, 20 per ad.</span></div>
-                <label className="field"><span>Upload source images</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { uploadSource(event.target.files); event.target.value = ""; }} /></label>
-                {detail.assets.length ? (
-                  <div className="engine-grid">
-                    {detail.assets.map((asset) => (
-                      <label key={asset.id} className="engine-card">
-                        <input type="checkbox" checked={sceneImages.some((item) => item.type === "source" && item.id === asset.id)} onChange={(event) => setSceneImages(event.target.checked ? [...sceneImages, { type: "source", id: asset.id }] : sceneImages.filter((item) => !(item.type === "source" && item.id === asset.id)))} />
-                        <span><strong>{asset.fileName}</strong>
-                        <span className="muted small">{(asset.sizeBytes / 1024).toFixed(0)} KB · scene image</span></span>
-                      </label>
-                    ))}
-                  </div>
-                ) : <p className="muted">No source images yet — upload at least one to generate.</p>}
-                <p className="note">Tick the images to use as scenes, in the order they were uploaded. Actor photos can join the scenes from the Actors tab.</p>
-              </section>
 
               <section className="panel">
                 <div className="panel-head"><h2>Scenes</h2><span className="muted small">One prompt per scene for 30 s / 60 s ads — leave blank to use the ad prompt for that scene.</span></div>
