@@ -29,7 +29,7 @@ export const SECURITY_HEADERS: Record<string, string> = {
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: data:",
-    "connect-src 'self'",
+    "connect-src 'self' blob: data:",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'self'",
