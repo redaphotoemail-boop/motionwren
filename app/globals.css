@@ -1690,3 +1690,4 @@ button, a, select, .btn { touch-action: manipulation; }
 .tpl-card small { color: var(--muted); font-size: 14px; line-height: 1.4; }
 .tpl-meta { color: var(--muted); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
 .tpl-card em { font-style: normal; font-weight: 600; font-size: 14px; margin-top: 8px; }
+.tpl-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

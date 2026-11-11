@@ -269,7 +269,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("single"); const [source, setSource] = useState(""); const [fileName, setFileName] = useState("");
   const [firstFrame, setFirstFrame] = useState(""); const [firstFrameName, setFirstFrameName] = useState(""); const [middleFrames, setMiddleFrames] = useState<TransitionFrame[]>([]); const [lastFrame, setLastFrame] = useState(""); const [lastFrameName, setLastFrameName] = useState(""); const [transitionStatus, setTransitionStatus] = useState<JobStatus>("idle"); const [transitionError, setTransitionError] = useState(""); const [transitionMode, setTransitionMode] = useState<"ai" | "clean">("ai");
   const [motion, setMotion] = useState<MotionKey>("push"); const [shots, setShots] = useState<SeriesShot[]>([]);
-  const [seriesPromptMode, setSeriesPromptMode] = useState<"scene" | "shared">("scene");
+  const [seriesPromptMode, setSeriesPromptMode] = useState<"scene" | "shared">("shared");
   const [secondsPerImage, setSecondsPerImage] = useState<3 | 5 | "auto">("auto");
   const [customerEngine, setCustomerEngine] = useState<EngineKey | null>(null);
   const [savingDefault, setSavingDefault] = useState(false);
