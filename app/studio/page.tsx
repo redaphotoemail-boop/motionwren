@@ -355,6 +355,8 @@ export default function Home() {
   }
   /* Shared start for every Studio video: the loading view appears at once,
      photos are sent one by one, then the server takes over. */
+  /* Opening History from anywhere (Generate, Start over) lands at the top of the page, where the video being made is. */
+  useEffect(() => { if (mode === "history") window.scrollTo({ top: 0, behavior: "auto" }); }, [mode]);
   async function launch(tab: ProductionTab, body: Record<string, unknown>, photos: string[], extra?: (job: StudioJob) => void) {
     let created: StudioJob | null = null;
     try {
