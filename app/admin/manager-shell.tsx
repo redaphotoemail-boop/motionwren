@@ -17,6 +17,7 @@ const links: Array<{ href: string; label: string; icon: IconName; match: (path: 
   { href: "/admin/replicates", label: "Spend", icon: "money", match: (path) => path.startsWith("/admin/replicates") },
   { href: "/studio", label: "Studio", icon: "studio", match: (path) => path.startsWith("/studio") },
   { href: "/admin/studio-ads", label: "Studio Ads", icon: "motion", match: (path) => path.startsWith("/admin/studio-ads") },
+  { href: "/admin/library-studio", label: "Library Studio", icon: "projects", match: (path) => path.startsWith("/admin/library-studio") },
 ];
 
 /* Owner-only navigation shared by every manager page and the Studio. */
