@@ -43,6 +43,8 @@ export type EditSpec = {
   music?: { url?: string; prompt?: string; required?: boolean } | null;
   /** Studio Ads: subtitle lines to burn in, and a voiceover track (a link
       to the stored MP3) to mix over the music. */
+  /** A template's colour grade. */
+  grade?: "warm";
   subtitles?: { lines: { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large" }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
   voiceover?: { url: string };
   /** The film's own voice lines and sound effects, each placed at a time (seconds) and level. */

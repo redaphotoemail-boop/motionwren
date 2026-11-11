@@ -165,7 +165,7 @@ export default function StudioAdsPage() {
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get("template");
     const found = LIBRARY_TEMPLATES.find((item) => item.id === wanted);
-    if (found) setLibraryTemplate(found.id);
+    if (found) { setLibraryTemplate(found.id); setTitle((current) => current.trim() ? current : found.name); }
     if (found) { setAspect("vertical"); setMusicMood("luxe"); }
   }, []);
 
@@ -266,6 +266,7 @@ export default function StudioAdsPage() {
       setAspect(prevAspect); setDuration(prevDuration); setMusicMood(prevMusicMood);
     }
     setLibraryTemplate(next);
+    if (next !== "none" && !title.trim()) setTitle(LIBRARY_TEMPLATES.find((item) => item.id === next)?.name || "");
   };
 
   // One object for the template_fields column: the master-prompt fields,
@@ -441,9 +442,9 @@ export default function StudioAdsPage() {
           </section>
           ) : null}
           <section className="panel">
-            <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2><span className="muted small">Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</span></div>
+            <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2><span className={libraryTemplate !== "none" ? "muted small tpl-hide" : "muted small"}>Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</span></div>
             <label className="field"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Summer launch — 30 s reel" maxLength={120} /></label>
-            <div className="field"><span>Template</span>
+            <div className={libraryTemplate !== "none" ? "field tpl-hide" : "field"}><span>Template</span>
               <div className="sa-picker" role="radiogroup" aria-label="Prompt template">
                 {AD_TEMPLATES.map((item) => (
                   <button key={item.id} type="button" role="radio" aria-checked={template === item.id} disabled={libraryTemplate !== "none"} className={`btn ${template === item.id ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => selectTemplate(item.id)}>{item.label}</button>
@@ -486,7 +487,7 @@ export default function StudioAdsPage() {
                 </details>
               </>
             ) : null}
-            <label className="field"><span>Opening hook — the first 2 seconds</span><textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="What must land before anyone scrolls past?" rows={2} maxLength={280} /></label>
+            <label className={libraryTemplate !== "none" ? "field tpl-hide" : "field"}><span>Opening hook — the first 2 seconds</span><textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="What must land before anyone scrolls past?" rows={2} maxLength={280} /></label>
             <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={template === "fix-it-20" ? "Anything else the video should show or say — the Fix It In 20 Seconds structure is layered on top automatically." : "The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically."} rows={3} maxLength={2000} /></label>
             <div className="field-row">
               <label className="field"><span>Format</span>
@@ -518,7 +519,7 @@ export default function StudioAdsPage() {
           {detail ? (
             <>
 
-              <section className="panel">
+              <section className={libraryTemplate !== "none" ? "panel tpl-hide" : "panel"}>
                 <div className="panel-head"><h2>Scenes</h2><span className="muted small">One prompt per scene for 30 s / 60 s ads — leave blank to use the ad prompt for that scene.</span></div>
                 {Array.from({ length: plan.count }, (_, index) => (
                   <label key={index} className="field"><span>Scene {index + 1} prompt</span>
@@ -527,7 +528,7 @@ export default function StudioAdsPage() {
                 ))}
               </section>
 
-              <section className="panel">
+              <section className={libraryTemplate !== "none" ? "panel tpl-hide" : "panel"}>
                 <div className="panel-head"><h2>Actors in this ad</h2><span className="muted small">Pick saved actors — their photos stay in the library for the next ad.</span></div>
                 {actors.length ? (
                   <div className="sa-list">
@@ -571,7 +572,7 @@ export default function StudioAdsPage() {
                 {elevenlabsOn && !voices.keyed ? <p className="note">Voiceover needs the ElevenLabs key — add ELEVENLABS_API_KEY as a Worker secret and it appears here. Music uses the same key.</p> : null}
               </section>
 
-              <section className="panel">
+              <section className={libraryTemplate !== "none" ? "panel tpl-hide" : "panel"}>
                 <div className="panel-head"><h2>Subtitles</h2><span className="muted small">Burned into the picture. Leave the lines empty and they are timed from the voiceover script.</span></div>
                 <label className="field-toggle"><input type="checkbox" checked={subtitlesOn} onChange={(event) => setSubtitlesOn(event.target.checked)} /> Burn subtitles into the video</label>
                 {subtitlesOn ? (

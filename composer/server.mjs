@@ -383,7 +383,7 @@ export function layerArgs({ inputs, duration, output }) {
   return args;
 }
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -412,6 +412,12 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   const fadeOut = Math.min(0.8, duration / 6);
   // Sharpen: the engines' clips come out soft, so restore edge contrast on the finished film (luma only, kept subtle).
   filters.push(`[${last}]trim=duration=${duration.toFixed(3)},setpts=PTS-STARTPTS,cas=strength=0.55,unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=0.45:chroma_msize_x=3:chroma_msize_y=3:chroma_amount=0[sharp]`);
+  // An optional colour grade (a template's look), after sharpening and before the cards.
+  let graded = "sharp";
+  if (grade === "warm") {
+    filters.push("[sharp]colorbalance=rs=0.05:bs=-0.06:rm=0.08:gm=0.01:bm=-0.08:rh=0.05:bh=-0.05,eq=saturation=1.05:contrast=1.03[graded]");
+    graded = "graded";
+  }
   // The listing cards go on after sharpening; the final fade then takes everything (cards included) to black.
   let cardInputs = [];
   if (cards) {
@@ -419,8 +425,8 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     const extra = {};
     if (cards.vignette) { extra.vignette = base + cardInputs.length; cardInputs.push(["-loop", "1", "-framerate", String(fps), "-i", cards.vignette]); }
     if (cards.logo) { extra.logo = base + cardInputs.length; cardInputs.push(["-i", cards.logo]); }
-    filters.push(...cardGraph(cards.plan, "sharp", "carded", extra, cards.dir));
-  } else filters.push("[sharp]null[carded]");
+    filters.push(...cardGraph(cards.plan, graded, "carded", extra, cards.dir));
+  } else filters.push(`[${graded}]null[carded]`);
   // Films end by fading to black; a single clip just ends.
   filters.push(count > 1 ? `[carded]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]` : "[carded]fade=t=in:st=0:d=0.35[vout]");
   // Subtitles burn in last, over the finished picture (cards and fades included).
@@ -499,6 +505,7 @@ function validSpec(spec) {
   if (!(spec.duration > 1 && spec.duration <= 600)) return "Film length is out of range.";
   if (!(spec.sceneSeconds > 0.5 && spec.sceneSeconds <= 60)) return "Scene length is out of range.";
   if (!(spec.crossfade >= 0 && spec.crossfade < spec.sceneSeconds / 2)) return "Crossfade is out of range.";
+  if (spec.grade !== undefined && spec.grade !== "warm") return "Unknown colour grade.";
   if (spec.music && !spec.music.url && typeof spec.music.prompt !== "string") return "Music needs a prompt or a link.";
   if (spec.subtitles !== undefined) {
     const sub = spec.subtitles;
@@ -647,7 +654,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { clips: files, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: infos.map((info) => info.audioStreams > 0), speeds: spec.speeds };
+    const editInput = { clips: files, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: infos.map((info) => info.audioStreams > 0), speeds: spec.speeds, grade: spec.grade };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.
