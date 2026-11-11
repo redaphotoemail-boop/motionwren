@@ -82,7 +82,7 @@ export type ProductionManifest = {
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over
         the music by the composer. */
-    subtitles?: { lines: { start: number; end: number; text: string }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
+    subtitles?: { lines: { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large" }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
     voiceover?: { saved?: string };
     key?: string;
     attempt?: number;  // every edit ever started for this film (keys are never reused)

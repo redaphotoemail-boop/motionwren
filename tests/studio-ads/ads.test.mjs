@@ -32,7 +32,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(mkdtempSync(join(tmpdir(), "mw-ads-")), "lib.mjs");
 await build({ entryPoints: [join(HERE, "entry.ts")], bundle: true, platform: "node", format: "esm", outfile: OUT, logLevel: "warning" });
 const lib = await import(pathToFileURL(OUT).href);
-const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buildAssText, estimateAdCost, splitScriptToSubtitles, AD_MUSIC_MOODS, adMusicMood, defaultAdMusicMood, ElevenLabsMissingKey, listVoices, synthesizeVoiceover, AD_TEMPLATES, MASTER_PROMPT_DURATION, MASTER_PROMPT_FIELD_DEFS, MASTER_PROMPT_TEMPLATE, buildMasterPromptPrompt, cleanMasterPromptFields, emptyMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration } = lib;
+const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buildAssText, estimateAdCost, splitScriptToSubtitles, AD_MUSIC_MOODS, adMusicMood, defaultAdMusicMood, ElevenLabsMissingKey, listVoices, synthesizeVoiceover, AD_TEMPLATES, MASTER_PROMPT_DURATION, MASTER_PROMPT_FIELD_DEFS, MASTER_PROMPT_TEMPLATE, buildMasterPromptPrompt, cleanMasterPromptFields, emptyMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration, LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, LIBRARY_TEMPLATE_THEME, cleanLibraryTemplateFields, emptyRestaurantInteriorFields, engineCost, isLibraryTemplateVisible, libraryTemplateEstimate, libraryTemplateOverlayLines, libraryTemplatePlan, mergeTemplateFields, parseLibraryEnabled, parseLibraryTemplateFields, resolveLibraryTemplate } = lib;
 
 /* 1. The theme: premium and realistic, nothing real-estate. */
 {
@@ -294,6 +294,41 @@ const { ADS_THEME, ADS_NEGATIVE, adAspectRatio, adPlan, buildAdScenePrompt, buil
   const themed = buildAdScenePrompt({ userPrompt: "A gimbal demo.", sceneIndex: 0, hook: "Steady shots, solo.", theme: text });
   const plain = buildAdScenePrompt({ userPrompt: "A gimbal demo.", sceneIndex: 0, hook: "Steady shots, solo." });
   check("9n the template theme replaces ADS_THEME in scene 0, cinematic stays untouched", themed.startsWith(text) && themed.includes("Steady shots, solo.") && plain.startsWith(ADS_THEME) && !text.includes(ADS_THEME), "");
+}
+
+/* 11. Library Studio templates: Restaurant Interior, rebuilt from the
+   CapCut template by Treztive — 17 s vertical, 8 photos, hard cuts. */
+{
+  const fields = { brandName: "Treztive", titleLine1: "Restaurant", titleLine2: "INTERIOR", location: "Street name, City", website: "www.example.com" };
+  check("11a unknown and empty ids resolve to none", resolveLibraryTemplate(undefined) === "none" && resolveLibraryTemplate("") === "none" && resolveLibraryTemplate("nope") === "none" && resolveLibraryTemplate("restaurant-interior") === "restaurant-interior", "");
+  check("11b the recorded template is 17 s vertical with 8 photo slots and Luxe & warm music", LIBRARY_TEMPLATES.length === 1 && LIBRARY_TEMPLATES[0].id === "restaurant-interior" && LIBRARY_TEMPLATES[0].durationSeconds === 17 && LIBRARY_TEMPLATES[0].aspect === "vertical" && LIBRARY_TEMPLATES[0].photoSlots === 8 && LIBRARY_TEMPLATES[0].musicMood === "luxe" && LIBRARY_TEMPLATES[0].source === "CapCut template by Treztive", JSON.stringify(LIBRARY_TEMPLATES[0]));
+  check("11c exactly the 5 fill-in fields, in order", LIBRARY_TEMPLATE_FIELD_DEFS.map((d) => d.key).join(",") === "brandName,titleLine1,titleLine2,location,website", JSON.stringify(LIBRARY_TEMPLATE_FIELD_DEFS.map((d) => d.key)));
+  check("11d cleaning trims, caps and drops unknown keys; bad input parses empty", cleanLibraryTemplateFields({ libraryTemplate: "restaurant-interior", brandName: "  Treztive  ", location: "x".repeat(200), nope: 1 }).fields.brandName === "Treztive" && cleanLibraryTemplateFields({ libraryTemplate: "restaurant-interior", location: "x".repeat(200) }).fields.location.length === 120 && !("nope" in cleanLibraryTemplateFields({ nope: 1 }).fields) && cleanLibraryTemplateFields(null).libraryTemplate === "none" && cleanLibraryTemplateFields("nope").libraryTemplate === "none" && parseLibraryTemplateFields("not json").libraryTemplate === "none" && parseLibraryTemplateFields(JSON.stringify({ libraryTemplate: "restaurant-interior", ...fields })).fields.website === fields.website, "");
+  const merged = mergeTemplateFields(emptyMasterPromptFields(), { libraryTemplate: "restaurant-interior", fields });
+  check("11e the merged template_fields column round-trips through both parsers", parseLibraryTemplateFields(JSON.stringify(merged)).libraryTemplate === "restaurant-interior" && parseLibraryTemplateFields(JSON.stringify(merged)).fields.brandName === "Treztive" && parseMasterPromptFields(JSON.stringify(merged)).product === "" && merged.libraryTemplate === "restaurant-interior", JSON.stringify(merged));
+  const full8 = libraryTemplatePlan("wan3", "1080p", 8);
+  check("11f full render with 8 photos is 8 scenes of 3 s sharing 2.125 s over 17 s", full8.count === 8 && full8.sceneSeconds === 3 && full8.shareSeconds === 2.125 && full8.totalSeconds === 17 && full8.resolution === "1080p", JSON.stringify(full8));
+  const full4 = libraryTemplatePlan("wan3", "1080p", 4);
+  check("11g full render with 4 photos shares 4.25 s in 5 s scenes", full4.count === 4 && full4.shareSeconds === 4.25 && full4.sceneSeconds === 5 && full4.totalSeconds === 17, JSON.stringify(full4));
+  const draft8 = libraryTemplatePlan("wan3", "1080p", 8, true);
+  check("11h a draft with 8 photos is the first 4 scenes only, 10 s at 480p", draft8.count === 4 && draft8.shareSeconds === 2.5 && draft8.totalSeconds === 10 && draft8.resolution === "480p", JSON.stringify(draft8));
+  const overlays = libraryTemplateOverlayLines("restaurant-interior", fields, 17, 2.125);
+  check("11i the brand runs the whole film, top, small", overlays[0].text === "Treztive" && overlays[0].start === 0 && overlays[0].end === 17 && overlays[0].position === "top" && overlays[0].size === "small", JSON.stringify(overlays[0]));
+  check("11j the title lines run the first two scenes, centre, large", overlays[1].text === "Restaurant" && overlays[1].end === 4.25 && overlays[1].position === "center" && overlays[1].size === "large" && overlays[2].text === "INTERIOR" && overlays[2].end === 4.25 && overlays[3].text === "Street name, City" && overlays[3].size === "medium", JSON.stringify(overlays[1]));
+  check("11k the website runs the last scene, centre, medium", overlays[4].text === "www.example.com" && overlays[4].start === 14.875 && overlays[4].end === 17 && overlays[4].position === "center" && overlays[4].size === "medium", JSON.stringify(overlays[4]));
+  check("11l empty fields are skipped — no placeholder text in the video", libraryTemplateOverlayLines("restaurant-interior", { ...emptyRestaurantInteriorFields(), brandName: "Treztive" }, 17, 2.125).length === 1 && libraryTemplateOverlayLines("none", fields, 17, 2.125).length === 0, "");
+  check("11m the full 8-photo estimate is 24 s at the catalog's Wan 3.0 1080p price", libraryTemplateEstimate("wan3", 8, false) === engineCost("wan3", "1080p", 24), `$${libraryTemplateEstimate("wan3", 8, false).toFixed(4)} vs $${engineCost("wan3", "1080p", 24).toFixed(4)}`);
+  check("11n a template with nothing stored shows; off stays hidden", isLibraryTemplateVisible("restaurant-interior", {}) === true && isLibraryTemplateVisible("restaurant-interior", { "restaurant-interior": false }) === false && isLibraryTemplateVisible("restaurant-interior", { "restaurant-interior": true }) === true && JSON.stringify(parseLibraryEnabled('{"restaurant-interior":false}')) === '{"restaurant-interior":false}' && JSON.stringify(parseLibraryEnabled("not json")) === "{}" && JSON.stringify(parseLibraryEnabled(null)) === "{}", "");
+  check("11o the theme is static-camera, warm and golden, with no real-estate language", /static camera/i.test(LIBRARY_TEMPLATE_THEME) && /warm and golden/i.test(LIBRARY_TEMPLATE_THEME) && /true to the supplied photos/i.test(LIBRARY_TEMPLATE_THEME) && !/real estate|listing|property|architecture|STATIC_LOCK|camera-only/i.test(LIBRARY_TEMPLATE_THEME), LIBRARY_TEMPLATE_THEME.slice(0, 80));
+  const styled = buildAssText([
+    { start: 0, end: 17, text: "Treztive", position: "top", size: "small" },
+    { start: 0, end: 4.25, text: "Restaurant", position: "center", size: "large" },
+    { start: 5, end: 7, text: "Plain line" },
+  ], { position: "bottom", size: "medium" }, 1080);
+  check("11p per-line styles get their own Style lines — top 8, centre 5, bottom 2", (styled.match(/^Style:/gm) || []).length === 3 && /,8,20,20,40,1/.test(styled) && /,5,20,20,0,1/.test(styled) && /,2,20,20,40,1/.test(styled), styled.split("\n").filter((line) => line.startsWith("Style:")).join(" | "));
+  check("11q the dialogues reference their own styles", styled.includes("AdTopSmall") && styled.includes("AdCenterLarge") && styled.includes("AdDefault") && styled.includes("Treztive") && styled.includes("Restaurant"), "");
+  const plain = buildAssText([{ start: 1, end: 3.5, text: "First line" }, { start: 5, end: 7, text: "Second line" }], { position: "bottom", size: "medium" }, 1080);
+  check("11r with no per-line styles there is exactly one Style line and every dialogue is AdDefault", (plain.match(/^Style:/gm) || []).length === 1 && plain.split("\n").filter((line) => line.startsWith("Dialogue:")).every((line) => line.includes(",AdDefault,")) && plain.includes("Liberation Sans,48,") && /,2,20,20,40,1/.test(plain), "");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

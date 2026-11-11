@@ -3,6 +3,7 @@ import { enforceRateLimit, jsonError, requireAdmin } from "../../_lib/account";
 import { adMusicMood } from "../../../ads-music-catalog";
 import { AD_DURATIONS, estimateAdCost } from "../../../ads-creative";
 import { cleanMasterPromptFields, resolveAdTemplate, resolveTemplateDuration } from "../../../ads-master-prompt";
+import { LIBRARY_TEMPLATE_DURATION, LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, libraryTemplateEstimate, mergeTemplateFields } from "../../../library-templates";
 import { isEngineKey } from "../../../engine-providers";
 
 function cleanStr(value: unknown, max: number): string {
@@ -32,12 +33,16 @@ export async function POST(request: Request) {
     const title = cleanStr(body.title, 120);
     if (title.length < 2) return Response.json({ error: "Give the ad a title (at least 2 characters)." }, { status: 400 });
     const engine = isEngineKey(body.engine) ? body.engine : "wan3";
-    const aspect = body.aspect === "horizontal" || body.aspect === "square" ? body.aspect : "vertical";
-    /* A "Fix It In 20 Seconds" ad is locked to 30 s — see ads-master-prompt.ts. */
+    /* A library template ad is locked to its recorded structure — 17 s
+       vertical, Luxe & warm music — whatever was sent. Otherwise a
+       "Fix It In 20 Seconds" ad is locked to 30 s — see
+       ads-master-prompt.ts. */
+    const library = cleanLibraryTemplateFields(body.templateFields);
+    const aspect = library.libraryTemplate !== "none" ? "vertical" : body.aspect === "horizontal" || body.aspect === "square" ? body.aspect : "vertical";
     const template = resolveAdTemplate(body.template);
-    const templateFields = cleanMasterPromptFields(body.templateFields);
+    const templateFields = mergeTemplateFields(cleanMasterPromptFields(body.templateFields), library);
     const wantedDuration = (AD_DURATIONS as readonly number[]).includes(Number(body.targetDuration)) ? Number(body.targetDuration) : 10;
-    const targetDuration = resolveTemplateDuration(template, wantedDuration);
+    const targetDuration = library.libraryTemplate !== "none" ? LIBRARY_TEMPLATE_DURATION : resolveTemplateDuration(template, wantedDuration);
     const subtitles = (body.subtitles && typeof body.subtitles === "object" && !Array.isArray(body.subtitles)) ? body.subtitles as Record<string, unknown> : {};
     const subtitleLines = Array.isArray(subtitles.lines) ? subtitles.lines.filter((line) => line && typeof line === "object" && typeof (line as { text?: unknown }).text === "string").slice(0, 40) : [];
     const sceneImages = Array.isArray(body.sceneImages) ? body.sceneImages.filter((item): item is { type: "source" | "actor"; id: string } => typeof item === "object" && item !== null && (item.type === "source" || item.type === "actor") && typeof item.id === "string").slice(0, 20) : [];
@@ -59,12 +64,15 @@ export async function POST(request: Request) {
       }),
       voiceoverScript: cleanStr(body.voiceoverScript, 5000),
       voiceId: typeof body.voiceId === "string" && body.voiceId ? body.voiceId.slice(0, 120) : null,
-      musicMood: adMusicMood(body.musicMood)?.id || null,
+      musicMood: library.libraryTemplate !== "none" ? LIBRARY_TEMPLATE_MUSIC_MOOD : adMusicMood(body.musicMood)?.id || null,
       elevenlabsOn: body.elevenlabsOn === true ? 1 : 0,
       draft: body.draft === true ? 1 : 0,
     };
     await env.DB.prepare(`INSERT INTO ad_projects (id, owner_id, title, hook, prompt, scene_prompts, scene_images, template, template_fields, engine, resolution, aspect, target_duration, subtitles, voiceover_script, voice_id, music_mood, elevenlabs_on, draft, status, render_job_id, final_history_id, cost_cents, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, NULL, 0, ?, ?)`).bind(ad.id, admin.id, ad.title, ad.hook, ad.prompt, ad.scenePrompts, ad.sceneImages, ad.template, ad.templateFields, ad.engine, ad.resolution, ad.aspect, ad.targetDuration, ad.subtitles, ad.voiceoverScript, ad.voiceId, ad.musicMood, ad.elevenlabsOn, ad.draft, now, now).run();
     const photoCount = Math.max(1, sceneImages.length);
-    return Response.json({ ad: { ...ad, status: "draft", renderJobId: null, finalHistoryId: null, costCents: 0, createdAt: now, updatedAt: now }, estimateCents: Math.round(estimateAdCost(engine, "1080p", targetDuration as 10 | 30 | 60, photoCount, ad.draft === 1) * 100) }, { status: 201 });
+    const estimateCents = Math.round((library.libraryTemplate !== "none"
+      ? libraryTemplateEstimate(engine, photoCount, ad.draft === 1)
+      : estimateAdCost(engine, "1080p", targetDuration as 10 | 30 | 60, photoCount, ad.draft === 1)) * 100);
+    return Response.json({ ad: { ...ad, status: "draft", renderJobId: null, finalHistoryId: null, costCents: 0, createdAt: now, updatedAt: now }, estimateCents }, { status: 201 });
   } catch (error) { return jsonError(error); }
 }

@@ -4,6 +4,7 @@ import { adJobState, loadAd } from "../../../_lib/ads-production";
 import { adMusicMood } from "../../../../ads-music-catalog";
 import { AD_DURATIONS } from "../../../../ads-creative";
 import { cleanMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration } from "../../../../ads-master-prompt";
+import { LIBRARY_TEMPLATE_DURATION, LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, mergeTemplateFields, parseLibraryTemplateFields } from "../../../../library-templates";
 import { isEngineKey } from "../../../../engine-providers";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -45,12 +46,18 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     const title = str(body.title, 120);
     if (title.length < 2) return Response.json({ error: "Give the ad a title (at least 2 characters)." }, { status: 400 });
     const engine = isEngineKey(body.engine) ? body.engine : ad.engine;
-    const aspect = body.aspect === "horizontal" || body.aspect === "square" ? body.aspect : body.aspect === "vertical" ? "vertical" : ad.aspect;
-    /* A "Fix It In 20 Seconds" ad is locked to 30 s — see ads-master-prompt.ts. */
+    /* A library template ad is locked to its recorded structure — 17 s
+       vertical, Luxe & warm music — whatever was sent. Otherwise a
+       "Fix It In 20 Seconds" ad is locked to 30 s — see
+       ads-master-prompt.ts. */
+    const library = body.templateFields === undefined || body.templateFields === null
+      ? parseLibraryTemplateFields(ad.templateFields || "")
+      : cleanLibraryTemplateFields(body.templateFields);
+    const aspect = library.libraryTemplate !== "none" ? "vertical" : body.aspect === "horizontal" || body.aspect === "square" ? body.aspect : body.aspect === "vertical" ? "vertical" : ad.aspect;
     const template = resolveAdTemplate(body.template ?? ad.template);
-    const templateFields = cleanMasterPromptFields(body.templateFields ?? parseMasterPromptFields(ad.templateFields || ""));
+    const templateFields = mergeTemplateFields(cleanMasterPromptFields(body.templateFields ?? parseMasterPromptFields(ad.templateFields || "")), library);
     const wantedDuration = (AD_DURATIONS as readonly number[]).includes(Number(body.targetDuration)) ? Number(body.targetDuration) : ad.targetDuration;
-    const targetDuration = resolveTemplateDuration(template, wantedDuration);
+    const targetDuration = library.libraryTemplate !== "none" ? LIBRARY_TEMPLATE_DURATION : resolveTemplateDuration(template, wantedDuration);
     const subtitles = (body.subtitles && typeof body.subtitles === "object" && !Array.isArray(body.subtitles)) ? body.subtitles as Record<string, unknown> : {};
     const subtitleLines = Array.isArray(subtitles.lines) ? subtitles.lines.filter((line) => line && typeof line === "object" && typeof (line as { text?: unknown }).text === "string").slice(0, 40) : [];
     const sceneImages = Array.isArray(body.sceneImages) ? body.sceneImages.filter((item): item is { type: "source" | "actor"; id: string } => typeof item === "object" && item !== null && (item.type === "source" || item.type === "actor") && typeof item.id === "string").slice(0, 20) : [];
@@ -63,7 +70,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       engine, aspect, targetDuration,
       JSON.stringify({ on: subtitles.on === true, position: subtitles.position === "top" ? "top" : "bottom", size: subtitles.size === "small" || subtitles.size === "large" ? subtitles.size : "medium", lines: subtitleLines }),
       str(body.voiceoverScript, 5000), typeof body.voiceId === "string" && body.voiceId ? body.voiceId.slice(0, 120) : null,
-      adMusicMood(body.musicMood)?.id || null, body.elevenlabsOn === true ? 1 : 0, body.draft === true ? 1 : 0, now, id, admin.id,
+      library.libraryTemplate !== "none" ? LIBRARY_TEMPLATE_MUSIC_MOOD : adMusicMood(body.musicMood)?.id || null, body.elevenlabsOn === true ? 1 : 0, body.draft === true ? 1 : 0, now, id, admin.id,
     ).run();
     if (actorIds !== null) {
       await env.DB.prepare(`DELETE FROM ad_project_actors WHERE ad_project_id = ?`).bind(id).run();

@@ -9,6 +9,7 @@ import { studioEngines, type StudioEngineKey } from "../../engine-catalog";
 import { AD_ASPECTS, AD_DURATIONS, adPlan, estimateAdCost, type AdAspect, type AdDuration } from "../../ads-creative";
 import { AD_TEMPLATES, MASTER_PROMPT_FIELD_DEFS, buildMasterPromptPrompt, emptyMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration, type AdTemplateId, type MasterPromptFields } from "../../ads-master-prompt";
 import { AD_MUSIC_MOODS } from "../../ads-music-catalog";
+import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_DURATION, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplateEstimate, libraryTemplatePlan, parseLibraryEnabled, parseLibraryTemplateFields, type LibraryTemplateFields, type LibraryTemplateId } from "../../library-templates";
 import { PageHead, money } from "../ui";
 
 /* Studio Ads redesign — layout only. Every rule is scoped under
@@ -114,6 +115,11 @@ export default function StudioAdsPage() {
   const [template, setTemplate] = useState<AdTemplateId>("cinematic");
   const [prevDuration, setPrevDuration] = useState<AdDuration>(10);
   const [templateFields, setTemplateFields] = useState<MasterPromptFields>(emptyMasterPromptFields());
+  const [libraryTemplate, setLibraryTemplate] = useState<LibraryTemplateId>("none");
+  const [libraryFields, setLibraryFields] = useState<LibraryTemplateFields>(emptyRestaurantInteriorFields());
+  const [libraryEnabled, setLibraryEnabled] = useState<Record<string, boolean>>({});
+  const [prevAspect, setPrevAspect] = useState<AdAspect>("vertical");
+  const [prevMusicMood, setPrevMusicMood] = useState<string | null>(null);
   const [hook, setHook] = useState("");
   const [prompt, setPrompt] = useState("");
   const [engine, setEngine] = useState<StudioEngineKey>("wan3");
@@ -137,15 +143,18 @@ export default function StudioAdsPage() {
   const [actorNotes, setActorNotes] = useState("");
 
   const loadAll = useCallback(async () => {
-    const [adsRes, actorsRes, voicesRes] = await Promise.all([
+    const [adsRes, actorsRes, voicesRes, libraryRes] = await Promise.all([
       fetch("/api/admin/studio-ads", { cache: "no-store" }),
       fetch("/api/admin/studio-ads/actors", { cache: "no-store" }),
       fetch("/api/admin/studio-ads/voices", { cache: "no-store" }),
+      fetch("/api/admin/library-studio", { cache: "no-store" }),
     ]);
     if (adsRes.ok) setAds((await adsRes.json()).ads || []);
     if (actorsRes.ok) setActors((await actorsRes.json()).actors || []);
     if (voicesRes.ok) { const data = await voicesRes.json(); setVoices({ keyed: data.keyed === true, list: data.voices || [] }); }
     else setVoices({ keyed: false, list: [] });
+    // A failed library fetch leaves every template visible, as before.
+    if (libraryRes.ok) { const data = await libraryRes.json(); setLibraryEnabled(parseLibraryEnabled(data.enabled ?? "")); }
     setLoaded(true);
   }, []);
 
@@ -161,11 +170,22 @@ export default function StudioAdsPage() {
     const adTemplate = resolveAdTemplate(ad.template);
     setTemplate(adTemplate);
     setTemplateFields(parseMasterPromptFields(ad.templateFields || ""));
+    const library = parseLibraryTemplateFields(ad.templateFields || "");
+    setLibraryTemplate(library.libraryTemplate);
+    setLibraryFields(library.fields);
     setEngine((ad.engine as StudioEngineKey) || "wan3");
     setAspect(ad.aspect === "horizontal" || ad.aspect === "square" ? ad.aspect : "vertical");
     setDuration(resolveTemplateDuration(adTemplate, ad.targetDuration));
     setDraft(ad.draft === 1);
     setMusicMood(ad.musicMood);
+    // A library template ad opens locked to its recorded structure: the
+    // effective length is 17 s regardless of the stored length.
+    if (library.libraryTemplate !== "none") {
+      setAspect("vertical");
+      setMusicMood("luxe");
+      setPrevDuration(10);
+      setDuration(10);
+    }
     setElevenlabsOn(ad.elevenlabsOn === 1);
     setVoiceoverScript(ad.voiceoverScript || "");
     setVoiceId(ad.voiceId || "");
@@ -178,12 +198,18 @@ export default function StudioAdsPage() {
     setLinkedActorIds(data.actors.map((actor) => actor.id));
   }, []);
 
+  /* A library template locks the length to its recorded 17 s, whatever
+     the Length select holds — subtitles, plan and estimate all use the
+     effective length. With no library template, today exactly. */
+  const effectiveDuration = libraryTemplate !== "none" ? LIBRARY_TEMPLATE_DURATION : duration;
+  const visibleLibraryTemplates = useMemo(() => LIBRARY_TEMPLATES.filter((item) => isLibraryTemplateVisible(item.id, libraryEnabled)), [libraryEnabled]);
+
   const subtitleLines = useMemo(() => {
     const lines = subtitleText.split("\n").map((line) => line.trim()).filter(Boolean);
     if (!lines.length) return [];
-    const each = duration / lines.length;
-    return lines.map((text, index) => ({ start: Math.round(index * each * 100) / 100, end: Math.round(Math.min(duration, (index + 1) * each) * 100) / 100, text }));
-  }, [subtitleText, duration]);
+    const each = effectiveDuration / lines.length;
+    return lines.map((text, index) => ({ start: Math.round(index * each * 100) / 100, end: Math.round(Math.min(effectiveDuration, (index + 1) * each) * 100) / 100, text }));
+  }, [subtitleText, effectiveDuration]);
 
   const imagePool = useMemo(() => {
     if (!detail) return [];
@@ -193,8 +219,18 @@ export default function StudioAdsPage() {
   }, [detail]);
 
   const effectiveImages = sceneImages.length ? sceneImages : (detail?.assets || []).map((asset) => ({ type: "source" as const, id: asset.id }));
-  const plan = useMemo(() => adPlan(engine, "1080p", duration, Math.max(1, effectiveImages.length), draft), [engine, duration, effectiveImages.length, draft]);
-  const estimate = useMemo(() => estimateAdCost(engine, "1080p", duration, Math.max(1, effectiveImages.length), draft), [engine, duration, effectiveImages.length, draft]);
+  const plan = useMemo(() => libraryTemplate !== "none"
+    ? libraryTemplatePlan(engine, "1080p", Math.max(1, effectiveImages.length), draft)
+    : adPlan(engine, "1080p", duration, Math.max(1, effectiveImages.length), draft),
+    [libraryTemplate, engine, duration, effectiveImages.length, draft]);
+  const estimate = useMemo(() => libraryTemplate !== "none"
+    ? libraryTemplateEstimate(engine, Math.max(1, effectiveImages.length), draft)
+    : estimateAdCost(engine, "1080p", duration, Math.max(1, effectiveImages.length), draft),
+    [libraryTemplate, engine, duration, effectiveImages.length, draft]);
+  const draftEstimate = useMemo(() => libraryTemplate !== "none"
+    ? libraryTemplateEstimate(engine, Math.max(1, effectiveImages.length), true)
+    : estimateAdCost(engine, "480p", Math.min(10, duration) as AdDuration, Math.max(1, effectiveImages.length), true),
+    [libraryTemplate, engine, duration, effectiveImages.length]);
 
   const filledMasterPrompt = useMemo(() => template === "fix-it-20" ? buildMasterPromptPrompt(templateFields) : "", [template, templateFields]);
 
@@ -208,13 +244,32 @@ export default function StudioAdsPage() {
     setTemplate(next);
   };
 
+  /* Picking a library template locks the format to vertical and the
+     music mood to Luxe & warm (its recorded structure) and disables the
+     theme, format, length and music picks. Switching back to None
+     restores the format, length and music mood picked before. */
+  const selectLibraryTemplate = (next: LibraryTemplateId) => {
+    if (next === libraryTemplate) return;
+    if (next !== "none") {
+      setPrevAspect(aspect); setPrevDuration(duration); setPrevMusicMood(musicMood);
+      setAspect("vertical"); setMusicMood("luxe");
+    } else {
+      setAspect(prevAspect); setDuration(prevDuration); setMusicMood(prevMusicMood);
+    }
+    setLibraryTemplate(next);
+  };
+
+  // One object for the template_fields column: the master-prompt fields,
+  // the library template id, and the library fields.
+  const mergedTemplateFields = { ...templateFields, libraryTemplate, ...libraryFields };
+
   async function createAd() {
     if (title.trim().length < 2) { setMessage("Give the ad a title first."); return; }
     setSaving(true); setMessage("");
     try {
       const response = await fetch("/api/admin/studio-ads", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, hook, prompt, template, templateFields, scenePrompts, sceneImages, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
+        body: JSON.stringify({ title, hook, prompt, template, templateFields: mergedTemplateFields, scenePrompts, sceneImages, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be created.");
@@ -231,7 +286,7 @@ export default function StudioAdsPage() {
     try {
       const response = await fetch(`/api/admin/studio-ads/${detail.ad.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, hook, prompt, template, templateFields, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
+        body: JSON.stringify({ title, hook, prompt, template, templateFields: mergedTemplateFields, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The ad could not be saved.");
@@ -264,7 +319,7 @@ export default function StudioAdsPage() {
     setSaving(true); setMessage("");
     try {
       if (asDraft !== draft) {
-        await fetch(`/api/admin/studio-ads/${detail.ad.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, hook, prompt, template, templateFields, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft: asDraft }) });
+        await fetch(`/api/admin/studio-ads/${detail.ad.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, hook, prompt, template, templateFields: mergedTemplateFields, scenePrompts, sceneImages, actorIds: linkedActorIds, engine, aspect, targetDuration: duration, subtitles: { on: subtitlesOn, position: subtitlePosition, size: subtitleSize, lines: subtitleLines }, voiceoverScript, voiceId: voiceId || null, musicMood, elevenlabsOn, draft: asDraft }) });
       }
       const response = await fetch(`/api/admin/studio-ads/${detail.ad.id}/generate`, { method: "POST" });
       const result = await response.json();
@@ -351,11 +406,29 @@ export default function StudioAdsPage() {
             <div className="field"><span>Template</span>
               <div className="sa-picker" role="radiogroup" aria-label="Prompt template">
                 {AD_TEMPLATES.map((item) => (
-                  <button key={item.id} type="button" role="radio" aria-checked={template === item.id} className={`btn ${template === item.id ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => selectTemplate(item.id)}>{item.label}</button>
+                  <button key={item.id} type="button" role="radio" aria-checked={template === item.id} disabled={libraryTemplate !== "none"} className={`btn ${template === item.id ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => selectTemplate(item.id)}>{item.label}</button>
                 ))}
               </div>
               <span className="muted small">{AD_TEMPLATES.find((item) => item.id === template)?.blurb}</span>
             </div>
+            <div className="field"><span>Library template</span>
+              <div className="sa-picker" role="radiogroup" aria-label="Library template">
+                <button type="button" role="radio" aria-checked={libraryTemplate === "none"} className={`btn ${libraryTemplate === "none" ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => selectLibraryTemplate("none")}>None</button>
+                {visibleLibraryTemplates.map((item) => (
+                  <button key={item.id} type="button" role="radio" aria-checked={libraryTemplate === item.id} className={`btn ${libraryTemplate === item.id ? "btn-ink" : "btn-white"} btn-sm`} onClick={() => selectLibraryTemplate(item.id)}>{item.name}</button>
+                ))}
+              </div>
+              <span className="muted small">{libraryTemplate === "none" ? "No library template — the ad is made exactly as set up here." : LIBRARY_TEMPLATES.find((item) => item.id === libraryTemplate)?.blurb}</span>
+            </div>
+            {libraryTemplate !== "none" ? (
+              <>
+                {LIBRARY_TEMPLATE_FIELD_DEFS.map((def) => (
+                  <label key={def.key} className="field"><span>{def.label}</span>
+                    <input value={libraryFields[def.key]} onChange={(event) => setLibraryFields({ ...libraryFields, [def.key]: event.target.value })} placeholder={def.placeholder} maxLength={def.maxLength} />
+                  </label>
+                ))}
+              </>
+            ) : null}
             {template === "fix-it-20" ? (
               <>
                 {MASTER_PROMPT_FIELD_DEFS.map((def) => (
@@ -377,12 +450,12 @@ export default function StudioAdsPage() {
             <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={template === "fix-it-20" ? "Anything else the video should show or say — the Fix It In 20 Seconds structure is layered on top automatically." : "The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically."} rows={3} maxLength={2000} /></label>
             <div className="field-row">
               <label className="field"><span>Format</span>
-                <select value={aspect} onChange={(event) => setAspect(event.target.value as AdAspect)}>
+                <select value={aspect} disabled={libraryTemplate !== "none"} onChange={(event) => setAspect(event.target.value as AdAspect)}>
                   {AD_ASPECTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select>
               </label>
               <label className="field"><span>Length</span>
-                <select value={duration} disabled={template === "fix-it-20"} onChange={(event) => setDuration(Number(event.target.value) as AdDuration)}>
+                <select value={duration} disabled={template === "fix-it-20" || libraryTemplate !== "none"} onChange={(event) => setDuration(Number(event.target.value) as AdDuration)}>
                   {AD_DURATIONS.map((value) => <option key={value} value={value}>{value} seconds</option>)}
                 </select>
               </label>
@@ -393,9 +466,11 @@ export default function StudioAdsPage() {
               </label>
             </div>
             {template === "fix-it-20" ? <p className="note">Fix It In 20 Seconds is 21–30 s — the length is locked to 30 s. Switch back to Cinematic premium to pick another length.</p> : null}
+            {libraryTemplate !== "none" ? <p className="note">{LIBRARY_TEMPLATES.find((item) => item.id === libraryTemplate)?.name} is 17 s vertical — the length and format are locked. Switch back to None to pick your own.</p> : null}
             {squareCropped ? <p className="note">Square on this engine is made at 16:9 and center-cropped by the editor — pick Kling, Wan, Hailuo or Runway for a native square frame.</p> : null}
             <label className="field-toggle"><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Draft render first — 480p, max 10 s, about a third of the full price, to check the idea before spending on the full render.</label>
             {template === "fix-it-20" && draft ? <p className="note">A draft is 10 s at 480p — it previews the opening only (hook, problem, start of the demo), not the full 21–30 s structure. The full structure is only in the 30 s render.</p> : null}
+            {libraryTemplate !== "none" && draft ? <p className="note">A draft is 10 s at 480p — the first 4 scenes only, not the full 17 s structure.</p> : null}
             <p className="muted small">Plan: {plan.count} scene{plan.count === 1 ? "" : "s"} × {plan.sceneSeconds}s · Estimated generation {money(estimate)}{draft ? " (draft)" : ""}{elevenlabsOn ? " — ElevenLabs voiceover and music are billed by ElevenLabs, not here." : ""}</p>
             {!detail ? <button type="button" className="btn btn-ink" onClick={createAd} disabled={saving}>{saving ? "Creating…" : "Create ad"}</button> : null}
           </section>
@@ -457,7 +532,7 @@ export default function StudioAdsPage() {
                 <div className="panel-head"><h2>Sound</h2><span className="muted small">{elevenlabsOn ? "Music is made fresh for each ad; voiceover is read by ElevenLabs." : "Off — the ad uses the sound the video engine already made."}</span></div>
                 <label className="field-toggle"><input type="checkbox" checked={elevenlabsOn} onChange={(event) => setElevenlabsOn(event.target.checked)} /> ElevenLabs sound — voiceover and music from ElevenLabs, on top of the sound the video already has. Off uses just the sound the video engine made.</label>
                 <label className="field"><span>Music mood</span>
-                  <select value={musicMood || ""} onChange={(event) => setMusicMood(event.target.value || null)} disabled={!elevenlabsOn}>
+                  <select value={musicMood || ""} onChange={(event) => setMusicMood(event.target.value || null)} disabled={!elevenlabsOn || libraryTemplate !== "none"}>
                     <option value="">Auto — matched to the format</option>
                     {AD_MUSIC_MOODS.map((mood) => <option key={mood.id} value={mood.id}>{mood.name} — {mood.blurb}</option>)}
                   </select>
@@ -501,7 +576,7 @@ export default function StudioAdsPage() {
                 <div className="panel-head"><h2>Make it</h2><span className="muted small">Status: {statusLabel[detail.ad.status] || detail.ad.status}{detail.job?.error ? ` — ${detail.job.error}` : ""}</span></div>
                 <div className="field-row sa-actions">
                   <button type="button" className="btn btn-white" onClick={saveBrief} disabled={saving}>Save changes</button>
-                  <button type="button" className="btn btn-white" onClick={() => generate(true)} disabled={saving || !detail.assets.length}>Generate draft — {money(estimateAdCost(engine, "480p", Math.min(10, duration) as AdDuration, Math.max(1, effectiveImages.length), true))}</button>
+                  <button type="button" className="btn btn-white" onClick={() => generate(true)} disabled={saving || !detail.assets.length}>Generate draft — {money(draftEstimate)}</button>
                   <button type="button" className="btn btn-ink" onClick={() => generate(false)} disabled={saving || !detail.assets.length}>Generate full — {money(estimate)}</button>
                   <button type="button" className="btn btn-danger" onClick={deleteAd} disabled={saving}>Delete ad</button>
                 </div>

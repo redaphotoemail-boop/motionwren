@@ -83,8 +83,8 @@ export function estimateAdCost(engine: StudioEngineKey, resolution: StudioResolu
 
 /* ---------- subtitles ---------- */
 
-export type SubtitleLine = { start: number; end: number; text: string };
-export type SubtitleStyle = { position: "bottom" | "top"; size: "small" | "medium" | "large" };
+export type SubtitleLine = { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large" };
+export type SubtitleStyle = { position: "bottom" | "top" | "center"; size: "small" | "medium" | "large" };
 
 const SUBTITLE_FONT_SIZE = { small: 36, medium: 48, large: 64 } as const; // at 1080p height
 
@@ -102,13 +102,36 @@ function assEscape(text: string): string {
 }
 
 /* Lines → a complete .ass file for ffmpeg's subtitles filter. The container
-   ships Liberation Sans (fonts-liberation2), so that is the font. */
+   ships Liberation Sans (fonts-liberation2), so that is the font. A line
+   may carry its own position/size (library-template overlays do: brand
+   top/small, title centre/large); lines are grouped by position+size and
+   each group gets its own Style, while the group matching the global
+   style keeps the name "AdDefault" — so when no line carries its own
+   style the output is byte-identical to the single-style file of before. */
 export function buildAssText(lines: SubtitleLine[], style: SubtitleStyle, height = 1080): string {
-  const fontSize = Math.max(16, Math.round(SUBTITLE_FONT_SIZE[style.size] * (height / 1080)));
-  const alignment = style.position === "top" ? 8 : 2; // 2 bottom-center, 8 top-center
-  const events = lines
-    .filter((line) => line.text.trim() && line.end > line.start)
-    .map((line) => `Dialogue: 0,${assTime(line.start)},${assTime(line.end)},AdDefault,,0,0,0,,${assEscape(line.text)}`);
+  const cap = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+  const alignmentFor = (position: SubtitleStyle["position"]) => position === "top" ? 8 : position === "center" ? 5 : 2; // 2 bottom-center, 8 top-center, 5 middle-center
+  const valid = lines.filter((line) => line.text.trim() && line.end > line.start);
+  const groups: { position: SubtitleStyle["position"]; size: SubtitleStyle["size"]; lines: SubtitleLine[] }[] = [];
+  for (const line of valid) {
+    const position = line.position ?? style.position;
+    const size = line.size ?? style.size;
+    let group = groups.find((item) => item.position === position && item.size === size);
+    if (!group) { group = { position, size, lines: [] }; groups.push(group); }
+    group.lines.push(line);
+  }
+  // No lines at all: still emit the one global style, as before.
+  if (!groups.length) groups.push({ position: style.position, size: style.size, lines: [] });
+  const styleName = (group: (typeof groups)[number]) =>
+    group.position === style.position && group.size === style.size ? "AdDefault" : `Ad${cap(group.position)}${cap(group.size)}`;
+  const styleLines = groups.map((group) => {
+    const fontSize = Math.max(16, Math.round(SUBTITLE_FONT_SIZE[group.size] * (height / 1080)));
+    const marginV = group.position === "center" ? 0 : 40;
+    return `Style: ${styleName(group)},Liberation Sans,${fontSize},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,${alignmentFor(group.position)},20,20,${marginV},1`;
+  });
+  const events = groups.flatMap((group) =>
+    group.lines.map((line) => `Dialogue: 0,${assTime(line.start)},${assTime(line.end)},${styleName(group)},,0,0,0,,${assEscape(line.text)}`),
+  );
   return [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -117,7 +140,7 @@ export function buildAssText(lines: SubtitleLine[], style: SubtitleStyle, height
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: AdDefault,Liberation Sans,${fontSize},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,${alignment},20,20,40,1`,
+    ...styleLines,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
