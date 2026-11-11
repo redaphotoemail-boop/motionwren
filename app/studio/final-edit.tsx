@@ -93,6 +93,36 @@ export function FinalSoundPanel({ sound, setSound, count, sceneSeconds, totalSec
   const [writing, setWriting] = useState(false);
   const [note, setNote] = useState<Problem | null>(null);
   const single = count === 1;
+  const [tray, setTray] = useState<string | null>(null);
+  const [choices, setChoices] = useState<string[]>([]);
+  const [trayBusy, setTrayBusy] = useState(false);
+  const [trayNote, setTrayNote] = useState<Problem | null>(null);
+  const [custom, setCustom] = useState("");
+
+  async function moreOptions(target: "scene" | "film", index: number, current: string, instruction: string) {
+    setTrayBusy(true); setTrayNote(null); setChoices([]);
+    try {
+      const base = jobId ? { jobId } : { images: getImages ? await getImages() : [], sceneSeconds, totalSeconds };
+      const response = await fetch("/api/studio/film-sound", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...base, action: "options", target, index, current, lines: sound.lines, instruction }) });
+      const data = await response.json().catch(() => ({})) as { options?: string[]; error?: string; fix?: string };
+      if (!response.ok || !data.options?.length) { setTrayNote({ message: data.error || "No new versions came back.", fix: data.fix }); return; }
+      setChoices(data.options);
+    } catch { setTrayNote({ message: "No new versions came back." }); }
+    finally { setTrayBusy(false); }
+  }
+  function openTray(key: string) { setTray(tray === key ? null : key); setChoices([]); setTrayNote(null); setCustom(""); }
+  function pick(target: "scene" | "film", index: number, text: string) {
+    if (target === "film") setSound({ film: text });
+    else { const next = [...sound.lines]; while (next.length < count) next.push(""); next[index] = text; setSound({ lines: next }); }
+    setTray(null); setChoices([]);
+  }
+  const Tray = ({ target, index, current }: { target: "scene" | "film"; index: number; current: string }) => <div className="fin-tray">
+    <div className="fin-chips">{[["more", "Say more"], ["specific", "More specific"], ["story", "More story"], ["shorter", "Shorter"], ["different", "Different angle"]].map(([key, label]) => <button type="button" key={key} disabled={trayBusy} onClick={() => moreOptions(target, index, current, key)}>{label}</button>)}</div>
+    <form className="fin-ask" onSubmit={(event) => { event.preventDefault(); if (custom.trim()) moreOptions(target, index, current, custom.trim()); }}><input value={custom} onChange={(event) => setCustom(event.target.value)} placeholder="Or tell the writer what you want…" disabled={trayBusy}/><button type="submit" disabled={trayBusy || !custom.trim()}>Write</button></form>
+    {trayBusy && <p className="fin-quiet">Writing three versions…</p>}
+    {trayNote && <ProblemNote problem={trayNote}/>}
+    {choices.length > 0 && <div className="fin-choices">{choices.map((text, position) => <button type="button" key={position} onClick={() => pick(target, index, text)}>{text}<small>{lineCount(text)} words · tap to use</small></button>)}</div>}
+  </div>;
 
   async function writeFromScenes() {
     setWriting(true); setNote(null);
@@ -129,8 +159,8 @@ export function FinalSoundPanel({ sound, setSound, count, sceneSeconds, totalSec
         <div className="fin-subhead"><span>Script</span><button type="button" className="fin-link" onClick={writeFromScenes} disabled={writing || disabled}>{writing ? "Reading your scenes…" : hasText ? "Write it again from my photos" : "Write it from my photos"}</button></div>
         {note && <ProblemNote problem={note}/>}
         {sound.voiceMode === "film"
-          ? <label className="fin-field"><textarea rows={5} value={sound.film} onChange={(event) => setSound({ film: event.target.value })} placeholder="One narration for the whole film. Use “Write it from my photos”, or type your own." disabled={disabled}/><small className={lineCount(sound.film) > maxFilmWords ? "fin-over" : ""}>{lineCount(sound.film)} words · about {maxFilmWords} fit in {totalSeconds} seconds</small></label>
-          : <div className="fin-lines">{Array.from({ length: count }, (_, index) => <label className="fin-line" key={index}>{sceneThumbs[index] ? <img src={sceneThumbs[index]} alt=""/> : <span className="fin-n">{index + 1}</span>}<span><textarea rows={3} value={sound.lines[index] || ""} onChange={(event) => { const next = [...sound.lines]; while (next.length < count) next.push(""); next[index] = event.target.value; setSound({ lines: next }); }} placeholder={`Scene ${index + 1}`} disabled={disabled}/><small className={lineCount(sound.lines[index] || "") > maxWords ? "fin-over" : ""}>{lineCount(sound.lines[index] || "")} words · up to {maxWords} fit in {sceneSeconds} s</small></span></label>)}</div>}
+          ? <div><label className="fin-field"><textarea rows={5} value={sound.film} onChange={(event) => setSound({ film: event.target.value })} placeholder="One narration for the whole film. Use “Write it from my photos”, or type your own." disabled={disabled}/><small className={lineCount(sound.film) > maxFilmWords ? "fin-over" : ""}>{lineCount(sound.film)} words · about {maxFilmWords} fit in {totalSeconds} seconds</small></label><button type="button" className="fin-link fin-more" disabled={disabled} onClick={() => openTray("film")}>{tray === "film" ? "Close" : "More options"}</button>{tray === "film" && <Tray target="film" index={0} current={sound.film}/>}</div>
+          : <div className="fin-lines">{Array.from({ length: count }, (_, index) => <div className="fin-line" key={index}>{sceneThumbs[index] ? <img src={sceneThumbs[index]} alt=""/> : <span className="fin-n">{index + 1}</span>}<span><textarea rows={3} value={sound.lines[index] || ""} onChange={(event) => { const next = [...sound.lines]; while (next.length < count) next.push(""); next[index] = event.target.value; setSound({ lines: next }); }} placeholder={`Scene ${index + 1}`} disabled={disabled}/><small className={lineCount(sound.lines[index] || "") > maxWords ? "fin-over" : ""}>{lineCount(sound.lines[index] || "")} words · up to {maxWords} fit in {sceneSeconds} s</small><button type="button" className="fin-link fin-more" disabled={disabled} onClick={() => openTray(String(index))}>{tray === String(index) ? "Close" : "More options"}</button>{tray === String(index) && <Tray target="scene" index={index} current={sound.lines[index] || ""}/>}</span></div>)}</div>}
       </>}
     </section>
 

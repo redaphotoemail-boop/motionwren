@@ -12,7 +12,7 @@ export async function GET() {
     const usable = voices.filter((voice) => voice.previewUrl).slice(0, 40).map((voice) => ({
       id: voice.voiceId, name: voice.name,
       note: [voice.labels.gender, voice.labels.accent, voice.labels.age, voice.labels.descriptive || voice.labels.use_case].filter(Boolean).join(" · ") || voice.description.slice(0, 60),
-      previewUrl: voice.previewUrl,
+      previewUrl: `/api/studio/voices/${voice.voiceId}/preview`,
     }));
     return NextResponse.json({ voices: usable });
   } catch (error) {
