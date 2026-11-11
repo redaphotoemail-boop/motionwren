@@ -15,7 +15,7 @@
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
     "test:pricing": "node tests/pricing.test.mjs",
     "test:queue": "node --no-warnings tests/scene-queue/scene-queue.test.mjs",
-    "test:composer": "node --no-warnings tests/composer/composer.test.mjs && node --no-warnings tests/composer/qc.test.mjs && node --no-warnings tests/composer/layers.test.mjs && node --no-warnings tests/composer/grade.test.mjs",
+    "test:composer": "node --no-warnings tests/composer/composer.test.mjs && node --no-warnings tests/composer/qc.test.mjs && node --no-warnings tests/composer/layers.test.mjs && node --no-warnings tests/composer/grade.test.mjs && node --no-warnings tests/composer/wrencut.test.mjs",
     "test:review": "node --no-warnings tests/film-review/reality.test.mjs",
     "test:ads": "node --no-warnings tests/studio-ads/ads.test.mjs && node --no-warnings tests/composer/ads-edit.test.mjs",
     "test:failed-orders": "node --no-warnings tests/failed-orders/failed-orders.test.mjs",

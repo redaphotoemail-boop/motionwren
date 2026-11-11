@@ -21,4 +21,7 @@ for (const text of ["Music", "Voiceover", "Sound effects"]) assert.ok(panel.incl
 
 const library = readFileSync("app/admin/library-studio/page.tsx", "utf8");
 assert.ok(library.includes("MusicLibrary"), "Library Studio lost the music library");
+const wrencut = readFileSync("app/admin/wrencut/page.tsx", "utf8");
+for (const text of ["Bring a reference", "Make the preview", "Show in Studio"]) assert.ok(wrencut.includes(text), `WrenCut lost: ${text}`);
+assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("api/admin/wrencut"), "The Studio template grid lost the WrenCut templates");
 console.log("protected features: all present");

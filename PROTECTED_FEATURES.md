@@ -21,3 +21,4 @@ protected section below is missing. If you must change one on purpose, Reda has 
 ## Admin
 - Library Studio: video templates + music library
 - Studio Ads: upload, templates, scenes, actors, sound, subtitles
+- WrenCut (/admin/wrencut): reference upload/link → template "MotionWren N" (no reference info kept), History/photo preview, show-in-Studio switch

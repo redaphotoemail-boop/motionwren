@@ -80,6 +80,8 @@ export type ProductionManifest = {
     crossfade?: number;
     /** A library template applied to this film: its colour grade (cuts, text and music are in the other edit fields). */
     grade?: "warm";
+    /** A WrenCut template applied to this film: the recipe of shots, joins, zoom and colour. It decides the film's length. */
+    recipe?: import("../../wrencut").WrenRecipe;
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over

@@ -8,6 +8,8 @@ import { studioToken } from "../../_lib/studio-token";
 import { musicPrompt } from "../../_lib/composer";
 import { ElevenLabsMissingKey, makeSfx, makeVoice } from "../../_lib/film-sound";
 import { musicTemplate } from "../../../music-catalog";
+import { getRecipe } from "../../_lib/wrencut";
+import { isWrenId, recipeSeconds, wrenPlan } from "../../../wrencut";
 import { LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, emptyRestaurantInteriorFields, libraryTemplateOverlayLines, libraryTemplatePlan } from "../../../library-templates";
 
 /* Studio production on the server — the same path client videos take.
@@ -42,7 +44,11 @@ export async function POST(request: Request) {
   // A library template (optional): its own structure replaces the length choice; the scenes themselves are made exactly as always.
   const libraryPick = mode === "series" ? cleanLibraryTemplateFields(body.template) : { libraryTemplate: "none" as const, fields: emptyRestaurantInteriorFields() };
   const templated = libraryPick.libraryTemplate !== "none";
-  const aspect = templated ? "vertical" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
+  // A WrenCut template (optional): its recipe decides the film's length, cuts, moves and colour.
+  const wrenAsked = mode === "series" && typeof body.template === "object" && body.template !== null ? (body.template as { wren?: unknown }).wren : undefined;
+  const wren = isWrenId(wrenAsked) ? await getRecipe(env, wrenAsked) : null;
+  if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
+  const aspect = templated || wren?.recipe.aspect === "vertical" ? "vertical" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
   const scenesIn = Array.isArray(body.scenes) ? body.scenes as SceneBody[] : [];
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
@@ -57,7 +63,7 @@ export async function POST(request: Request) {
   } else {
     const length = VIDEO_LENGTHS.includes(Number(body.length) as (typeof VIDEO_LENGTHS)[number]) ? Number(body.length) : 30;
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
-    const plan = templated ? libraryTemplatePlan(engine, resolution, valid.length) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value));
+    const plan = wren ? wrenPlan(engine, resolution, valid.length, recipeSeconds(wren.recipe)) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value));
     count = plan.count; sceneSeconds = plan.sceneSeconds; duration = plan.totalSeconds; shareSeconds = plan.shareSeconds;
   }
   const lengths: number[] = mode === "single" ? engineDurationOptions(engine, resolution) : filmSceneDurations(engine, resolution);
@@ -103,6 +109,7 @@ export async function POST(request: Request) {
       if (lines.length) manifest.edit.subtitles = { lines };
       manifest.edit.grade = "warm";
     }
+    if (wren) { manifest.edit.crossfade = 0; manifest.edit.recipe = wren.recipe; }
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
   }
   const soundIn = body.sound && typeof body.sound === "object" ? body.sound as { voice?: { mode?: unknown; voiceId?: unknown; lines?: unknown; film?: unknown } | null; sfx?: { on?: unknown; prompts?: unknown } | null } : null;

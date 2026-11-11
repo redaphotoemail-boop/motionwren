@@ -28,5 +28,5 @@ timeout \
 # The composer container is built from dist/server/wrangler.json, whose paths
 # are relative to dist/server: give it its own copy of composer/.
 mkdir -p "${SITES_PROJECT_ROOT}/dist/server/composer"
-cp "${SITES_PROJECT_ROOT}/composer/Dockerfile" "${SITES_PROJECT_ROOT}/composer/server.mjs" "${SITES_PROJECT_ROOT}/composer/parallax.mjs" "${SITES_PROJECT_ROOT}/composer/cards.mjs" "${SITES_PROJECT_ROOT}/composer/qc.mjs" "${SITES_PROJECT_ROOT}/dist/server/composer/"
+cp "${SITES_PROJECT_ROOT}/composer/Dockerfile" "${SITES_PROJECT_ROOT}/composer/server.mjs" "${SITES_PROJECT_ROOT}/composer/parallax.mjs" "${SITES_PROJECT_ROOT}/composer/cards.mjs" "${SITES_PROJECT_ROOT}/composer/qc.mjs" "${SITES_PROJECT_ROOT}/composer/wrencut.mjs" "${SITES_PROJECT_ROOT}/dist/server/composer/"
 echo "Composer container files copied to dist/server/composer."

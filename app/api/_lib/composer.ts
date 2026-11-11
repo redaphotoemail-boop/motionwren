@@ -45,6 +45,10 @@ export type EditSpec = {
       to the stored MP3) to mix over the music. */
   /** A template's colour grade. */
   grade?: "warm";
+  /** A WrenCut template's recipe (shots, joins, zoom, colour); its length decides the film's. */
+  recipe?: import("../../wrencut").WrenRecipe;
+  /** How much of the recipe's per-shot camera move to apply (0 to 1). */
+  recipeStrength?: number;
   subtitles?: { lines: { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large" }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
   voiceover?: { url: string };
   /** The film's own voice lines and sound effects, each placed at a time (seconds) and level. */
