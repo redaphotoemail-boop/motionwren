@@ -37,7 +37,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   // file) so nothing piles up. Client orders and finished or running videos are never deleted here.
   if (new URL(request.url).searchParams.get("remove") === "1") {
     const linked = await env.DB.prepare(`SELECT id FROM projects WHERE render_job_id = ? LIMIT 1`).bind(id).first();
-    if (row.status !== "failed" || !String(row.kind).startsWith("studio") || linked) return NextResponse.json({ error: "Only a stopped Studio video can be deleted." }, { status: 409 });
+    if (row.status !== "failed") return NextResponse.json({ error: "Only a stopped video can be deleted." }, { status: 409 });
+    if (!String(row.kind).startsWith("studio") || linked) return NextResponse.json({ error: "This one belongs to an order, so it can't be deleted here. Use Hide to remove it from this list." }, { status: 409 });
     const prefix = `render-jobs/${id}/`;
     let cursor: string | undefined;
     do {
