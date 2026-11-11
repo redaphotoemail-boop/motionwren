@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Metric, PageHead, ago } from "../ui";
+import { PageHead, ago } from "../ui";
 
 type Gift = { code: string; credits: number; note: string | null; createdAt: number; redeemedAt: number | null; redeemedByEmail: string | null };
 
@@ -11,6 +11,7 @@ export default function GiftsPage() {
   const [count, setCount] = useState(1);
   const [note, setNote] = useState("");
   const [fresh, setFresh] = useState<string[]>([]);
+  const [freshCredits, setFreshCredits] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
@@ -32,7 +33,7 @@ export default function GiftsPage() {
       const response = await fetch("/api/admin/gifts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credits, count, note }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "The code could not be made.");
-      setFresh(data.codes || []); setNote(""); await load();
+      setFresh(data.codes || []); setFreshCredits(credits); setNote(""); await load();
     } catch (err) { setError(err instanceof Error ? err.message : "The code could not be made."); }
     finally { setBusy(false); }
   }
@@ -42,48 +43,35 @@ export default function GiftsPage() {
   }
 
   const unused = gifts.filter((gift) => !gift.redeemedAt);
-  const used = gifts.length - unused.length;
   const unusedVideos = unused.reduce((sum, gift) => sum + gift.credits, 0);
+  const Pills = ({ values, value, set }: { values: number[]; value: number; set: (n: number) => void }) => <div className="gift-pills" role="radiogroup">{values.map((n) => <button key={n} type="button" role="radio" aria-pressed={value === n} aria-checked={value === n} onClick={() => set(n)}>{n}</button>)}</div>;
 
-  return <>
-    <PageHead eyebrow="Gifts" title="Gift codes" sub="Make a code worth 1, 2 or 3 free videos and give it to anyone. Whoever enters it first gets the videos. For a percentage off at checkout, make a promotion code in Stripe (checkout already accepts them)." />
+  return <div className="mgr-page gift">
+    <PageHead eyebrow="Gifts" title="Give free videos" sub="Make a code, send it to anyone. Whoever enters it first gets the videos. For a percentage off at checkout, make a promotion code in Stripe." />
     {error && <div className="notice notice-bad" role="alert"><span>{error}</span></div>}
-    <section className="metrics">
-      <Metric label="Unused codes" value={unused.length} note={`${unusedVideos} free videos waiting`} />
-      <Metric label="Redeemed" value={used} />
-    </section>
-    <form className="panel" onSubmit={create} style={{ display: "grid", gap: 12, maxWidth: 520 }}>
-      <label>Free videos in each code
-        <select value={credits} onChange={(event) => setCredits(Number(event.target.value))}>
-          {[1, 2, 3, 4, 5, 10].map((n) => <option key={n} value={n}>{n} {n === 1 ? "video" : "videos"}</option>)}
-        </select>
-      </label>
-      <label>How many codes
-        <select value={count} onChange={(event) => setCount(Number(event.target.value))}>
-          {[1, 2, 3, 5, 10, 20].map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-      </label>
-      <label>Note (only you see it)
-        <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="For Sarah, open house promo" maxLength={120} />
-      </label>
-      <button type="submit" className="btn" disabled={busy}>{busy ? "Making…" : "Make code"}</button>
+    <div className="gift-stats">
+      <div><b>{unused.length}</b><span>unused codes</span></div>
+      <div><b>{unusedVideos}</b><span>free videos waiting</span></div>
+      <div><b>{gifts.length - unused.length}</b><span>redeemed</span></div>
+    </div>
+    <form className="gift-make" onSubmit={create}>
+      <h2>New code</h2>
+      <div className="gift-field"><span>Free videos in each code</span><Pills values={[1, 2, 3, 5, 10]} value={credits} set={setCredits} /></div>
+      <div className="gift-field"><span>How many codes</span><Pills values={[1, 2, 5, 10, 20]} value={count} set={setCount} /></div>
+      <label className="gift-field"><span>Note, only you see it</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="For Sarah, open house promo" maxLength={120} /></label>
+      <button type="submit" className="btn btn-ink" disabled={busy}>{busy ? "Making…" : "Make code"}</button>
     </form>
-    {fresh.length > 0 && <section className="panel">
-      <h3>New {fresh.length === 1 ? "code" : "codes"}, worth {credits} {credits === 1 ? "video" : "videos"} each</h3>
-      <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 8 }}>
-        {fresh.map((code) => <li key={code}><code style={{ fontSize: 18 }}>{code}</code> <button type="button" className="text-btn" onClick={() => copy(code)}>{copied === code ? "Copied" : "Copy"}</button></li>)}
-      </ul>
-      <button type="button" className="text-btn" onClick={() => copy(fresh.join("\n"))}>{copied === fresh.join("\n") ? "Copied" : "Copy all"}</button>
+    {fresh.length > 0 && <section className="gift-new" aria-label="New codes">
+      {fresh.map((code) => <div className="gift-code" key={code}><div><code>{code}</code><br /><small>{freshCredits} free {freshCredits === 1 ? "video" : "videos"}</small></div><button type="button" className="btn btn-soft btn-xs" onClick={() => copy(code)}>{copied === code ? "Copied" : "Copy"}</button></div>)}
+      {fresh.length > 1 && <button type="button" className="text-btn" onClick={() => copy(fresh.join("\n"))}>{copied === fresh.join("\n") ? "Copied" : "Copy all"}</button>}
     </section>}
-    <section className="panel">
-      <h3>All codes</h3>
-      {gifts.length === 0 ? <p>No codes yet.</p> : <table>
-        <thead><tr><th>Code</th><th>Videos</th><th>Note</th><th>Made</th><th>Status</th></tr></thead>
-        <tbody>{gifts.map((gift) => <tr key={gift.code}>
-          <td><code>{gift.code}</code></td><td>{gift.credits}</td><td>{gift.note || ""}</td><td>{ago(gift.createdAt)}</td>
-          <td>{gift.redeemedAt ? `Used by ${gift.redeemedByEmail || "a customer"} ${ago(gift.redeemedAt)}` : <button type="button" className="text-btn" onClick={() => copy(gift.code)}>{copied === gift.code ? "Copied" : "Copy"}</button>}</td>
-        </tr>)}</tbody>
-      </table>}
+    <section className="gift-list" aria-label="All codes">
+      <h2>All codes</h2>
+      {gifts.length === 0 && <p className="muted">No codes yet.</p>}
+      {gifts.map((gift) => <div className="gift-row" key={gift.code}>
+        <div><code>{gift.code}</code><br /><small>{gift.credits} {gift.credits === 1 ? "video" : "videos"}{gift.note ? ` · ${gift.note}` : ""} · made {ago(gift.createdAt)}</small></div>
+        <div>{gift.redeemedAt ? <span className="gift-used">Used by {gift.redeemedByEmail || "a customer"}</span> : <button type="button" className="text-btn" onClick={() => copy(gift.code)}>{copied === gift.code ? "Copied" : "Copy"}</button>}</div>
+      </div>)}
     </section>
-  </>;
+  </div>;
 }
