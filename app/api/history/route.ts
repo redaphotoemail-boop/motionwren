@@ -17,7 +17,7 @@ export async function GET() {
   const ownerIds = await historyOwnerIds(env);
   if (!ownerIds.length) return NextResponse.json({ items: [] });
   const placeholders = ownerIds.map(() => "?").join(",");
-  const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt FROM generation_history WHERE owner_id IN (${placeholders}) ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
+  const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt FROM generation_history WHERE owner_id IN (${placeholders}) AND engine != 'delivered' AND id NOT IN (SELECT history_id FROM render_jobs WHERE history_id IS NOT NULL AND kind NOT LIKE 'studio%') ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
   return NextResponse.json({ items: result.results.map((item) => ({ ...item, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` })) });
 }
 

@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   // stopped in the last 24 hours — so after a refresh the Studio shows each
   // one again (still running, the finished film, or what stopped it).
   if (new URL(request.url).searchParams.get("all") === "1") {
-    const rows = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND (status IN (${placeholders}) OR updated_at > ?) ORDER BY created_at DESC LIMIT 12`).bind(ownerId, ...ACTIVE_STATUSES, Date.now() - 24 * 60 * 60 * 1000).all<RenderJobRow>();
+    const rows = await env.DB.prepare(`SELECT id, owner_id AS ownerId, kind, status, prediction_ids AS predictionIds, segment_urls AS segmentUrls, stitch_prediction_id AS stitchPredictionId, prompt, category, resolution, aspect, duration, cost_cents AS costCents, error, history_id AS historyId, created_at AS createdAt, updated_at AS updatedAt FROM render_jobs WHERE owner_id = ? AND kind LIKE 'studio%' AND (status IN (${placeholders}) OR updated_at > ?) ORDER BY created_at DESC LIMIT 12`).bind(ownerId, ...ACTIVE_STATUSES, Date.now() - 24 * 60 * 60 * 1000).all<RenderJobRow>();
     const jobs = await Promise.all(rows.results.map(async (row) => ({ ...publicJob(row), scenes: await jobScenes(env, row) })));
     return NextResponse.json({ jobs });
   }
