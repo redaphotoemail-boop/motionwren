@@ -312,19 +312,42 @@ export function photoClipArgs({ image, move, width, height, fps, seconds, output
 
 /* Subtitle lines → a complete .ass file for ffmpeg's subtitles filter.
    Mirrors app/ads-creative.ts buildAssText (the Worker side); the two must
-   stay in the same format. The container ships Liberation Sans. */
+   stay in the same format. A line may carry its own position/size
+   (library-template overlays do); lines are grouped by position+size and
+   each group gets its own Style, while the group matching the global
+   style keeps the name "AdDefault" — so when no line carries its own
+   style the output is byte-identical to the single-style file of before.
+   The container ships Liberation Sans. */
 const SUBTITLE_FONT_SIZE = { small: 36, medium: 48, large: 64 }; // at 1080p height
 export function assText(lines, { position = "bottom", size = "medium", height = 1080 } = {}) {
-  const fontSize = Math.max(16, Math.round(SUBTITLE_FONT_SIZE[size] * (height / 1080)));
-  const alignment = position === "top" ? 8 : 2; // 2 bottom-center, 8 top-center
+  const cap = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+  const alignmentFor = (pos) => pos === "top" ? 8 : pos === "center" ? 5 : 2; // 2 bottom-center, 8 top-center, 5 middle-center
   const time = (seconds) => {
     const clamped = Math.max(0, seconds);
     const h = Math.floor(clamped / 3600), m = Math.floor((clamped % 3600) / 60), s = Math.floor(clamped % 60), c = Math.floor((clamped % 1) * 100);
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(c).padStart(2, "0")}`;
   };
-  const events = (Array.isArray(lines) ? lines : [])
-    .filter((line) => line && typeof line.text === "string" && line.text.trim() && line.end > line.start)
-    .map((line) => `Dialogue: 0,${time(line.start)},${time(line.end)},AdDefault,,0,0,0,,${String(line.text).replace(/\r/g, "").replace(/\n/g, "\\N").trim()}`);
+  const valid = (Array.isArray(lines) ? lines : [])
+    .filter((line) => line && typeof line.text === "string" && line.text.trim() && line.end > line.start);
+  const groups = [];
+  for (const line of valid) {
+    const pos = line.position ?? position;
+    const sz = line.size ?? size;
+    let group = groups.find((item) => item.position === pos && item.size === sz);
+    if (!group) { group = { position: pos, size: sz, lines: [] }; groups.push(group); }
+    group.lines.push(line);
+  }
+  // No lines at all: still emit the one global style, as before.
+  if (!groups.length) groups.push({ position, size, lines: [] });
+  const styleName = (group) => group.position === position && group.size === size ? "AdDefault" : `Ad${cap(group.position)}${cap(group.size)}`;
+  const styleLines = groups.map((group) => {
+    const fontSize = Math.max(16, Math.round(SUBTITLE_FONT_SIZE[group.size] * (height / 1080)));
+    const marginV = group.position === "center" ? 0 : 40;
+    return `Style: ${styleName(group)},Liberation Sans,${fontSize},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,${alignmentFor(group.position)},20,20,${marginV},1`;
+  });
+  const events = groups.flatMap((group) =>
+    group.lines.map((line) => `Dialogue: 0,${time(line.start)},${time(line.end)},${styleName(group)},,0,0,0,,${String(line.text).replace(/\r/g, "").replace(/\n/g, "\\N").trim()}`),
+  );
   return [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -333,7 +356,7 @@ export function assText(lines, { position = "bottom", size = "medium", height = 
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: AdDefault,Liberation Sans,${fontSize},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,${alignment},20,20,40,1`,
+    ...styleLines,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -357,10 +380,18 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     filters.push(`[${i}:v]${slow}tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},setsar=1,format=yuv420p[v${i}]`);
   });
   let last = "v0";
-  for (let i = 1; i < count; i += 1) {
-    const offset = i * (d - X);
-    filters.push(`[${last}][v${i}]xfade=transition=fade:duration=${X.toFixed(3)}:offset=${offset.toFixed(3)}[x${i}]`);
-    last = `x${i}`;
+  if (X === 0 && count > 1) {
+    // Hard cuts (a library template): a zero-duration xfade is invalid,
+    // so the trimmed clips are concatenated instead — the same shape as
+    // the audio path below, which already concats when X === 0.
+    filters.push(`${clips.map((_, i) => `[v${i}]`).join("")}concat=n=${count}:v=1:a=0[concat]`);
+    last = "concat";
+  } else {
+    for (let i = 1; i < count; i += 1) {
+      const offset = i * (d - X);
+      filters.push(`[${last}][v${i}]xfade=transition=fade:duration=${X.toFixed(3)}:offset=${offset.toFixed(3)}[x${i}]`);
+      last = `x${i}`;
+    }
   }
   const fadeOut = Math.min(0.8, duration / 6);
   // Sharpen: the engines' clips come out soft, so restore edge contrast on the finished film (luma only, kept subtle).
@@ -461,6 +492,8 @@ function validSpec(spec) {
     for (const line of sub.lines) {
       if (typeof line.text !== "string" || !line.text.trim() || line.text.length > 200) return "Each subtitle line needs text under 200 characters.";
       if (!(line.start >= 0 && line.end > line.start && line.end <= spec.duration + 1)) return "Subtitle times must fit the film.";
+      if (line.position != null && !["bottom", "top", "center"].includes(line.position)) return "Subtitle line position must be bottom, top or center.";
+      if (line.size != null && !["small", "medium", "large"].includes(line.size)) return "Subtitle line size must be small, medium or large.";
     }
   }
   if (spec.voiceover !== undefined && !(spec.voiceover && typeof spec.voiceover.url === "string" && /^https?:\/\//.test(spec.voiceover.url))) return "Voiceover needs a link.";
