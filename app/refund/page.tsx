@@ -25,7 +25,7 @@ export default function RefundPage() {
         </section>
         <section>
           <h2>Refunds for videos that were made</h2>
-          <p>Video production is a digital service made to order from your photos. Once a video has been successfully generated, it cannot be returned, so the credit used for it is not refundable. If a finished video is unusable because of a fault in our service, tell us within 14 days of the order and we will remake it or return the credit.</p>
+          <p>Video production is a digital service made to order from your photos. Once a video has been successfully generated, it cannot be returned, so the credit used for it is not refundable. If a finished video is unusable because of a fault in our service, tell us within 14 days of the order and we will remake it or return the credit. A film that changes the property shown in your photos, by adding, removing or moving rooms, furniture, views or vehicles, counts as a fault.</p>
         </section>
         <section>
           <h2>Refunds for unused credits</h2>

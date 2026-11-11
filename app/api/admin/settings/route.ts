@@ -20,14 +20,15 @@ export async function GET() {
    payments are not connected they wait unless switched to automatic. */
 async function orderSettings(env: { DB: D1Database } & Record<string, unknown>) {
   const row = await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'customer_production'").first<{ value?: string }>();
-  return { customerProduction: row?.value === "automatic" ? "automatic" : "approval", paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY), review: await reviewSettings(env), reviewConnected: reviewersConnected(env), autoFix: (await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'auto_fix'").first<{ value?: string }>())?.value !== "off" };
+  const free = await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'free_first_video'").first<{ value?: string }>();
+  return { freeFirstVideo: free?.value === "on", customerProduction: row?.value === "automatic" ? "automatic" : "approval", paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY), review: await reviewSettings(env), reviewConnected: reviewersConnected(env), autoFix: (await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'auto_fix'").first<{ value?: string }>())?.value !== "off" };
 }
 
 export async function PUT(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     const admin = await requireAdmin(env);
-    const body = await request.json() as { multiShotSecondsPerImage?: unknown; defaultEngine?: unknown; customerProduction?: unknown; review?: { cloudflare?: unknown; claude?: unknown }; autoFix?: unknown };
+    const body = await request.json() as { multiShotSecondsPerImage?: unknown; defaultEngine?: unknown; customerProduction?: unknown; review?: { cloudflare?: unknown; claude?: unknown }; autoFix?: unknown; freeFirstVideo?: unknown };
     let seconds: 3 | 5 | "auto" | null = null;
     if (body.multiShotSecondsPerImage !== undefined) {
       const value = body.multiShotSecondsPerImage === "auto" ? "auto" : Number(body.multiShotSecondsPerImage);
@@ -46,6 +47,7 @@ export async function PUT(request: Request) {
     await flag(REVIEW_CLOUDFLARE_KEY, body.review?.cloudflare);
     await flag(REVIEW_CLAUDE_KEY, body.review?.claude);
     await flag("auto_fix", body.autoFix);
+    await flag("free_first_video", body.freeFirstVideo);
     let engine: string | null = null;
     if (body.defaultEngine !== undefined) {
       if (!isEngineKey(body.defaultEngine)) return Response.json({ error: "Choose a valid production engine." }, { status: 400 });

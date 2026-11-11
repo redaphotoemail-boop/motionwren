@@ -78,7 +78,31 @@ export async function requireAccount(env: AccountEnv): Promise<Account> {
   await env.DB.prepare(`INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, 0, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, role = CASE WHEN users.role = 'admin' THEN 'admin' ELSE excluded.role END, updated_at = excluded.updated_at`).bind(identity.id, identity.email, identity.displayName, role, role === "admin" ? "internal" : "free", now, now).run();
   const account = await env.DB.prepare(`SELECT id, email, display_name AS displayName, role, status, plan, credit_balance AS creditBalance FROM users WHERE id = ? LIMIT 1`).bind(identity.id).first<Account>();
   if (!account || account.status !== "active") throw new HttpError(403, "This account is not active.");
+  if (account.role === "customer" && account.creditBalance === 0) account.creditBalance += await grantFirstVideo(env, account.id);
   return account;
+}
+
+/* The free first video (a business-plan test, off unless the manager turns it
+   on in Engines). One credit, once per account, only for an account that has
+   never had any credit movement, and never more than FIRST_VIDEO_DAILY_CAP a
+   day so a flood of throwaway sign-ups cannot run up engine spend. Idempotent:
+   the keyed ledger row and the balance change succeed or fail together. */
+export const FIRST_VIDEO_DAILY_CAP = 25;
+async function grantFirstVideo(env: { DB: D1Database }, userId: string): Promise<number> {
+  try {
+    const on = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'free_first_video'`).first<{ value?: string }>();
+    if (on?.value !== "on") return 0;
+    const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM credit_ledger WHERE type = 'free_first_video' AND created_at > ?`).bind(Date.now() - 24 * 60 * 60 * 1000).first<{ n: number }>();
+    if ((used?.n || 0) >= FIRST_VIDEO_DAILY_CAP) return 0;
+    const prior = await env.DB.prepare(`SELECT 1 AS x FROM credit_ledger WHERE owner_id = ? LIMIT 1`).bind(userId).first();
+    if (prior) return 0;
+    const now = Date.now();
+    const results = await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, NULL, NULL, 1, 'free_first_video', ?, 'Free first video', ?)`).bind(crypto.randomUUID(), userId, `free-first-video:${userId}`, now),
+      env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ? AND changes() = 1`).bind(now, userId),
+    ]);
+    return results[1]?.meta?.changes === 1 ? 1 : 0;
+  } catch { return 0; }
 }
 
 export async function requireAdmin(env: AccountEnv) {

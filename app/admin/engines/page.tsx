@@ -22,6 +22,8 @@ export default function EnginesPage() {
   const [ordersMessage, setOrdersMessage] = useState("");
   const [review, setReview] = useState<{ cloudflare: boolean; claude: boolean; autoFix: boolean; connected: { cloudflare: boolean; claude: boolean } }>({ cloudflare: false, claude: false, autoFix: true, connected: { cloudflare: false, claude: false } });
   const [aiMessage, setAiMessage] = useState("");
+  const [freeFirst, setFreeFirst] = useState(false);
+  const [freeMessage, setFreeMessage] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => {
@@ -29,6 +31,7 @@ export default function EnginesPage() {
       if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine);
       setOrders({ mode: result.customerProduction === "automatic" ? "automatic" : "approval", payments: Boolean(result.paymentsConnected) });
       setReview({ cloudflare: result.review?.cloudflare === true, claude: result.review?.claude === true, autoFix: result.autoFix !== false, connected: { cloudflare: result.reviewConnected?.cloudflare === true, claude: result.reviewConnected?.claude === true } });
+      setFreeFirst(result.freeFirstVideo === true);
       setLoaded(true);
     }).catch(() => setLoaded(true));
   }, []);
@@ -66,6 +69,15 @@ export default function EnginesPage() {
     if (!response.ok) { setOrdersMessage(result.error || "The setting could not be saved."); return; }
     setOrders({ mode, payments: Boolean(result.paymentsConnected) });
     setOrdersMessage(mode === "automatic" ? "New orders start on their own." : "New orders wait for you to press Start production.");
+  }
+
+  async function saveFreeFirst(next: boolean) {
+    setFreeMessage("");
+    const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ freeFirstVideo: next }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { setFreeMessage(result.error || "The setting could not be saved."); return; }
+    setFreeFirst(result.freeFirstVideo === true);
+    setFreeMessage(result.freeFirstVideo === true ? "New customers now get one free video." : "The free first video is off.");
   }
 
   async function saveReview(change: { review?: { cloudflare?: boolean; claude?: boolean }; autoFix?: boolean }) {
@@ -126,6 +138,14 @@ export default function EnginesPage() {
         ] as Array<[string, boolean, string, () => void]>).map(([label, on, note, toggle]) => <button key={label} type="button" className={on ? "choice active" : "choice"} aria-pressed={on} onClick={toggle}><strong>{label}: {on ? "On" : "Off"}</strong><small>{note}</small></button>)}
       </div>
       {aiMessage && <p className="muted small" role="status">{aiMessage}</p>}
+    </section>
+    <section className="panel" id="free-first-video">
+      <div className="panel-head"><h2>Free first video</h2><span className="muted small">{freeFirst ? "On" : "Off"}</span></div>
+      <p className="muted">One free video credit for each new customer, once per account, to let an agent see a real result before paying. Each one costs about $2.37 in engine and music (measured average); at most 25 are given a day. Off until you turn it on.</p>
+      <div className="choice-row">
+        <button type="button" className={freeFirst ? "choice active" : "choice"} aria-pressed={freeFirst} onClick={() => saveFreeFirst(!freeFirst)}><strong>Free first video: {freeFirst ? "On" : "Off"}</strong><small>Applies to accounts with no credit history yet</small></button>
+      </div>
+      {freeMessage && <p className="muted small" role="status">{freeMessage}</p>}
     </section>
     <section className="panel" id="orders">
       <div className="panel-head"><h2>Customer orders</h2><span className="muted small">{orders.payments ? "Payments connected" : "Payments not connected"}</span></div>
