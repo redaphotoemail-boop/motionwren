@@ -4,6 +4,7 @@ import SaveVideo from "../components/save-video";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, smallPhoto, type FinalSound } from "./final-edit";
 import { defaultMusicId } from "../music-catalog";
 import EditFilm from "./edit-film";
+import TemplateStrip from "./template-strip";
 import { motionLabel } from "../motion-label";
 import { ChangeEvent, DragEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../ui-icon";
@@ -667,6 +668,7 @@ export default function Home() {
       <DirectionPanel motion={motion} setMotion={setMotion} category={category} setCategory={setCategory} speed={speed} setSpeed={setSpeed} aspect={aspect} setAspect={setAspect} engine={engine} setEngine={setEngine} soundEnabled={soundEnabled} setSoundEnabled={setSoundEnabled} soundDirection={soundDirection} setSoundDirection={setSoundDirection} voiceoverEnabled={voiceoverEnabled} setVoiceoverEnabled={setVoiceoverEnabled} voiceoverText={voiceoverText} setVoiceoverText={setVoiceoverText} connected={connected} details={details} setDetails={setDetails} resolution={resolution} setResolution={setResolution} frames={frames} setFrames={setFrames} seed={seed} setSeed={setSeed} branding={brandingProps} showMotion/>
       <div className="panel output-panel"><Heading number="03" title="Generate" note="Review before your final edit"/>{renderStage("single", singleJob, output, <div className="empty-output"><span>▶</span><strong>Your clip will appear here</strong><small>Made on our server and saved to History — safe to refresh.</small></div>, "Making your clip", status === "preparing")}{error && <div className="error">{error}</div>}<button className="generate" onClick={generate} disabled={!connected || !source || status === "preparing" || starting === "single"}>{!connected ? "Connect Replicate first" : starting === "single" ? "Starting…" : isActive(singleJob) ? "Generate another clip" : singleJob?.status === "failed" ? "Try again" : "Generate clip"}<span>→</span></button>{activeJobs.length > (isActive(singleJob) ? 1 : 0) && <p className="history-message">{activeJobs.length - (isActive(singleJob) ? 1 : 0)} other video{activeJobs.length - (isActive(singleJob) ? 1 : 0) === 1 ? " is" : "s are"} being made. Open History to follow {activeJobs.length - (isActive(singleJob) ? 1 : 0) === 1 ? "it" : "them"}.</p>}{downloadLink(output, singleJob, outputFormat, "motionwren-clip")}{historyMessage && <p className="history-message">{historyMessage}</p>}<div className="cost-line"><span>Estimated generation cost</span><strong>${price.toFixed(2)} per video</strong></div></div>
     </section> : mode === "series" ? <section className="series-area">
+      <TemplateStrip/>
       <div className="series-methods">
           <button className={seriesPromptMode === "scene" ? "active recommended" : ""} onClick={() => setSeriesPromptMode("scene")} disabled={seriesGenerating}>
             <span>PROFESSIONAL · RECOMMENDED</span><strong>One prompt per scene</strong><small>Direct every shot independently for the highest control and quality.</small>

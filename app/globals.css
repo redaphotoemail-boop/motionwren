@@ -1678,3 +1678,15 @@ button, a, select, .btn { touch-action: manipulation; }
 
 /* The stability and real-estate locks stay applied in the prompts; the green notes are hidden to keep the page clean. */
 .stability-badge, .real-estate-lock, .real-estate-scene-lock { display: none !important; }
+
+/* Studio: start from a template */
+.tpl-strip { display: grid; gap: 14px; margin-bottom: 8px; }
+.tpl-head { display: grid; gap: 2px; }
+.tpl-head small { color: var(--muted); font-size: 14px; }
+.tpl-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.tpl-card { display: grid; gap: 6px; padding: 22px; border-radius: 20px; background: var(--surface); color: var(--ink); text-decoration: none; transition: transform .2s, box-shadow .2s; }
+.tpl-card:hover { transform: translateY(-2px); box-shadow: var(--lift); }
+.tpl-card strong { font-size: 18px; }
+.tpl-card small { color: var(--muted); font-size: 14px; line-height: 1.4; }
+.tpl-meta { color: var(--muted); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.tpl-card em { font-style: normal; font-weight: 600; font-size: 14px; margin-top: 8px; }
