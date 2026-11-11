@@ -1,3 +1,4 @@
+import { createFilmCheckout, filmQuote } from "../../_lib/film-checkout";
 import { audit, jsonError, requireAccount } from "../../_lib/account";
 import { dropMusicChoiceStatement } from "../../_lib/customer-production";
 import { deleteJobFiles } from "../../_lib/production";
@@ -53,6 +54,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if ((assets?.count || 0) < 2) return Response.json({ error: "Upload at least two ordered photographs before submitting." }, { status: 409 });
     const billingEnforced = Boolean(process.env.STRIPE_SECRET_KEY);
     if (billingEnforced && account.role !== "admin") {
+      // Longer than 20 seconds (or no credit yet): one checkout for the part above the credit, so nobody is left at a dead end.
+      const balance = await env.DB.prepare(`SELECT credit_balance AS balance FROM users WHERE id = ?`).bind(account.id).first<{ balance: number }>();
+      const quote = await filmQuote(env, { id, targetDuration: Number((project as { targetDuration?: number }).targetDuration) || 0 }, assets?.count || 0, (balance?.balance || 0) > 0);
+      if (quote.payNow > 0) {
+        const url = await createFilmCheckout({ secret: process.env.STRIPE_SECRET_KEY as string, origin: new URL(request.url).origin, ownerId: account.id, email: account.email, projectId: id, title: String((project as { title?: string }).title || "Film"), quote });
+        return Response.json({ error: `This ${quote.seconds}-second film is $${(quote.cents / 100).toFixed(0)}. Pay $${(quote.payNow / 100).toFixed(0)} to start it.`, billingRequired: true, checkoutUrl: url, quote }, { status: 402 });
+      }
       const debit = await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance - 1, updated_at = ? WHERE id = ? AND credit_balance > 0`).bind(Date.now(), account.id).run();
       if (!debit.meta.changes) return Response.json({ error: "A video credit is required before this project can enter production.", billingRequired: true }, { status: 402 });
       try {

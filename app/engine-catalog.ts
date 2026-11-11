@@ -292,7 +292,7 @@ export function preferredDurationForEngine(key: StudioEngineKey, requested: numb
  * The video lengths offered when making a video: 15 s for social reels and
  * stories, 30 s for the standard listing film, 60 s for a full home tour.
  */
-export const VIDEO_LENGTHS = [15, 30, 60] as const;
+export const VIDEO_LENGTHS = [20, 30, 60] as const;
 export type VideoLength = (typeof VIDEO_LENGTHS)[number];
 
 /** Scenes overlap by this much where our editor (the composer) cross-dissolves
@@ -324,9 +324,9 @@ export function idealShotSeconds(targetSeconds: number) {
  * (shareSeconds) and trimmed to it. Picks the number of photos whose share is
  * closest to the ideal pace while wasting the least engine time.
  * Typical: 10 s → 4 photos, 15 s → 6, 20 s → 6, 30 s → 9, 60 s → 12.
- * Never more than 12 scenes; with fewer photos each scene simply runs longer.
+ * Never more than 24 scenes (the 2-minute limit); with fewer photos each scene simply runs longer.
  */
-export const MAX_CUSTOMER_SCENES = 12;
+export const MAX_CUSTOMER_SCENES = 24;
 export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto?: 3 | 5) {
   const allowed = filmSceneDurations(key, resolution);
   const longest = allowed[allowed.length - 1];

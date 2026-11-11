@@ -59,7 +59,7 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
     ["Customer", project.customerName ? `${project.customerName} · ${project.customerEmail || ""}` : project.customerEmail || "—"],
     ["Property", [project.beds && `${project.beds} beds`, project.baths && `${project.baths} baths`, project.squareFeet && `${Number(project.squareFeet).toLocaleString()} sq ft`].filter(Boolean).join(" · ") || "—"],
     ["Package price", project.price ? money(Number(project.price)) : "—"],
-    ["Final video", `${project.targetDuration || 20} seconds · ${project.resolution} · ${project.aspect}`],
+    ["Final video", `${project.targetDuration ? `${project.targetDuration} seconds` : "Automatic length"} · ${project.resolution} · ${project.aspect}`],
     ["Music", project.music ? `${project.music} (chosen by the client)` : "Matched to the video (no choice made)"],
     ["Opening message", project.shortMessage || "—"],
     ["Agent", [project.agentName, project.agentEmail, project.agentPhone].filter(Boolean).join(" · ") || "—"],

@@ -356,6 +356,11 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
         report("start");
         const sub = await fetch(`/api/projects/${entry.projectId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
         if (sub.status === 401) return { done: false, auth: true, errors };
+        if (sub.status === 402) {
+          // A longer film (or no credit yet): take them to pay for the difference, no dead end. The order is saved and carries on when they return.
+          const info = await sub.clone().json().catch(() => ({})) as { checkoutUrl?: string | null };
+          if (info.checkoutUrl) { await idbPut(pkg); window.location.assign(info.checkoutUrl); return { done: false, auth: false, errors }; }
+        }
         if (!sub.ok) {
           entry.error = await errorText(sub);
           errors.push(`${entry.title}: ${entry.error}`);

@@ -35,6 +35,9 @@ export async function POST(request: Request) {
       const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, NULL, NULL, ?, 'purchase', ?, ?, ?)`).bind(crypto.randomUUID(), ownerId, credits, `stripe:${event.id}`, `Stripe ${metadata.plan || "credit"} purchase`, now).run();
       if (inserted.meta.changes) await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + ?, plan = CASE WHEN ? = 'pro' THEN 'pro' ELSE plan END, stripe_customer_id = COALESCE(?, stripe_customer_id), updated_at = ? WHERE id = ?`).bind(credits, metadata.plan || "", object.customer || null, now, ownerId).run();
     }
+    // A longer film: remember what was paid above the credit, against the project, so submitting it can check.
+    const upgrade = Math.max(0, Math.min(1_000_000, Number(metadata.upgrade_cents) || 0));
+    if (upgrade && metadata.project_id) await env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, NULL, 0, 'film_upgrade', ?, ?, ?)`).bind(crypto.randomUUID(), ownerId, String(metadata.project_id), `film-upgrade:${event.id}`, `upgrade:${upgrade}`, now).run();
     await env.DB.prepare(`INSERT OR IGNORE INTO payments (id, owner_id, provider_payment_id, plan, amount_cents, currency, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'paid', ?)`).bind(event.id, ownerId, object.payment_intent || object.id || null, metadata.plan || "credits", Math.max(0, Number(object.amount_total ?? object.amount_paid) || 0), object.currency || "usd", now).run();
   }
   if (event.type.startsWith("customer.subscription.")) {
