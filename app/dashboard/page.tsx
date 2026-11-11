@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../ui-icon";
 import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
+import SaveVideo from "../components/save-video";
 import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
 
 /* The client's workspace: every order in one place, each with all of its
@@ -275,7 +276,7 @@ export default function CustomerDashboard() {
       {(project.finalHistoryId || canRetry || expired || (holding && project.refundable)) && <div className="dlv-actions">
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
-          <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></svg>Download</a>
+          <SaveVideo className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`} fileName={`motionwren-${String(project.finalHistoryId).slice(0, 8)}.mp4`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></svg>Download</SaveVideo>
         </>}
         {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
         {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
@@ -369,7 +370,7 @@ export default function CustomerDashboard() {
               <div className="hist-actions">
                 {project.finalHistoryId && <>
                   <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: project.title, historyId: project.finalHistoryId as string, vertical })}>Watch</button>
-                  <a className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`}>Download</a>
+                  <SaveVideo className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`} fileName={`motionwren-${project.finalHistoryId.slice(0, 8)}.mp4`}>Download</SaveVideo>
                 </>}
                 {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
                 {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
@@ -444,7 +445,7 @@ export default function CustomerDashboard() {
           <button type="button" className="player-x" aria-label="Close" onClick={() => setPlaying(null)}><svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button>
         </div>
         <video className="player-video" src={`/api/history/${playing.historyId}/video`} controls autoPlay playsInline preload="metadata" />
-        <div className="player-actions"><a className="btn btn-ink btn-sm" href={`/api/history/${playing.historyId}/video?download=1`}>Download</a></div>
+        <div className="player-actions"><SaveVideo className="btn btn-ink btn-sm" href={`/api/history/${playing.historyId}/video?download=1`} fileName={`motionwren-${playing.historyId.slice(0, 8)}.mp4`}>Download</SaveVideo></div>
       </div>
     </div>}
     <button type="button" className="fab" data-mw="plan" aria-label="Create video"><span aria-hidden="true">+</span>Create video</button>
