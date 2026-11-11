@@ -1,0 +1,130 @@
+/* The film's own sound, made at the final edit: a voiceover (written from what
+   the scenes show, then spoken) and smart sound effects (water, fire, wind, a
+   street — whatever the scene actually has). The wording comes from
+   Cloudflare Workers AI: a vision model reads each photo, a text model writes
+   the lines. The voice and the effects come from ElevenLabs (a paid plan).
+   Nothing here edits a scene or its prompt. */
+
+import { cloudflareRun } from "./film-review";
+import { ElevenLabsMissingKey, generateSoundEffect, synthesizeVoiceover } from "./elevenlabs";
+
+type AiBinding = { run(model: string, input: Record<string, unknown>): Promise<{ response?: string } | string> };
+const TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+const secret = (name: string) => (typeof process !== "undefined" ? process.env?.[name] : undefined) || undefined;
+
+export type SceneSound = { voice: string; sfx: string };
+export type SoundSuggestion = { scenes: SceneSound[]; film: string; source: "ai" | "basic" };
+
+/* Words a voice can say in `seconds` at a calm real-estate pace. */
+export const wordsFor = (seconds: number) => Math.max(4, Math.floor(seconds * 2.2));
+
+const trimWords = (text: string, max: number) => text.replace(/\s+/g, " ").trim().split(" ").slice(0, max).join(" ").replace(/[,;:\s]+$/, "");
+const clean = (text: unknown, max = 400) => typeof text === "string" ? text.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+async function aiText(env: unknown, prompt: string, maxTokens = 700): Promise<string> {
+  const input = { prompt, max_tokens: maxTokens, temperature: 0.5 };
+  const binding = (env as { AI?: AiBinding } | null)?.AI;
+  if (binding) {
+    const out = await binding.run(TEXT_MODEL, input);
+    return String(typeof out === "string" ? out : out?.response || "");
+  }
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${secret("CF_ACCOUNT_ID")}/ai/run/${TEXT_MODEL}`, { method: "POST", headers: { Authorization: `Bearer ${secret("CF_AI_TOKEN")}`, "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const data = await response.json().catch(() => null) as { result?: { response?: string }; errors?: { message?: string }[] } | null;
+  if (!response.ok) throw new Error(data?.errors?.[0]?.message || `Workers AI answered HTTP ${response.status}.`);
+  return String(data?.result?.response || "");
+}
+
+export const aiAvailable = (env: unknown) => Boolean((env as { AI?: AiBinding } | null)?.AI) || Boolean(secret("CF_ACCOUNT_ID") && secret("CF_AI_TOKEN"));
+
+const DESCRIBE = `Describe this real-estate photograph for a narrator in under 30 words: the room or area, its two or three most appealing features, and any natural sound sources that are visible (running water, a fire, trees or wind, a pool, a street, birds, a kitchen). List only what is visible.`;
+
+/* Reads each photo, then writes one line per scene, one script for the whole film, and the sounds each scene would really have. */
+export async function suggestSound(env: unknown, images: Uint8Array[], sceneSeconds: number, totalSeconds: number): Promise<SoundSuggestion> {
+  if (!aiAvailable(env)) throw new Error("The scene reader (Cloudflare AI) is not connected.");
+  const notes: string[] = [];
+  for (const image of images) notes.push(clean(await cloudflareRun(env, image, DESCRIBE, 90), 220) || "an interior view of the property");
+  const perScene = wordsFor(sceneSeconds), perFilm = wordsFor(totalSeconds);
+  const list = notes.map((note, index) => `Scene ${index + 1}: ${note}`).join("\n");
+  const prompt = `You write narration for a professional real-estate video. Here is what each scene shows, in order:\n${list}\n\nReturn JSON only, no other text, in exactly this shape:\n{"scenes":[{"voice":"...","sfx":"..."}],"film":"..."}\n- "scenes" has exactly ${notes.length} items, one per scene, in order.\n- "voice": one polished sentence of narration for that scene, at most ${perScene} words, naming only what the scene shows. No prices, no invented facts, no exclamation marks.\n- "sfx": a short description of the natural sounds that scene would really have (for example "soft water running over stone"), or "" when nothing in it makes a sound. Never music, never voices.\n- "film": one flowing narration for the whole film, at most ${perFilm} words, that moves smoothly from scene to scene as a single story, opening with a welcome and closing with a short invitation.`;
+  let parsed: { scenes?: { voice?: unknown; sfx?: unknown }[]; film?: unknown } | null = null;
+  try {
+    const text = await aiText(env, prompt);
+    const json = /\{[\s\S]*\}/.exec(text)?.[0];
+    parsed = json ? JSON.parse(json) : null;
+  } catch { parsed = null; }
+  const scenes: SceneSound[] = notes.map((note, index) => {
+    const item = parsed?.scenes?.[index];
+    const voice = trimWords(clean(item?.voice, 300), perScene);
+    return { voice: voice || trimWords(note, perScene), sfx: clean(item?.sfx, 140) };
+  });
+  const film = trimWords(clean(parsed?.film, 2000), perFilm) || scenes.map((scene) => scene.voice).join(" ");
+  return { scenes, film, source: parsed ? "ai" : "basic" };
+}
+
+/* ---- making the audio ---- */
+
+type SoundEnv = { BUCKET: R2Bucket };
+const trackName = (kind: "voice" | "sfx", index: number) => `${kind}-${String(index + 1).padStart(2, "0")}.mp3`;
+const trackKey = (jobId: string, name: string) => `render-jobs/${jobId}/${name}`;
+export { trackKey };
+
+export type VoicePlan = { mode: "scene" | "film"; voiceId: string; lines: string[]; film: string };
+
+/* Speaks the film's lines and stores them. Returns what the manifest keeps. */
+export async function makeVoice(env: SoundEnv, jobId: string, plan: VoicePlan, count: number) {
+  const tracks: string[] = Array.from({ length: count }, () => "");
+  const lines: string[] = Array.from({ length: count }, () => "");
+  if (plan.mode === "film") {
+    const text = clean(plan.film, 4000);
+    if (!text) throw new Error("Write the voiceover script first.");
+    await env.BUCKET.put(trackKey(jobId, trackName("voice", 0)), await synthesizeVoiceover({ voiceId: plan.voiceId, text }), { httpMetadata: { contentType: "audio/mpeg" } });
+    tracks[0] = trackName("voice", 0); lines[0] = text;
+    return { mode: "film" as const, voiceId: plan.voiceId, lines, tracks };
+  }
+  let made = 0;
+  for (let index = 0; index < count; index += 1) {
+    const text = clean(plan.lines[index], 400);
+    if (!text) continue;
+    await env.BUCKET.put(trackKey(jobId, trackName("voice", index)), await synthesizeVoiceover({ voiceId: plan.voiceId, text }), { httpMetadata: { contentType: "audio/mpeg" } });
+    tracks[index] = trackName("voice", index); lines[index] = text; made += 1;
+  }
+  if (!made) throw new Error("Write at least one voiceover line first.");
+  return { mode: "scene" as const, voiceId: plan.voiceId, lines, tracks };
+}
+
+/* One effect per scene that has one, as long as the scene's share of the film. */
+export async function makeSfx(env: SoundEnv, jobId: string, prompts: string[], sceneSeconds: number) {
+  const tracks: string[] = prompts.map(() => "");
+  const used: string[] = prompts.map(() => "");
+  let made = 0;
+  for (const [index, prompt] of prompts.entries()) {
+    const text = clean(prompt, 140);
+    if (!text) continue;
+    await env.BUCKET.put(trackKey(jobId, trackName("sfx", index)), await generateSoundEffect({ text: `${text}, natural ambience, no music, no voices`, seconds: sceneSeconds }), { httpMetadata: { contentType: "audio/mpeg" } });
+    tracks[index] = trackName("sfx", index); used[index] = text; made += 1;
+  }
+  if (!made) return undefined;
+  return { prompts: used, tracks };
+}
+
+export { ElevenLabsMissingKey };
+
+/* The sound layers the composer places: voice lines at their scene (or the
+   whole script from the start), effects under their scene at a low level. */
+export function soundLayers(sound: NonNullable<import("./production").ProductionManifest["edit"]>["sound"], link: (file: string) => string, share: number, crossfade: number, duration: number) {
+  const layers: { url: string; at: number; gain: number; kind: "voice" | "sfx" }[] = [];
+  const start = (index: number) => Math.max(0, index * (share - crossfade));
+  if (sound?.voice) {
+    sound.voice.tracks.forEach((file, index) => {
+      if (!file) return;
+      const at = sound.voice!.mode === "film" ? 0.8 : start(index) + 0.5;
+      if (at < duration - 0.5) layers.push({ url: link(file), at: Math.round(at * 1000) / 1000, gain: 1, kind: "voice" });
+    });
+  }
+  sound?.sfx?.tracks.forEach((file, index) => {
+    if (!file) return;
+    const at = start(index);
+    if (at < duration - 0.5) layers.push({ url: link(file), at: Math.round(at * 1000) / 1000, gain: 0.35, kind: "sfx" });
+  });
+  return layers;
+}

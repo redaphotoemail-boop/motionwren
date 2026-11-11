@@ -63,7 +63,7 @@ const REALITY_CHECK = (inventory: string) => `This is a frame from a video made 
 
 const clean = (text: string) => text.replace(/[^\p{L}\p{N} ,.;:'()%/-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 140);
 
-async function cloudflareRun(env: unknown, image: Uint8Array, prompt: string, maxTokens = 60): Promise<string> {
+export async function cloudflareRun(env: unknown, image: Uint8Array, prompt: string, maxTokens = 60): Promise<string> {
   const input = { image: [...image], prompt, max_tokens: maxTokens };
   const binding = (env as { AI?: AiBinding } | null)?.AI;
   if (binding) {

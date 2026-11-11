@@ -367,7 +367,23 @@ export function assText(lines, { position = "bottom", size = "medium", height = 
 
 /* ---------- the edit ---------- */
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio }) {
+/* The extra sound of a film (voice lines, sound effects) mixed into ONE track:
+   each part is delayed to where it starts and set to its own level. The result
+   is handed to editArgs as the voiceover track, so the music ducks under it. */
+export function layerArgs({ inputs, duration, output }) {
+  const args = ["-hide_banner", "-y", "-nostdin"];
+  inputs.forEach((input) => args.push("-i", input.file));
+  const parts = inputs.map((input, i) => {
+    const ms = Math.max(0, Math.round((input.at || 0) * 1000));
+    const gain = Number.isFinite(input.gain) ? input.gain : 1;
+    return `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${ms}|${ms},volume=${gain.toFixed(3)}[l${i}]`;
+  });
+  const mixed = inputs.length === 1 ? "[l0]anull[mix]" : `${inputs.map((_, i) => `[l${i}]`).join("")}amix=inputs=${inputs.length}:normalize=0:dropout_transition=0[mix]`;
+  args.push("-filter_complex", `${parts.join(";")};${mixed};[mix]apad,atrim=duration=${duration.toFixed(3)}[out]`, "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", output);
+  return args;
+}
+
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -433,7 +449,7 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   const keepAudioMulti = Boolean(keepAudio && count > 1 && !music && !voiceover && audioFlags.some(Boolean));
   if (music && voiceover) {
     // Voiceover leads; the music ducks under it, then one mixed track.
-    filters.push(`[${count}:a]${trim},${fades},volume=0.35[mus]`);
+    filters.push(`[${count}:a]${trim},${fades},volume=${(Number.isFinite(musicVolume) ? musicVolume : 0.35).toFixed(2)}[mus]`);
     filters.push(`[${voiceIndex}:a]${trim},${fades}[vo]`);
     filters.push("[mus][vo]amix=inputs=2:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[aout]");
   } else if (music) {
@@ -497,6 +513,14 @@ function validSpec(spec) {
     }
   }
   if (spec.voiceover !== undefined && !(spec.voiceover && typeof spec.voiceover.url === "string" && /^https?:\/\//.test(spec.voiceover.url))) return "Voiceover needs a link.";
+  if (spec.layers !== undefined) {
+    if (!Array.isArray(spec.layers) || spec.layers.length < 1 || spec.layers.length > 40) return "Sound layers need 1 to 40 parts.";
+    for (const layer of spec.layers) {
+      if (!layer || typeof layer.url !== "string" || !/^https?:\/\//.test(layer.url)) return "Every sound layer needs a link.";
+      if (!(layer.at >= 0 && layer.at < spec.duration)) return "Sound layers must start inside the film.";
+      if (layer.gain !== undefined && !(layer.gain >= 0.02 && layer.gain <= 2)) return "A sound layer's level is out of range.";
+    }
+  }
   return "";
 }
 
@@ -579,6 +603,24 @@ async function compose(key, spec) {
       const voiceInfo = await probe(voiceover);
       if (!voiceInfo.audioStreams || voiceInfo.duration < 0.5) throw new Error("The voiceover is not usable audio.");
     }
+    let musicVolume;
+    if (spec.layers?.length) {
+      // Voice lines and sound effects, mixed into one track at their own times.
+      job.stage = "sound";
+      const parts = [];
+      if (voiceover) parts.push({ file: voiceover, at: 0, gain: 1 });
+      for (const [i, layer] of spec.layers.entries()) {
+        const file = path.join(dir, `layer-${String(i + 1).padStart(2, "0")}.mp3`);
+        await download(layer.url, file, MAX_VOICEOVER_BYTES, "A sound layer");
+        const info = await probe(file);
+        if (!info.audioStreams || info.duration < 0.2) throw new Error(`Sound layer ${i + 1} is not usable audio.`);
+        parts.push({ file, at: layer.at, gain: layer.gain ?? 1 });
+      }
+      voiceover = path.join(dir, "layers.mp3");
+      await run("ffmpeg", layerArgs({ inputs: parts, duration: spec.duration, output: voiceover }), { timeoutMs: 5 * 60 * 1000 });
+      // Music ducks under a voice; with effects only it stays fuller.
+      musicVolume = spec.layers.some((layer) => layer.kind !== "sfx") || spec.voiceover?.url ? 0.35 : 0.8;
+    }
     let subtitles = null;
     if (spec.subtitles?.lines?.length) {
       try {
@@ -605,7 +647,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { clips: files, music, voiceover, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: infos.map((info) => info.audioStreams > 0), speeds: spec.speeds };
+    const editInput = { clips: files, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: spec.duration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: infos.map((info) => info.audioStreams > 0), speeds: spec.speeds };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.

@@ -6,6 +6,8 @@ import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_li
 import { PHOTO_MOVE_CYCLE, cleanCards, frameKey, newManifest, saveManifest, storeFrame } from "../../_lib/production";
 import { studioToken } from "../../_lib/studio-token";
 import { musicPrompt } from "../../_lib/composer";
+import { ElevenLabsMissingKey, makeSfx, makeVoice } from "../../_lib/film-sound";
+import { musicTemplate } from "../../../music-catalog";
 
 /* Studio production on the server — the same path client videos take.
    1. POST here with the settings and each scene's prompt: the job is created
@@ -88,8 +90,25 @@ export async function POST(request: Request) {
   const cards = cleanCards(body.cards);
   if (cards) manifest.cards = cards;
   if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
-  if (mode === "series") manifest.edit = { shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect, duration }) } };
+  if (mode === "series") {
+    const picked = musicTemplate(body.music);
+    manifest.edit = { shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : musicPrompt({ aspect, duration }) } };
+    if (body.music === "none") manifest.edit.sound = { noMusic: true };
+  }
+  const soundIn = body.sound && typeof body.sound === "object" ? body.sound as { voice?: { mode?: unknown; voiceId?: unknown; lines?: unknown; film?: unknown } | null; sfx?: { on?: unknown; prompts?: unknown } | null } : null;
   try {
+    // The film's own voice and sound effects are made now, before any scene is paid for: if they can't be, the film doesn't start.
+    const clean = (value: unknown, max: number) => typeof value === "string" ? value.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
+    if (soundIn?.voice && (soundIn.voice.mode === "scene" || soundIn.voice.mode === "film") && clean(soundIn.voice.voiceId, 64)) {
+      const lines = Array.isArray(soundIn.voice.lines) ? (soundIn.voice.lines as unknown[]).map((line) => clean(line, 400)) : [];
+      const voice = await makeVoice(env, id, { mode: mode === "single" ? "film" : soundIn.voice.mode, voiceId: clean(soundIn.voice.voiceId, 64), lines: Array.from({ length: scenes.length }, (_, index) => lines[index] || ""), film: clean(soundIn.voice.film, 4000) || lines.join(" ") }, scenes.length);
+      manifest.edit = { ...(manifest.edit || {}), sound: { ...(manifest.edit?.sound || {}), voice } };
+    }
+    if (soundIn?.sfx && soundIn.sfx.on === true) {
+      const prompts = Array.isArray(soundIn.sfx.prompts) ? (soundIn.sfx.prompts as unknown[]).map((prompt) => clean(prompt, 140)) : [];
+      const sfx = await makeSfx(env, id, Array.from({ length: scenes.length }, (_, index) => prompts[index] || ""), Math.min(sceneSeconds, 12));
+      if (sfx) manifest.edit = { ...(manifest.edit || {}), sound: { ...(manifest.edit?.sound || {}), sfx } };
+    }
     await saveManifest(env, id, manifest);
     if (inline) {
       // Older Studio page: photos came inline, so the video goes straight into the queue.
@@ -97,9 +116,10 @@ export async function POST(request: Request) {
       if (await beginQueue(env, id)) { const row = await getRenderJob(env, id); if (row) await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${id}?token=${webhookToken}`); }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The video could not start.";
+    const missingKey = error instanceof ElevenLabsMissingKey;
+    const message = missingKey ? "The ElevenLabs key is not added yet, so the voice and sound effects can't be made. Nothing was charged." : error instanceof Error ? error.message : "The video could not start.";
     await env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind(message.slice(0, 1000), Date.now(), id).run();
-    return NextResponse.json({ error: message }, { status: 502 });
+    return NextResponse.json({ error: message, ...(missingKey || /402|paid_plan|payment_required/i.test(message) ? { fix: "elevenlabs" } : {}) }, { status: missingKey ? 503 : 502 });
   }
   const row = await getRenderJob(env, id);
   return NextResponse.json({ job: row ? { ...publicJob(row), scenes: scenes.map(() => ({ state: "waiting", attempt: 0 })) } : { id, status: "starting" }, plan: { count: scenes.length, sceneSeconds, duration, costCents } });

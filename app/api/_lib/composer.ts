@@ -45,6 +45,8 @@ export type EditSpec = {
       to the stored MP3) to mix over the music. */
   subtitles?: { lines: { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large" }[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };
   voiceover?: { url: string };
+  /** The film's own voice lines and sound effects, each placed at a time (seconds) and level. */
+  layers?: { url: string; at: number; gain: number; kind: "voice" | "sfx" }[];
 };
 
 export type EditState = {
