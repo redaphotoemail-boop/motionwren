@@ -90,7 +90,7 @@ export default function EnginesPage() {
   }
 
   const current = studioEngine(defaultEngine);
-  const others = studioEngines.filter((engine) => engine.key !== defaultEngine && !engine.unavailable);
+  const others = studioEngines.filter((engine) => engine.key !== defaultEngine).sort((a, b) => Number(Boolean(a.unavailable)) - Number(Boolean(b.unavailable)));
 
   return <div className="mgr-page">
     <PageHead eyebrow="Engines" title="Choose the right model" sub="Pick the engine every new video renders with. Every model below uses its connected production endpoint.">
@@ -114,13 +114,13 @@ export default function EnginesPage() {
     <section className="panel">
       <div className="panel-head"><h2>All engines</h2><span className="muted small">Catalog prices · ≈ cost of a {FILM_SECONDS}-second film</span></div>
       <div className="engine-grid">
-        {others.map((engine) => <article key={engine.key} className="engine-card">
+        {others.map((engine) => <article key={engine.key} className={engine.unavailable ? "engine-card is-off" : "engine-card"} aria-disabled={Boolean(engine.unavailable)}>
           <div className="engine-card-top"><strong>{engine.name}</strong>{engine.badge && <span className="tag">{engine.badge}</span>}</div>
           <p>{engine.description}</p>
           <small className="engine-meta">{engine.resolutions.join(" · ")} · {engine.audio ? "Audio" : "Silent"} · {engine.bestFor}</small>
           <div className="engine-card-foot">
             <span><b>≈ {money(filmEstimate(engine))}</b><small>{Object.entries(engine.pricePerSecond).map(([resolution, price]) => `${resolution} $${Number(price).toFixed(3)}/s`).join(" · ")}</small></span>
-            <button type="button" className="btn btn-white btn-xs" onClick={() => saveEngine(engine.key)} disabled={savingEngine}>Make default</button>
+            {engine.unavailable ? <span className="off-reason">Not working: {engine.unavailable}</span> : <button type="button" className="btn btn-white btn-xs" onClick={() => saveEngine(engine.key)} disabled={savingEngine}>Make default</button>}
           </div>
         </article>)}
       </div>

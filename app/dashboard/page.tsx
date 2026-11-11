@@ -87,6 +87,8 @@ export default function CustomerDashboard() {
   const [greeting, setGreeting] = useState("Welcome");
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [brokenCovers, setBrokenCovers] = useState<string[]>([]);
+  const [code, setCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0); // when the list was last loaded
   const hasActiveProject = projects.some((project) => ACTIVE.includes(project.status));
   const orders = useMemo(() => buildOrders(projects), [projects]);
@@ -121,6 +123,19 @@ export default function CustomerDashboard() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [playing]);
+
+  async function redeemCode(event: React.FormEvent) {
+    event.preventDefault();
+    if (!code.trim()) return;
+    setError(""); setMessage(""); setRedeeming(true);
+    try {
+      const response = await fetch("/api/redeem", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+      const data = await response.json();
+      if (!response.ok) setError(data.error || "That code could not be used.");
+      else { setMessage(data.message || "Code applied."); setCode(""); await load(); }
+    } catch { setError("That code could not be used. Try again."); }
+    finally { setRedeeming(false); }
+  }
 
   async function startCheckout(plan: "single" | "five" | "pro") {
     setError("");
@@ -301,14 +316,21 @@ export default function CustomerDashboard() {
       {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
       {firstUnread && <div className="notice"><span className={`dot ${firstUnread.type.includes("failed") ? "dot-bad" : "dot-ok"}`} /><span><strong>{firstUnread.title}</strong> {firstUnread.message}</span><button type="button" className="text-btn" onClick={() => dismissNotification(firstUnread.id)}>Dismiss</button></div>}
 
-      {billingEnabled && account?.role !== "admin" && <section className="credits">
+      {account?.role !== "admin" && <section className="credits">
         <div><p className="eyebrow">Video credits</p><h2>Choose only what you need.</h2></div>
         <div className="credits-options">
-          <button type="button" onClick={() => startCheckout("single")}><strong>1 video</strong><span>$29</span></button>
-          <button type="button" onClick={() => startCheckout("five")}><strong>5 videos</strong><span>$125</span></button>
-          <button type="button" onClick={() => startCheckout("pro")}><strong>10 monthly</strong><span>$199/mo</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("single")}><strong>1 video</strong><span>$29</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>$125</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>10 monthly</strong><span>$199/mo</span></button>
         </div>
+        {!billingEnabled && <p className="fine">Card payments are not switched on yet.</p>}
       </section>}
+
+      {account && account.role !== "admin" && <form className="redeem" onSubmit={redeemCode}>
+        <label htmlFor="gift-code">Have a gift code?</label>
+        <input id="gift-code" value={code} onChange={(event) => setCode(event.target.value)} placeholder="MW-XXXX-XXXX-XXXX" autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={24} />
+        <button type="submit" disabled={redeeming || !code.trim()}>{redeeming ? "Checking…" : "Redeem"}</button>
+      </form>}
 
       <section id="orders" className="ws-videos" aria-labelledby="orders-title">
         <div className="ws-bar">

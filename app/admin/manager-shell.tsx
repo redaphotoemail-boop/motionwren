@@ -11,6 +11,7 @@ const links: Array<{ href: string; label: string; icon: IconName; match: (path: 
   { href: "/admin/orders", label: "Orders", icon: "orders", match: (path) => path.startsWith("/admin/orders") || path.startsWith("/admin/projects") },
   { href: "/admin/production", label: "Production", icon: "quality", match: (path) => path.startsWith("/admin/production") },
   { href: "/admin/customers", label: "Customers", icon: "user", match: (path) => path.startsWith("/admin/customers") },
+  { href: "/admin/gifts", label: "Gifts", icon: "check", match: (path) => path.startsWith("/admin/gifts") },
   { href: "/admin/engines", label: "Engines", icon: "motion", match: (path) => path.startsWith("/admin/engines") },
   { href: "/admin/finance", label: "Finance", icon: "money", match: (path) => path.startsWith("/admin/finance") },
   { href: "/admin/replicates", label: "Spend", icon: "money", match: (path) => path.startsWith("/admin/replicates") },

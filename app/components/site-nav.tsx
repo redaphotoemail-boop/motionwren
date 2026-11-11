@@ -49,7 +49,7 @@ export default function SiteNav({ accountPath, signedIn }: { accountPath: string
           ? <a className="btn btn-sm nav-cta" href={accountPath} target="_top">Dashboard</a>
           : <><a className="sign-in-link" href={accountPath} target="_top">Sign in</a><a className="btn btn-sm nav-cta" href={accountPath} target="_top" data-mw="plan">Create video</a></>}
       </div>
-      <span className="nav-balance" aria-hidden="true" />
+      <a className="nav-balance nav-signin-mobile" href={accountPath} target="_top">{signedIn ? "Dashboard" : "Sign in"}</a>
     </div>
     <div id="site-menu" className="nav-sheet" hidden={!open}>
       <div className="site-wrap nav-sheet-inner">
