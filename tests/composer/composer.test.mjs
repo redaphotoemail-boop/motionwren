@@ -230,6 +230,8 @@ const meanDb = (file, filter) => { const out = spawnSync("ffmpeg", ["-hide_banne
 /* 12. depth moves: real parallax from a depth map; if depth is down, the flat move is used and the film still gets made */
 {
   ff(["-f", "lavfi", "-i", "gradients=s=800x450:d=1:n=3", "-frames:v", "1", path.join(dir, "depth.png")]);
+  // Every photo move now uses the metric depth model, whose answer is a 16-bit distance map (depth_png).
+  ff(["-f", "lavfi", "-i", "gradients=s=800x450:d=1:n=3", "-frames:v", "1", "-vf", "format=gray16be,lutyuv=y=val*0.5+8000", "-pix_fmt", "gray16be", path.join(dir, "depth16.png")]);
   calls.depth = 0;
   await api("POST", "/jobs/film-twelve", spec({ clips: [`${base(files)}/photo.jpg`, `${base(files)}/photo.jpg`, clip(3)], moves: ["orbit-left", "push-rise", null] }));
   const done = await waitDone("film-twelve");
