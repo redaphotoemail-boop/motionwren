@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
-import { Metric, PageHead } from "../ui";
+import { PageHead, cents } from "../ui";
+import EnginePanels from "../engines/panels";
 import { ProductionView, isActive, sceneLabel, type StudioJob } from "../../studio/production";
 
 /* A scene's last engine message in plain words (the exact text stays in the tooltip). */
@@ -103,54 +104,104 @@ export default function ProductionPage() {
     finally { setBusy(""); }
   }
 
-  const musicNote = !health?.music ? undefined : health.music === "ElevenLabs" ? "Backup: Stable Audio"
-    : health.music === "Backup in use" ? `Last film used Stable Audio${health.musicNote ? ` · ${health.musicNote}` : ""}`
-    : health.music === "Missing" ? `Last film had no music${health.musicNote ? ` · ${health.musicNote}` : ""}`
-    : "Add the ElevenLabs key to use ElevenLabs";
   const status = !health ? "…" : !health.tokenConfigured ? "Engine key missing" : health.paused ? "Paused — needs credit" : health.waitingUntil > now ? `Engine pacing until ${time(health.waitingUntil)}` : "Running normally";
   const perScene = (job: Job) => job.costCents / Math.max(1, job.scenes?.length || job.total || 1);
 
-  return <div className="mgr-page">
-    <PageHead eyebrow="Production" title="Videos being made" sub="Every client order and Studio video, scene by scene. Videos keep going on the server; nothing here needs a page left open." />
+  type Problem = { id: string; title: string; detail: string; fixes: Array<{ label: string; href?: string; run?: () => void }> };
+  const problems: Problem[] = [];
+  if (health) {
+    if (!health.tokenConfigured) problems.push({ id: "key", title: "Video engine key is missing", detail: "No video can be made until the Replicate key is added.", fixes: [{ label: "Open Replicate keys", href: "https://replicate.com/account/api-tokens" }] });
+    if (health.paused || health.lowCredit) problems.push({ id: "credit", title: health.paused ? "Production is paused: the engine account needs credit" : "The engine account is low on credit", detail: "Under $5, Replicate allows one new request about every 10 seconds, so scenes are made one at a time.", fixes: [{ label: "Add credit", href: "https://replicate.com/account/billing" }] });
+    if (health.music === "Backup in use" || health.music === "Missing") {
+      const paid = /payment_required|paid_plan|free users|upgrade/i.test(health.musicNote || "");
+      problems.push({ id: "music", title: health.music === "Missing" ? "Films are being made without music" : "Music is using the backup (Stable Audio)", detail: paid ? "ElevenLabs refuses because the account behind our key is on a free plan, which does not include API use. Upgrading to a paid plan fixes it." : (health.musicNote || "ElevenLabs did not answer.").slice(0, 200), fixes: [...(paid ? [{ label: "Upgrade ElevenLabs", href: "https://elevenlabs.io/app/subscription" }] : []), { label: busy === "music" ? "Checking…" : "Test music again", run: () => void testMusic() }] });
+    }
+    if (health.editor === "backup" || health.editor === "trouble") problems.push({ id: "editor", title: health.editor === "backup" ? "Editing service is not being used" : "Editing service is retrying", detail: (health.editorError || "Films are being joined by the backup joiner, so the music changes between scenes.").slice(0, 200), fixes: [{ label: "Check again", run: () => void load().then(() => setMessage("Checked.")) }] });
+    if (health.waitingUntil > now && !health.paused) problems.push({ id: "pacing", title: "The engine asked us to slow down", detail: `Scenes resume at ${time(health.waitingUntil)}. Nothing is lost.`, fixes: [{ label: "Nothing to do", run: undefined }] });
+  }
+  const stopped = jobs.filter((job) => job.status === "failed");
+  if (stopped.length) problems.push({ id: "stopped", title: `${stopped.length} video${stopped.length === 1 ? "" : "s"} stopped`, detail: "Resume keeps the scenes already made.", fixes: [{ label: "Show them", href: "#videos" }] });
+  const dot = (job: Job) => isActive(job) ? "is-live" : job.status === "failed" ? "is-bad" : "is-ok";
+  const summary = (job: Job) => {
+    const scenes = job.scenes || [];
+    const ready = scenes.filter((scene) => scene.state === "ready").length;
+    return isActive(job) ? `${ready} of ${scenes.length || job.total || 1} scenes` : job.status === "failed" ? "Stopped" : "Ready";
+  };
+
+  return <div className="mgr-page prodm">
+    <PageHead eyebrow="Production" title="Production" sub="Settings, problems, every video being made, and the engines." />
+    <nav className="mgr-jump" aria-label="On this page">
+      <a href="#controls">Controls</a>
+      {problems.length > 0 && <a href="#problems">Problems <b>{problems.length}</b></a>}
+      <a href="#videos">Videos</a>
+      <a href="#engines">Engines</a>
+    </nav>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
     {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
-    {health?.lowCredit && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span><strong>The video engine account is low on credit.</strong> Under $5, Replicate allows one new request about every 10 seconds, so scenes are made one at a time. Add credit to speed production up. <a href="https://replicate.com/account/billing" target="_blank" rel="noreferrer">Open billing</a></span></div>}
 
-    <section className="metrics" aria-label="Production health">
-      <Metric label="Status" value={status} tone={health?.paused || !health?.tokenConfigured ? "bad" : health && health.waitingUntil > now ? "warn" : "ok"} />
-      <Metric label="Engine" value={health?.engine || "…"} />
-      <Metric label="With the engine" value={health ? `${health.activeScenes} of ${health.maxActive}` : "…"} note={health ? `${health.queuedScenes} in line · ${health.activeVideos} video${health.activeVideos === 1 ? "" : "s"}` : undefined} />
-      <Metric label="Last provider message" value={health?.lastErrorAt ? ago(health.lastErrorAt, now) : "None"} note={health?.lastError ? sceneNote(health.lastError) : undefined} />
-      <Metric label="Editing" value={!health ? "…" : health.editor === "ready" ? "Ready" : health.editor === "trouble" ? "Retrying" : "Backup joiner"} tone={health?.editor === "ready" ? "ok" : health?.editor === "trouble" ? "warn" : "bad"} note={health?.editor === "backup" ? "Editing service not set up: music changes between scenes" : health?.editorOkAt ? `Last film edited ${ago(health.editorOkAt, now)}${health.polishNote ? ` · ${health.polishNote}` : ""}` : "One music track, true crossfades"} />
-      <Metric label="Music" value={health?.music || "…"} tone={health?.music === "ElevenLabs" ? "ok" : "warn"} note={musicNote} />
+    <section id="controls" className="prodm-block" aria-label="Controls">
+      <h2>Controls</h2>
+      <div className="prodm-setting">
+        <div><strong>Scenes at once</strong><small>How many scenes the engine makes at the same time. Keep 1 while the engine account is under $5.</small></div>
+        <div className="tabs" role="radiogroup" aria-label="Scenes at once">
+          {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
+        </div>
+      </div>
+      <EnginePanels part="controls" />
+      {samples && <details className="prodm-more">
+        <summary>Music tools</summary>
+        <div className="prodm-setting">
+          <div><strong>Client music samples</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a sample clients can play.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready.`}</small></div>
+          <div className="prod-actions">
+            {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
+            {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
+          </div>
+        </div>
+        <div className="prodm-setting">
+          <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents).</small></div>
+          <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
+        </div>
+      </details>}
     </section>
 
-    {health && ["Backup in use", "Missing"].includes(health.music || "") && <section className="prodm-setting">
-      <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents of ElevenLabs credit).</small></div>
-      <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
-    </section>}
-
-    {samples && <section className="prodm-setting">
-      <div><strong>Music samples for clients</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a 14-second sample clients can play in the plan.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready. Making them uses about a minute of ElevenLabs music in total.`}</small></div>
-      <div className="prod-actions">
-        {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
-        {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
-      </div>
-    </section>}
-
-    <section className="prodm-setting">
-      <div><strong>Scenes at once</strong><small>How many scenes may be with the engine at the same time, across all videos. Keep 1 while the engine account is under $5 of credit.</small></div>
-      <div className="tabs" role="radiogroup" aria-label="Scenes at once">
-        {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
-      </div>
+    <section className="prodm-strip" aria-label="Production health">
+      <span><i className={`dot ${health?.paused || !health?.tokenConfigured ? "dot-bad" : health && health.waitingUntil > now ? "dot-warn" : "dot-ok"}`} />{status}</span>
+      <span>Engine <b>{health?.engine || "…"}</b></span>
+      <span>With the engine <b>{health ? `${health.activeScenes} of ${health.maxActive}` : "…"}</b>{health ? ` · ${health.queuedScenes} in line` : ""}</span>
+      <span>Editing <b>{!health ? "…" : health.editor === "ready" ? "Ready" : health.editor === "trouble" ? "Retrying" : "Backup"}</b></span>
+      <span>Music <b>{health?.music || "…"}</b></span>
     </section>
 
-    <section className="prodm-list" aria-label="Videos">
+    {problems.length > 0 && <section id="problems" className="prodm-block" aria-label="Problems">
+      <h2>Problems</h2>
+      <ul className="prodm-problems">
+        {problems.map((problem) => <li key={problem.id}>
+          <div><strong>{problem.title}</strong><small>{problem.detail}</small></div>
+          <div className="prodm-fixes">
+            {problem.fixes.filter((fix) => fix.href || fix.run).map((fix) => fix.href
+              ? <a key={fix.label} className="btn btn-ink btn-xs" href={fix.href} {...(fix.href.startsWith("http") ? { target: "_blank", rel: "noreferrer" } : {})}>{fix.label}</a>
+              : <button key={fix.label} type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={fix.run}>{fix.label}</button>)}
+          </div>
+        </li>)}
+      </ul>
+    </section>}
+
+    <section id="videos" className="prodm-block" aria-label="Videos">
+      <h2>Videos <small>last 24 hours</small></h2>
       {!jobs.length && <div className="empty-soft"><strong>No videos in the last 24 hours</strong><span>New client orders and Studio videos appear here.</span></div>}
+      <div className="prodm-rows">
       {jobs.map((job) => {
         const scenes = job.scenes || [];
         const allReady = scenes.length > 1 && scenes.every((scene) => scene.state === "ready");
-        return <article className="prodm-job" key={job.id}>
+        return <details className="prodm-row" key={job.id}>
+          <summary>
+            <i className={`dot ${dot(job)}`} />
+            <span className="prodm-row-title">{job.category.replace(/^Studio · /, "") || "Video"}{job.owner ? <small> · {job.owner}</small> : null}</span>
+            <span className="prodm-row-meta">{summary(job)}</span>
+            <span className="prodm-row-cost">{cents(job.costCents)}</span>
+            <span className="prodm-row-time">{ago(job.createdAt, now || job.createdAt)}</span>
+          </summary>
+          <div className="prodm-job">
           <ProductionView job={job} title={`${job.category.replace(/^Studio · /, "") || "Video"}${job.owner ? ` · ${job.owner}` : ""}`} />
           <div className="prodm-actions">
             {job.status === "failed" && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "resume", undefined, `Resume this video? Finished scenes are kept; about ${scenes.filter((scene) => scene.state !== "ready").length || 1} scene(s) are made again (~$${((perScene(job) * Math.max(1, scenes.filter((scene) => scene.state !== "ready").length)) / 100).toFixed(2)}).`)}>Resume</button>}
@@ -169,8 +220,15 @@ export default function ProductionPage() {
               </span>
             </li>)}
           </ol>}
-        </article>;
+          </div>
+        </details>;
       })}
+      </div>
+    </section>
+
+    <section id="engines" className="prodm-block" aria-label="Engines">
+      <h2>Engines</h2>
+      <EnginePanels part="overview" />
     </section>
   </div>;
 }
