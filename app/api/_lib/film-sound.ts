@@ -9,11 +9,12 @@ import { cloudflareRun } from "./film-review";
 import { ElevenLabsMissingKey, generateSoundEffect, synthesizeVoiceover } from "./elevenlabs";
 
 type AiBinding = { run(model: string, input: Record<string, unknown>): Promise<{ response?: string } | string> };
-const TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+/* Tried in order: the first that answers with usable JSON is used. */
+const TEXT_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-3.1-8b-instruct", "@cf/meta/llama-3.1-8b-instruct-fast"];
 const secret = (name: string) => (typeof process !== "undefined" ? process.env?.[name] : undefined) || undefined;
 
 export type SceneSound = { voice: string; sfx: string };
-export type SoundSuggestion = { scenes: SceneSound[]; film: string; source: "ai" | "basic" };
+export type SoundSuggestion = { scenes: SceneSound[]; film: string; source: "ai" | "basic"; detail?: string };
 
 /* Words a voice can say in `seconds` at a calm real-estate pace. */
 export const wordsFor = (seconds: number) => Math.max(4, Math.floor(seconds * 2.2));
@@ -21,17 +22,30 @@ export const wordsFor = (seconds: number) => Math.max(4, Math.floor(seconds * 2.
 const trimWords = (text: string, max: number) => text.replace(/\s+/g, " ").trim().split(" ").slice(0, max).join(" ").replace(/[,;:\s]+$/, "");
 const clean = (text: unknown, max = 400) => typeof text === "string" ? text.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
 
-async function aiText(env: unknown, prompt: string, maxTokens = 700): Promise<string> {
-  const input = { prompt, max_tokens: maxTokens, temperature: 0.5 };
+async function aiText(env: unknown, model: string, prompt: string, maxTokens = 900): Promise<string> {
+  const input = { messages: [{ role: "system", content: "You reply with a single JSON object and nothing else." }, { role: "user", content: prompt }], max_tokens: maxTokens, temperature: 0.4 };
   const binding = (env as { AI?: AiBinding } | null)?.AI;
-  if (binding) {
-    const out = await binding.run(TEXT_MODEL, input);
-    return String(typeof out === "string" ? out : out?.response || "");
-  }
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${secret("CF_ACCOUNT_ID")}/ai/run/${TEXT_MODEL}`, { method: "POST", headers: { Authorization: `Bearer ${secret("CF_AI_TOKEN")}`, "Content-Type": "application/json" }, body: JSON.stringify(input) });
-  const data = await response.json().catch(() => null) as { result?: { response?: string }; errors?: { message?: string }[] } | null;
+  const pick = (out: unknown) => {
+    if (typeof out === "string") return out;
+    const value = out as { response?: unknown; result?: { response?: unknown } } | null;
+    const response = value?.response ?? value?.result?.response;
+    return typeof response === "string" ? response : response ? JSON.stringify(response) : "";
+  };
+  if (binding) return pick(await binding.run(model, input));
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${secret("CF_ACCOUNT_ID")}/ai/run/${model}`, { method: "POST", headers: { Authorization: `Bearer ${secret("CF_AI_TOKEN")}`, "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const data = await response.json().catch(() => null) as { result?: { response?: unknown }; errors?: { message?: string }[] } | null;
   if (!response.ok) throw new Error(data?.errors?.[0]?.message || `Workers AI answered HTTP ${response.status}.`);
-  return String(data?.result?.response || "");
+  return pick(data?.result);
+}
+
+/* The first {...} in the answer, forgiving of code fences and trailing commas. */
+function readJson(text: string): { scenes?: { voice?: unknown; sfx?: unknown }[]; film?: unknown } | null {
+  const body = text.replace(/```(?:json)?/gi, "");
+  const start = body.indexOf("{"), end = body.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  const raw = body.slice(start, end + 1);
+  for (const candidate of [raw, raw.replace(/,\s*([}\]])/g, "$1")]) { try { return JSON.parse(candidate); } catch { /* try the next form */ } }
+  return null;
 }
 
 export const aiAvailable = (env: unknown) => Boolean((env as { AI?: AiBinding } | null)?.AI) || Boolean(secret("CF_ACCOUNT_ID") && secret("CF_AI_TOKEN"));
@@ -46,19 +60,21 @@ export async function suggestSound(env: unknown, images: Uint8Array[], sceneSeco
   const perScene = wordsFor(sceneSeconds), perFilm = wordsFor(totalSeconds);
   const list = notes.map((note, index) => `Scene ${index + 1}: ${note}`).join("\n");
   const prompt = `You write narration for a professional real-estate video. Here is what each scene shows, in order:\n${list}\n\nReturn JSON only, no other text, in exactly this shape:\n{"scenes":[{"voice":"...","sfx":"..."}],"film":"..."}\n- "scenes" has exactly ${notes.length} items, one per scene, in order.\n- "voice": one polished sentence of narration for that scene, at most ${perScene} words, naming only what the scene shows. No prices, no invented facts, no exclamation marks.\n- "sfx": a short description of the natural sounds that scene would really have (for example "soft water running over stone"), or "" when nothing in it makes a sound. Never music, never voices.\n- "film": one flowing narration for the whole film, at most ${perFilm} words, that moves smoothly from scene to scene as a single story, opening with a welcome and closing with a short invitation.`;
-  let parsed: { scenes?: { voice?: unknown; sfx?: unknown }[]; film?: unknown } | null = null;
-  try {
-    const text = await aiText(env, prompt);
-    const json = /\{[\s\S]*\}/.exec(text)?.[0];
-    parsed = json ? JSON.parse(json) : null;
-  } catch { parsed = null; }
+  let parsed: ReturnType<typeof readJson> = null; let detail = "";
+  for (const model of TEXT_MODELS) {
+    try {
+      const found = readJson(await aiText(env, model, prompt));
+      if (found?.scenes?.length) { parsed = found; break; }
+      detail = `${model.split("/").pop()} did not return the lines in a usable form.`;
+    } catch (error) { detail = `${model.split("/").pop()}: ${error instanceof Error ? error.message : "no answer"}`.slice(0, 200); }
+  }
   const scenes: SceneSound[] = notes.map((note, index) => {
     const item = parsed?.scenes?.[index];
     const voice = trimWords(clean(item?.voice, 300), perScene);
     return { voice: voice || trimWords(note, perScene), sfx: clean(item?.sfx, 140) };
   });
   const film = trimWords(clean(parsed?.film, 2000), perFilm) || scenes.map((scene) => scene.voice).join(" ");
-  return { scenes, film, source: parsed ? "ai" : "basic" };
+  return { scenes, film, source: parsed ? "ai" : "basic", ...(parsed ? {} : { detail }) };
 }
 
 /* ---- making the audio ---- */
