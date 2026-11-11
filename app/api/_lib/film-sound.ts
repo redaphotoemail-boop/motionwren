@@ -54,11 +54,25 @@ const DESCRIBE = `You are a real-estate photographer's assistant. Describe this 
 
 const NARRATOR = `You are an award-winning luxury real-estate narrator. You tell a story, not a list: you make the viewer feel what it is like to stand in each space — the morning light, the quiet, the way one room opens into the next. Use concrete, specific details from the scene descriptions (materials, light, views, layout), vivid but credible verbs, and a calm, confident pace. Never invent facts that are not described: no prices, no square footage, no neighbourhood names, no exclamation marks, no clichés like "dream home" or "must see".`;
 
+/* Reads the photos four at a time (one after another was slow enough to time out on a long film). A photo that cannot be read gets a plain stand-in. */
+async function describeAll(env: unknown, images: Uint8Array[]): Promise<string[]> {
+  const notes: string[] = new Array(images.length).fill("");
+  let next = 0, failed = 0, lastError: unknown = null;
+  const worker = async () => {
+    while (next < images.length) {
+      const index = next++;
+      notes[index] = clean(await cloudflareRun(env, images[index], DESCRIBE, 110).catch((error) => { failed += 1; lastError = error; return ""; }), 420) || "an interior view of the property";
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, images.length) }, worker));
+  if (images.length && failed === images.length) throw new Error(`The photos could not be read: ${lastError instanceof Error ? lastError.message : "the scene reader did not answer"}`.slice(0, 220));
+  return notes;
+}
+
 /* Reads each photo, then writes one line per scene, one script for the whole film, and the sounds each scene would really have. */
 export async function suggestSound(env: unknown, images: Uint8Array[], sceneSeconds: number, totalSeconds: number): Promise<SoundSuggestion> {
   if (!aiAvailable(env)) throw new Error("The scene reader (Cloudflare AI) is not connected.");
-  const notes: string[] = [];
-  for (const image of images) notes.push(clean(await cloudflareRun(env, image, DESCRIBE, 160), 420) || "an interior view of the property");
+  const notes = await describeAll(env, images);
   const perScene = wordsFor(sceneSeconds), perFilm = wordsFor(totalSeconds);
   const list = notes.map((note, index) => `Scene ${index + 1}: ${note}`).join("\n");
   const prompt = `${NARRATOR}\n\nHere is what each scene shows, in order:\n${list}\n\nReturn JSON only, no other text, in exactly this shape:\n{"scenes":[{"voice":"...","sfx":"..."}],"film":"..."}\n- "scenes" has exactly ${notes.length} items, one per scene, in order.\n- "voice": narration for that scene using as much of the time as it has, between ${Math.max(4, perScene - 4)} and ${perScene} words, built from the most distinctive detail in that scene. Each scene continues the story from the one before; never repeat an opening or an adjective.\n- "sfx": a short description of the natural sounds that scene would really have (for example "soft water running over stone"), or "" when nothing in it makes a sound. Never music, never voices.\n- "film": one flowing narration for the whole film, at most ${perFilm} words, that moves smoothly from scene to scene as a single story with a beginning, a middle and an ending, opening with a welcome and closing with a short invitation. Use nearly all ${perFilm} words.`;
@@ -107,8 +121,7 @@ export async function writeOptions(env: unknown, images: Uint8Array[], request: 
   if (!aiAvailable(env)) throw new Error("The scene reader (Cloudflare AI) is not connected.");
   const film = request.target === "film";
   const wanted = film ? images : [images[request.index ?? 0] || images[0]];
-  const notes: string[] = [];
-  for (const image of wanted) notes.push(clean(await cloudflareRun(env, image, DESCRIBE, 160), 420) || "an interior view of the property");
+  const notes = await describeAll(env, wanted);
   const limit = film ? wordsFor(totalSeconds) : wordsFor(sceneSeconds);
   const instruction = INSTRUCTIONS[request.instruction] || clean(request.instruction, 200) || INSTRUCTIONS.different;
   const around = film ? "" : request.lines.map((line, index) => line.trim() ? `Scene ${index + 1} line: ${line.trim()}` : "").filter(Boolean).join("\n");

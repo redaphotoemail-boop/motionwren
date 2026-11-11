@@ -130,10 +130,10 @@ export function FinalSoundPanel({ sound, setSound, count, sceneSeconds, totalSec
       const body = jobId ? { jobId } : { images: getImages ? await getImages() : [], sceneSeconds, totalSeconds };
       const response = await fetch("/api/studio/film-sound", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({})) as { scenes?: { voice: string; sfx: string }[]; film?: string; error?: string; fix?: string; source?: string; detail?: string };
-      if (!response.ok || !data.scenes) { setNote({ message: data.error || "The scenes could not be read.", fix: data.fix }); return; }
+      if (!response.ok || !data.scenes) { setNote({ message: data.error || `The scenes could not be read (the server answered ${response.status}${response.status >= 500 ? ", it may have timed out — try again" : ""}).`, fix: data.fix }); return; }
       setSound({ lines: data.scenes.map((scene) => scene.voice), film: data.film || "", sfx: data.scenes.map((scene) => scene.sfx) });
       if (data.source === "basic") setNote({ message: `The writer could not shape these, so they are plain descriptions. Edit them freely.${data.detail ? ` (${data.detail})` : ""}` });
-    } catch { setNote({ message: "The scenes could not be read." }); }
+    } catch (error) { setNote({ message: `The scenes could not be read (${error instanceof Error ? error.message : "no connection"}).` }); }
     finally { setWriting(false); }
   }
   const lineCount = (text: string) => text.trim() ? text.trim().split(/\s+/).length : 0;
