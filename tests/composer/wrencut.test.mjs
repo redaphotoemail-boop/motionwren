@@ -56,5 +56,17 @@ check("the second title slides in from the side", seen.texts?.[1]?.fx?.type === 
 check("no words are kept", !/GRAND|OPENING|Visit/i.test(JSON.stringify(seen)));
 const ass = assText([{ start: 1, end: 3, text: "HI", y: 0.33, h: 0.046, fx: { type: "slide", dur: 0.4, dx: 0.3, dy: 0 } }, { start: 0, end: 2, text: "plain" }]);
 check("a title carries its place and entrance; a plain line stays plain", /\{\\an5\\move\(/.test(ass) && /,plain$/m.test(ass));
+// Speed ramps: an accelerating pan reads as a slow→fast curve; a steady pan has none; a ramped shot renders to length.
+const accel = path.join(dir, "accel.mp4"), steady = path.join(dir, "steady.mp4");
+ff(["-f", "lavfi", "-i", "testsrc2=s=1620x960:r=30:d=3", "-vf", "crop=540:960:x='(iw-540)*pow(t/3\\,2.5)':y=0", "-pix_fmt", "yuv420p", accel]);
+ff(["-f", "lavfi", "-i", "testsrc2=s=1620x960:r=30:d=3", "-vf", "crop=540:960:x='(iw-540)*t/3':y=0", "-pix_fmt", "yuv420p", steady]);
+const ramped = (await analyzeVideo(accel, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].speed;
+check("an accelerating shot gets a speed ramp (slow start, fast end)", Array.isArray(ramped) && ramped[0][1] < 0.6 && Math.max(...ramped.map((p) => p[1])) > 1.6, JSON.stringify(ramped));
+check("a steady shot gets none", (await analyzeVideo(steady, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].speed === undefined);
+const rampRecipe = { version: 1, duration: 3, fps: 24, aspect: "vertical", slots: [{ dur: 3, zoom: [1, 1], pan: [0, 0], speed: [[0, 0.5], [0.5, 1], [1, 2.6]] }], joins: [] };
+check("a ramped recipe is valid", validRecipe(rampRecipe) === "");
+const rampOut = path.join(dir, "ramp-out.mp4");
+ff(editArgs({ clips: [clips[0]], width: 360, height: 640, fps: 24, crossfade: 0, duration: 3, sceneSeconds: 3, output: rampOut, recipe: rampRecipe, starts: [0], strength: 1 }));
+check("a ramped shot keeps its length", Math.abs(dur(rampOut) - 3) < 0.15, `${dur(rampOut).toFixed(2)}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

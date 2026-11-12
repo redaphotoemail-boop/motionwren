@@ -13,7 +13,8 @@ export type WrenRecipe = {
   duration: number;
   fps: number;
   aspect: string;
-  slots: { dur: number; zoom: [number, number]; pan: [number, number] }[];
+  /** speed: a speed ramp, [position 0..1 along the shot, speed relative to its average][]; blurred where it speeds up. */
+  slots: { dur: number; zoom: [number, number]; pan: [number, number]; speed?: [number, number][] }[];
   joins: { type: "cut" | "dissolve" | "flash"; dur: number }[];
   grade?: { warmth: number; saturation: number };
   /** Titles on the reference: where, how big, when and how they come in. Never their words. */
@@ -36,6 +37,8 @@ export type WrenTemplate = {
   /** The template carries its own music style (and effects) from the reference. */
   hasMusic?: boolean;
   hasEffects?: boolean;
+  /** Shots with a speed ramp. */
+  ramps?: number;
   previewUrl?: string;
   active: boolean;
   createdAt: number;
