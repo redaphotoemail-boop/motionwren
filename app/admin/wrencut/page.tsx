@@ -171,7 +171,7 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
               <button type="button" className="ml-del" onClick={() => setRenaming(false)}>Cancel</button>
             </form>
           ) : <h2>{template.name} <button type="button" className="ml-del wc-edit" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>Rename</button></h2>}
-          <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}{template.titles?.length ? ` · ${template.titles.length} titles` : ""}{template.ramps ? ` · ${template.ramps} speed ramps` : ""}</p>
+          <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}{template.titles?.length ? ` · ${template.titles.length} titles` : ""}{template.ramps ? ` · ${template.ramps} speed ramps` : ""}{template.shakes ? ` · camera shake` : ""}</p>
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>

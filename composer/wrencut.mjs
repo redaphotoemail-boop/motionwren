@@ -135,6 +135,50 @@ async function speedCurve(file, start, end) {
   return points.map(([u, v]) => [u, round(clamp(v / mean, 0.3, 3))]);
 }
 
+/* Camera shake: the jitter left once a shot's steady drift is taken away. Frame to frame, the picture's sideways and
+   up-down shifts are measured from row/column profiles; shake is the fast back-and-forth part. Returns
+   { amp (fraction of the picture width), decay } or null. A burst that dies away in the first moments is "decay". */
+async function shakeOf(file, start, end) {
+  const length = end - start;
+  if (length < 0.5) return null;
+  const fps = 20, w = 96, h = 160;
+  let raw;
+  try { raw = (await sh("ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(start + 0.05), "-t", String(Math.max(0.3, length - 0.1)), "-i", file, "-an", "-vf", `fps=${fps},scale=${w}:${h}:flags=area,format=gray`, "-f", "rawvideo", "-"], { binary: true, timeoutMs: 60_000 })).stdout; } catch { return null; }
+  const size = w * h, count = Math.floor(raw.length / size);
+  if (count < 8) return null;
+  const profiles = [];
+  for (let f = 0; f < count; f += 1) {
+    const cols = new Float32Array(w), rows = new Float32Array(h);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) { const v = raw[f * size + y * w + x]; cols[x] += v / h; rows[y] += v / w; }
+    profiles.push({ cols, rows });
+  }
+  const shift = (a, b, range) => {
+    const costs = [];
+    for (let s = -range; s <= range; s += 1) { let sum = 0, n = 0; for (let i = range; i < a.length - range; i += 1) { sum += Math.abs(a[i] - b[i + s]); n += 1; } costs.push(sum / n); }
+    let best = 0; for (let i = 1; i < costs.length; i += 1) if (costs[i] < costs[best]) best = i;
+    if (best > 0 && best < costs.length - 1) { const d = costs[best - 1] - 2 * costs[best] + costs[best + 1]; if (d > 1e-9) return best - range + (costs[best - 1] - costs[best + 1]) / (2 * d); }
+    return best - range;
+  };
+  const dx = [], dy = [];
+  for (let f = 1; f < count; f += 1) { dx.push(shift(profiles[f - 1].cols, profiles[f].cols, 6)); dy.push(shift(profiles[f - 1].rows, profiles[f].rows, 8)); }
+  // The picture's position over time, then what is left after a 5-frame moving average (the intended drift) is removed.
+  const path = (steps) => { const out = [0]; for (const step of steps) out.push(out[out.length - 1] + step); return out; };
+  const resid = (series) => series.map((v, i) => { let sum = 0, n = 0; for (let k = Math.max(0, i - 2); k <= Math.min(series.length - 1, i + 2); k += 1) { sum += series[k]; n += 1; } return v - sum / n; });
+  const trim = (list) => list.slice(2, Math.max(3, list.length - 2)); // the moving average is lopsided at both ends
+  const rx = trim(resid(path(dx))), ry = trim(resid(path(dy)));
+  const mag = rx.map((v, i) => Math.hypot(v / w, ry[i] / w));
+  // Real shake reverses direction again and again; a steady drift never does. Count the reversals.
+  const turns = (steps) => { let flips = 0, moves = 0; for (let i = 1; i < steps.length; i += 1) if (Math.abs(steps[i]) > 0.25 && Math.abs(steps[i - 1]) > 0.25) { moves += 1; if (steps[i] * steps[i - 1] < 0) flips += 1; } return { flips, moves }; };
+  const tx = turns(dx), ty = turns(dy);
+  const flipRate = (tx.flips + ty.flips) / Math.max(1, tx.moves + ty.moves);
+  const rms = (values) => Math.sqrt(values.reduce((sum, v) => sum + v * v, 0) / Math.max(1, values.length));
+  const amp = rms(mag);
+  if (amp < 0.006 || flipRate < 0.35) return null;
+  const early = rms(mag.slice(0, Math.max(2, Math.round(fps * 0.35)))), late = rms(mag.slice(Math.round(fps * 0.35)));
+  const decay = early > 2.5 * late && early > 0.012;
+  return { amp: round(clamp(decay ? early : amp, 0.006, 0.06), 4), ...(decay ? { decay: true } : {}) };
+}
+
 const moveToSlot = (move) => ({ zoom: move.z >= 1 ? [1, round(move.z)] : [round(1 / move.z), 1], pan: [round(move.dx), round(move.dy)] });
 
 export async function analyzeVideo(file, { duration, fps, width, height, workDir, onStage = () => {} }) {
@@ -153,7 +197,8 @@ export async function analyzeVideo(file, { duration, fps, width, height, workDir
       try { move = estimateMove(await grayFrame(file, start + pad), await grayFrame(file, end - Math.max(0.12, (i < joins.length ? joins[i].dur : 0) / 2 + 0.05))); } catch { /* a shot that cannot be measured stays still */ }
     }
     const speed = await speedCurve(file, start + pad, end - 0.05).catch(() => null);
-    slots.push({ dur: round(length), ...moveToSlot(move), ...(speed ? { speed } : {}) });
+    const shake = await shakeOf(file, start + pad, end - 0.05).catch(() => null);
+    slots.push({ dur: round(length), ...moveToSlot(move), ...(speed ? { speed } : {}), ...(shake ? { shake } : {}) });
   }
   // The look: warmth from the blue/red balance, richness from saturation.
   const mean = (key) => frames.reduce((sum, frame) => sum + frame[key], 0) / frames.length;
@@ -193,6 +238,7 @@ export function validRecipe(recipe) {
     if (!(slot.dur >= 0.3 && slot.dur <= 30)) return "A shot's length is out of range.";
     if (!Array.isArray(slot.zoom) || slot.zoom.length !== 2 || slot.zoom.some((z) => !(z >= 1 && z <= 1.6))) return "A shot's zoom is out of range.";
     if (!Array.isArray(slot.pan) || slot.pan.length !== 2 || slot.pan.some((p) => !(Math.abs(p) <= 0.3))) return "A shot's slide is out of range.";
+    if (slot.shake !== undefined && !(slot.shake && slot.shake.amp >= 0.002 && slot.shake.amp <= 0.08)) return "A shot's camera shake is out of range.";
     if (slot.speed !== undefined && !(Array.isArray(slot.speed) && slot.speed.length >= 2 && slot.speed.length <= 8 && slot.speed.every((point) => Array.isArray(point) && point[0] >= 0 && point[0] <= 1 && point[1] >= 0.2 && point[1] <= 4))) return "A shot's speed ramp is out of range.";
   }
   for (const [i, join] of recipe.joins.entries()) {
@@ -248,7 +294,13 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
     const px = slot.pan[0] * strength, py = slot.pan[1] * strength;
     const w2 = width * SS, h2 = height * SS;
     const u = `(t/${d.toFixed(3)})`;
-    const z = `(${z0.toFixed(4)}+(${(z1 - z0).toFixed(4)})*${u})`;
+    const sk = slot.shake;
+    const room = sk ? 1 + 2.4 * sk.amp : 1; // extra size so the shaking picture never shows an edge
+    const z = `(${room.toFixed(4)}*(${z0.toFixed(4)}+(${(z1 - z0).toFixed(4)})*${u}))`;
+    // Shake: two out-of-step wobbles per direction (a hand-held buzz), fading away when it is a burst.
+    const env = sk ? (sk.decay ? `exp(-7*t)` : "1") : "";
+    const shx = sk ? `+${(sk.amp * w2).toFixed(2)}*${env}*(sin(41*t)+0.6*sin(67*t+1.3))*0.62` : "";
+    const shy = sk ? `+${(sk.amp * w2).toFixed(2)}*${env}*(cos(47*t)+0.6*sin(71*t+0.4))*0.62` : "";
     // A speed ramp re-times the shot through a few short slices (each at its own speed), blurred where it speeds up
     // and smoothed where it slows down; a shot without one is untouched.
     const ramp = slot.speed ? rampHead({ index: i, speed: slot.speed, d, start: Math.max(0, starts[i] || 0), fps, strength: 1 }) : null;
@@ -256,7 +308,7 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
     const head = ramp ? `[${ramp.label}]` : `[${i}:v]trim=start=${Math.max(0, starts[i] || 0).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=3,trim=duration=${(d + 0.2).toFixed(3)},`;
     filters.push(`${head}fps=${fps},scale=${w2}:${h2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w2}:${h2},`
       + `scale=w='${w2}*${z}':h='${h2}*${z}':eval=frame:flags=bilinear,`
-      + `crop=${w2}:${h2}:x='min(max((in_w-${w2})/2+${(px * w2).toFixed(2)}*(${u}-0.5)*-1,0),in_w-${w2})':y='min(max((in_h-${h2})/2+${(py * h2).toFixed(2)}*(${u}-0.5)*-1,0),in_h-${h2})',`
+      + `crop=${w2}:${h2}:x='min(max((in_w-${w2})/2+${(px * w2).toFixed(2)}*(${u}-0.5)*-1${shx},0),in_w-${w2})':y='min(max((in_h-${h2})/2+${(py * h2).toFixed(2)}*(${u}-0.5)*-1${shy},0),in_h-${h2})',`
       + `scale=${width}:${height}:flags=lanczos,setsar=1,format=yuv420p[s${i}]`);
   });
   let last = "s0", acc = recipe.slots[0].dur;

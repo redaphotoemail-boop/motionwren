@@ -14,7 +14,7 @@ export type WrenRecipe = {
   fps: number;
   aspect: string;
   /** speed: a speed ramp, [position 0..1 along the shot, speed relative to its average][]; blurred where it speeds up. */
-  slots: { dur: number; zoom: [number, number]; pan: [number, number]; speed?: [number, number][] }[];
+  slots: { dur: number; zoom: [number, number]; pan: [number, number]; speed?: [number, number][]; /** shake: hand-held jitter, amp as a fraction of the width; decay = a burst that dies away. */ shake?: { amp: number; decay?: boolean } }[];
   joins: { type: "cut" | "dissolve" | "flash"; dur: number }[];
   grade?: { warmth: number; saturation: number };
   /** Titles on the reference: where, how big, when and how they come in. Never their words. */
@@ -39,6 +39,8 @@ export type WrenTemplate = {
   hasEffects?: boolean;
   /** Shots with a speed ramp. */
   ramps?: number;
+  /** Shots with camera shake. */
+  shakes?: number;
   previewUrl?: string;
   active: boolean;
   createdAt: number;
