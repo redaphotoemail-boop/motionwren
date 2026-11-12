@@ -5,7 +5,6 @@
    (no Worker bindings), so plain node can test it. The duration maths must
    match composer/wrencut.mjs (recipeDuration). */
 
-import type { TitleFx, SubtitleLine } from "./ads-creative";
 import { filmSceneDurations, type StudioEngineKey, type StudioResolution } from "./engine-catalog";
 
 export type WrenRecipe = {
@@ -18,7 +17,6 @@ export type WrenRecipe = {
   joins: { type: "cut" | "dissolve" | "flash"; dur: number }[];
   grade?: { warmth: number; saturation: number };
   /** Titles on the reference: where, how big, when and how they come in. Never their words. */
-  texts?: { start: number; end: number; x: number; y: number; h: number; caps: boolean; tone?: "light" | "dark"; fx?: TitleFx }[];
   /** The reference's sound as prompts: its music (tempo, mood) and an effect on some of the joins. No audio is kept. */
   audio?: { music?: { bpm?: number; prompt: string }; sfx?: { join: number; kind: "whoosh" | "hit" | "flash"; lead: number; prompt: string }[] };
 };
@@ -31,8 +29,6 @@ export type WrenTemplate = {
   photos: number;
   /** The engine this template is made with in Studio (set in WrenCut). */
   engine?: string;
-  /** The titles the template asks for (the words are the customer's). */
-  titles?: { at: number; where: "top" | "middle" | "bottom"; caps: boolean; fx?: string }[];
   hasPreview: boolean;
   /** The template carries its own music style (and effects) from the reference. */
   hasMusic?: boolean;
@@ -56,6 +52,7 @@ export function parseRecipe(value: unknown): WrenRecipe | null {
   try {
     const recipe = (typeof value === "string" ? JSON.parse(value) : value) as WrenRecipe;
     if (!recipe || recipe.version !== 1 || !Array.isArray(recipe.slots) || !Array.isArray(recipe.joins) || recipe.joins.length !== recipe.slots.length - 1 || !recipe.slots.length) return null;
+    delete (recipe as { texts?: unknown }).texts; // templates never carry text
     return recipe;
   } catch { return null; }
 }
@@ -82,15 +79,3 @@ export function joinTimes(recipe: WrenRecipe): number[] {
   });
 }
 
-export const recipeTitles = (recipe: WrenRecipe): NonNullable<WrenTemplate["titles"]> => (recipe.texts || []).map((item) => ({ at: item.start, where: item.y < 0.34 ? "top" : item.y > 0.66 ? "bottom" : "middle", caps: item.caps, ...(item.fx ? { fx: item.fx.type } : {}) }));
-
-/* The recipe's titles with the customer's words (an empty field is skipped: no placeholder text ever shows). */
-export function titleLines(recipe: WrenRecipe, words: string[], seconds: number): SubtitleLine[] {
-  const lines: SubtitleLine[] = [];
-  (recipe.texts || []).forEach((item, index) => {
-    const raw = String(words[index] || "").replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
-    if (!raw || item.start >= seconds - 0.3) return;
-    lines.push({ text: item.caps ? raw.toUpperCase() : raw, start: item.start, end: Math.min(seconds, Math.max(item.end, item.start + 0.8)), x: item.x, y: item.y, h: item.h, ...(item.tone ? { tone: item.tone } : {}), ...(item.fx ? { fx: item.fx } : {}) });
-  });
-  return lines;
-}

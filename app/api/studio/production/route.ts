@@ -9,7 +9,7 @@ import { musicPrompt } from "../../_lib/composer";
 import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "../../_lib/film-sound";
 import { musicTemplate } from "../../../music-catalog";
 import { getRecipe } from "../../_lib/wrencut";
-import { isWrenId, joinTimes, recipeSeconds, titleLines, wrenPlan } from "../../../wrencut";
+import { isWrenId, joinTimes, recipeSeconds, wrenPlan } from "../../../wrencut";
 import { LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, emptyRestaurantInteriorFields, libraryTemplateOverlayLines, libraryTemplatePlan } from "../../../library-templates";
 
 /* Studio production on the server — the same path client videos take.
@@ -111,10 +111,6 @@ export async function POST(request: Request) {
     }
     if (wren) {
       manifest.edit.crossfade = 0; manifest.edit.recipe = wren.recipe;
-      // The template's titles, with the words typed for this film.
-      const words = typeof body.template === "object" && body.template !== null && Array.isArray((body.template as { texts?: unknown }).texts) ? ((body.template as { texts: unknown[] }).texts).map((item) => String(item ?? "")) : [];
-      const titles = titleLines(wren.recipe, words, recipeSeconds(wren.recipe));
-      if (titles.length) manifest.edit.subtitles = { lines: titles };
     }
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
   }

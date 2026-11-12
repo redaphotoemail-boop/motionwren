@@ -5,7 +5,6 @@
 
 import { spawn } from "node:child_process";
 import { analyzeAudio } from "./wrenaudio.mjs";
-import { analyzeText } from "./wrentext.mjs";
 
 const sh = (command, args, { timeoutMs = 10 * 60 * 1000, binary = false } = {}) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -116,21 +115,22 @@ export function estimateMove(a, b) {
    Returns [[u, speed], …] (u = 0..1 along the shot, speed relative to the shot's own average) or null. */
 async function speedCurve(file, start, end) {
   const length = end - start;
-  if (length < 0.8) return null;
-  const fps = 15, w = 64, h = 112;
+  if (length < 0.5) return null;
+  const fps = 20, w = 64, h = 112;
   let raw;
   try { raw = (await sh("ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(start + 0.06), "-t", String(Math.max(0.3, length - 0.12)), "-i", file, "-an", "-vf", `fps=${fps},scale=${w}:${h}:flags=area,format=gray`, "-f", "rawvideo", "-"], { binary: true, timeoutMs: 60_000 })).stdout; } catch { return null; }
   const size = w * h, count = Math.floor(raw.length / size);
-  if (count < 8) return null;
+  if (count < 7) return null;
   const energy = [];
   for (let f = 1; f < count; f += 1) { let sum = 0; for (let i = 0; i < size; i += 1) sum += Math.abs(raw[f * size + i] - raw[(f - 1) * size + i]); energy.push(sum / size); }
   // Smooth over three frames.
   const smooth = energy.map((_, i) => (energy[Math.max(0, i - 1)] + energy[i] + energy[Math.min(energy.length - 1, i + 1)]) / 3);
   const sorted = [...smooth].sort((a, b) => a - b);
   const low = sorted[Math.floor(sorted.length * 0.1)], high = sorted[Math.floor(sorted.length * 0.9)], mid = sorted[Math.floor(sorted.length / 2)];
-  if (mid < 1.2 || high / Math.max(low, 0.4) < 2.4) return null; // too still, or too even
+  if (high < 0.45 || high / Math.max(low, 0.25 * mid, 0.2) < 2.3) return null; // too still, or too even
   const at = (u) => smooth[Math.min(smooth.length - 1, Math.max(0, Math.round(u * (smooth.length - 1))))];
-  const points = [0, 0.2, 0.4, 0.6, 0.8, 1].map((u) => [u, at(u) / mid]);
+  // Movement energy flattens out at high speed, so the curve is stretched a little to match how the ramp is felt.
+  const points = [0, 0.2, 0.4, 0.6, 0.8, 1].map((u) => [u, (at(u) / mid) ** 1.35]);
   const mean = points.reduce((sum, point) => sum + point[1], 0) / points.length;
   return points.map(([u, v]) => [u, round(clamp(v / mean, 0.3, 3))]);
 }
@@ -163,11 +163,7 @@ export async function analyzeVideo(file, { duration, fps, width, height, workDir
   onStage("sound");
   let audio;
   try { audio = await analyzeAudio(file, { duration, joins: joins.map((join) => ({ at: join.at, type: join.type })) }); } catch { /* a recipe without sound is still a recipe */ }
-  // The titles: where, how big, when and how they come in (never their words).
-  let texts;
-  if (workDir) { try { const found = await analyzeText(file, { duration, width, height, workDir, onStage }); if (found.length) texts = found; } catch { /* a recipe without titles is still a recipe */ } }
   return {
-    ...(texts ? { texts } : {}),
     ...(audio ? { audio: { ...(audio.music ? { music: audio.music } : {}), sfx: audio.sfx.map((item) => ({ join: item.join, kind: item.kind, lead: item.lead, prompt: item.prompt })) } } : {}),
     version: 1, duration: round(duration), fps: Math.round(fps), aspect: height > width ? "vertical" : width > height ? "horizontal" : "square",
     slots,
@@ -227,7 +223,7 @@ export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
   const pre = `[${index}:v]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${Math.ceil(source + 1)},split=${SLICES}${parts.map((_, k) => `[rp${index}_${k}]`).join("")}`;
   lines.push(pre);
   parts.forEach((part, k) => {
-    const blur = part.s > 1.35 ? `,tmix=frames=${Math.min(5, Math.max(2, Math.round(part.s * 1.5)))}` : "";
+    const blur = part.s > 1.12 ? `,tmix=frames=${Math.min(8, Math.max(3, Math.round(part.s * 2.4)))}` : ""; // motion blur: fast parts smear across neighbouring frames
     const smooth = part.s < 0.75 ? `,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1:scd=none` : "";
     lines.push(`[rp${index}_${k}]trim=start=${part.from.toFixed(4)}:end=${part.to.toFixed(4)},setpts=PTS-STARTPTS${blur},setpts=PTS/${part.s.toFixed(4)}${smooth},fps=${fps}[rq${index}_${k}]`);
     labels.push(`[rq${index}_${k}]`);

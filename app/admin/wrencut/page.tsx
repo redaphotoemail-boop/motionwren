@@ -12,7 +12,7 @@ import { PageHead } from "../ui";
 import { PreviewPlayer } from "../../wrencut-player";
 
 type HistoryItem = { id: string; prompt: string; duration: number; videoUrl: string; createdAt: number };
-const STAGES: Record<string, string> = { moves: "Reading camera moves and speed ramps…", text: "Reading the titles…", sound: "Listening for music and effects…", downloading: "Receiving the video…", reading: "Finding the cuts…", cuts: "Finding the cuts…", colour: "Reading the colour…", saving: "Saving the template…" };
+const STAGES: Record<string, string> = { moves: "Reading camera moves and speed ramps…", sound: "Listening for music and effects…", downloading: "Receiving the video…", reading: "Finding the cuts…", cuts: "Finding the cuts…", colour: "Reading the colour…", saving: "Saving the template…" };
 
 export default function WrenCutPage() {
   const [templates, setTemplates] = useState<WrenTemplate[]>([]);
@@ -171,7 +171,7 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
               <button type="button" className="ml-del" onClick={() => setRenaming(false)}>Cancel</button>
             </form>
           ) : <h2>{template.name} <button type="button" className="ml-del wc-edit" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>Rename</button></h2>}
-          <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}{template.titles?.length ? ` · ${template.titles.length} titles` : ""}{template.ramps ? ` · ${template.ramps} speed ramps` : ""}</p>
+          <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}{template.ramps ? ` · ${template.ramps} speed ramps with motion blur` : " · no speed ramps found in the reference"}</p>
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>

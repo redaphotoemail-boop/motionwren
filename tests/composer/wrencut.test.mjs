@@ -45,15 +45,12 @@ check("a whoosh into the first cut is found", heard.audio?.sfx?.some((item) => i
 check("the sound is only prompts and numbers", !JSON.stringify(heard.audio).includes(dir));
 check("a silent reference has no sound plan", (await analyzeVideo(ref, { duration: 4.5, fps: 30, width: 360, height: 640 })).audio === undefined);
 void silent;
-// Titles: where, when and how they come in — never their words.
+// Text: a reference with titles is read for everything EXCEPT its text — nothing about the words is analysed or kept.
 const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 const titled = path.join(dir, "titled.mp4");
 ff(["-f", "lavfi", "-i", "color=c=0x334455:s=540x960:r=24:d=5", "-vf", `drawtext=text='GRAND OPENING':fontfile=${font}:fontsize=58:fontcolor=white:x=(w-text_w)/2:y=300:alpha='if(lt(t,1),0,min(1,(t-1)/0.5))':enable='between(t,0,4)',drawtext=text='Visit us today':fontfile=${font}:fontsize=40:fontcolor=white:x='(w-text_w)/2+200*max(0\\,1-(t-2)/0.5)':y=700:enable='gte(t,2)'`, "-pix_fmt", "yuv420p", titled]);
 const seen = await analyzeVideo(titled, { duration: 5, fps: 24, width: 540, height: 960, workDir: dir });
-check("both titles are found", seen.texts?.length === 2, `${seen.texts?.length}`);
-check("the title is centred high, in capitals, fading in", seen.texts?.[0] && Math.abs(seen.texts[0].x - 0.5) < 0.05 && seen.texts[0].y < 0.4 && seen.texts[0].caps && seen.texts[0].fx?.type === "fade", JSON.stringify(seen.texts?.[0]));
-check("the second title slides in from the side", seen.texts?.[1]?.fx?.type === "slide" && Math.abs(seen.texts[1].fx.dx) > 0.15, JSON.stringify(seen.texts?.[1]));
-check("no words are kept", !/GRAND|OPENING|Visit/i.test(JSON.stringify(seen)));
+check("no text is read or kept", seen.texts === undefined && !/GRAND|OPENING|Visit/i.test(JSON.stringify(seen)));
 const ass = assText([{ start: 1, end: 3, text: "HI", y: 0.33, h: 0.046, fx: { type: "slide", dur: 0.4, dx: 0.3, dy: 0 } }, { start: 0, end: 2, text: "plain" }]);
 check("a title carries its place and entrance; a plain line stays plain", /\{\\an5\\move\(/.test(ass) && /,plain$/m.test(ass));
 // Speed ramps: an accelerating pan reads as a slow→fast curve; a steady pan has none; a ramped shot renders to length.
@@ -63,6 +60,14 @@ ff(["-f", "lavfi", "-i", "testsrc2=s=1620x960:r=30:d=3", "-vf", "crop=540:960:x=
 const ramped = (await analyzeVideo(accel, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].speed;
 check("an accelerating shot gets a speed ramp (slow start, fast end)", Array.isArray(ramped) && ramped[0][1] < 0.6 && Math.max(...ramped.map((p) => p[1])) > 1.6, JSON.stringify(ramped));
 check("a steady shot gets none", (await analyzeVideo(steady, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].speed === undefined);
+// A footage-style time-remap (slow-mo, normal, then fast) is a speed ramp, even when dim; short remapped shots count too.
+const remap = path.join(dir, "remap.mp4"), dimRemap = path.join(dir, "remap-dim.mp4");
+const remapGraph = (extra) => `[0:v]split=3[a][b][c];[a]trim=0:0.5,setpts=(PTS-STARTPTS)*2.5[x];[b]trim=0.5:1.5,setpts=PTS-STARTPTS[y];[c]trim=1.5:4.5,setpts=(PTS-STARTPTS)/3[z];[x][y][z]concat=n=3:v=1:a=0${extra}`;
+ff(["-f", "lavfi", "-i", "testsrc2=s=540x960:r=30:d=8", "-filter_complex", remapGraph(""), "-pix_fmt", "yuv420p", remap]);
+ff(["-f", "lavfi", "-i", "testsrc2=s=540x960:r=30:d=8", "-filter_complex", remapGraph(",eq=contrast=0.35:brightness=-0.1"), "-pix_fmt", "yuv420p", dimRemap]);
+const remapped = (await analyzeVideo(remap, { duration: dur(remap), fps: 30, width: 540, height: 960 })).slots[0].speed;
+check("a slow-mo to fast time-remap is a speed ramp", Array.isArray(remapped) && remapped[0][1] < 0.6 && Math.max(...remapped.map((p) => p[1])) > 1.4, JSON.stringify(remapped));
+check("a dim shot's ramp is found too", Array.isArray((await analyzeVideo(dimRemap, { duration: dur(dimRemap), fps: 30, width: 540, height: 960 })).slots[0].speed));
 const rampRecipe = { version: 1, duration: 3, fps: 24, aspect: "vertical", slots: [{ dur: 3, zoom: [1, 1], pan: [0, 0], speed: [[0, 0.5], [0.5, 1], [1, 2.6]] }], joins: [] };
 check("a ramped recipe is valid", validRecipe(rampRecipe) === "");
 const rampOut = path.join(dir, "ramp-out.mp4");
