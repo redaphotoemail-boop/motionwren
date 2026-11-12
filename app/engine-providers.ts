@@ -33,10 +33,10 @@ export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
 }
 
-const NEGATIVE = "warping, morphing, flicker, unstable geometry, fake text, distorted hands, broken continuity, invented objects, added cars, added vehicles, new objects appearing, new people, animals, unwanted object movement, shake, jitter";
+const NEGATIVE = "warping, morphing, flicker, unstable geometry, fake text, distorted hands, broken continuity, invented objects, added cars, added vehicles, new objects appearing, new people, animals, moving furniture, moved or shifted objects, disappearing objects, unwanted object movement, shake, jitter";
 /* The customer path's original Kling negative prompt (real-estate static
    locks), kept verbatim so the default engine's output does not change. */
-const KLING_NEGATIVE = "object movement, people moving, hands, touching, furniture movement, curtain movement, plant movement, water movement, reflection movement, lighting changes, warped walls, bending lines, altered architecture, morphing, melting, duplication, invented objects, disappearing objects, flicker, shake, jitter, handheld movement, walking bounce, horizon drift, added cars, added vehicles, new objects appearing, new people, animals";
+const KLING_NEGATIVE = "object movement, people moving, hands, touching, furniture movement, curtain movement, plant movement, water movement, reflection movement, lighting changes, warped walls, bending lines, altered architecture, morphing, melting, duplication, invented objects, disappearing objects, flicker, shake, jitter, handheld movement, walking bounce, horizon drift, added cars, added vehicles, new objects appearing, new people, animals, moving furniture, moved or shifted objects, disappearing objects";
 
 /* Highest resolution the engine supports (1080p when available). The
    customer path used to force 1080p; engines like Runway 4.5 (720p only)
@@ -50,8 +50,8 @@ export function engineResolution(engine: StudioEngineKey): StudioResolution {
    customer videos are always silent. seed: the Studio's fixed seed. */
 export type EngineInputOptions = { imageUrl: string; prompt: string; duration: number; resolution: StudioResolution; aspectRatio: "16:9" | "9:16" | "1:1"; audio?: boolean; seed?: number };
 
-/* Engines with no negative list get one plain sentence after the prompt (the baked prompt text itself is untouched). */
-const ADD_NOTHING = "Add nothing that is not in the photo: no new cars, vehicles, people, animals or objects appear; everything already there stays exactly as it is.";
+/* Every engine gets this strict sentence after its prompt (the baked prompt text itself is untouched). */
+const ADD_NOTHING = "STRICT: only the camera moves. Nothing moves, shifts, slides, opens or changes in the scene: furniture, vehicles, plants, curtains, water, lights and every object stay exactly where they are. Add nothing that is not in the photo: no new cars, vehicles, people, animals or objects appear, and nothing disappears.";
 
 export function buildEngineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
   const input = engineInput(engine, { ...options, resolution: nativeResolution(engine, options.resolution) });
@@ -67,13 +67,12 @@ export function runwayPrompt(prompt: string) {
   const move = baked[1]
     .replace(/subtle three-quarter orbit around the property scene/i, "smooth three-quarter orbit, arcing sideways around the room so the viewpoint truly turns and nearer objects shift against the background")
     .replace(/horizontal lateral slide across the property scene/i, "smooth horizontal slide sideways across the room, so nearer objects shift against the background");
-  return `${move}. A frozen real-estate photograph brought to life by the camera alone: everything in the frame stays exactly as photographed, perfectly still, and nothing new appears: no added cars, people or objects. Only the camera moves. Straight architectural lines, realistic, perfectly steady.`.slice(0, 1000);
+  return `${move}. A frozen real-estate photograph brought to life by the camera alone: everything in the frame stays exactly as photographed, perfectly still and exactly where it is, and nothing new appears: no added cars, people or objects, and no furniture moves. Only the camera moves. Straight architectural lines, realistic, perfectly steady.`.slice(0, 1000);
 }
 
 function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
-  const prompt = options.prompt.slice(0, 4000);
   const noAudio = options.audio ? "Generate restrained synchronized ambience." : "No dialogue, no music, and no sound effects.";
-  if (engine === "kling3") return { start_image: options.imageUrl, prompt, duration: options.duration, mode: options.resolution === "1080p" ? "pro" : "standard", aspect_ratio: options.aspectRatio, generate_audio: options.audio === true, negative_prompt: KLING_NEGATIVE };
+  if (engine === "kling3") return { start_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, duration: options.duration, mode: options.resolution === "1080p" ? "pro" : "standard", aspect_ratio: options.aspectRatio, generate_audio: options.audio === true, negative_prompt: KLING_NEGATIVE };
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3700)} ${ADD_NOTHING}`, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
@@ -81,9 +80,9 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "runway4turbo") return { image: options.imageUrl, prompt: runwayPrompt(options.prompt), duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
   if (engine === "luma") return { start_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3700)} ${ADD_NOTHING}`, duration: 5, resolution: options.resolution === "1080p" ? "1080p" : "720p", aspect_ratio: options.aspectRatio };
   if (engine === "runway45") return { image: options.imageUrl, prompt: runwayPrompt(options.prompt), duration: options.duration, aspect_ratio: options.aspectRatio };
-  if (engine === "wan25") return { image: options.imageUrl, prompt, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
-  if (engine === "wan27") return { first_frame: options.imageUrl, prompt, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
-  if (engine === "wan3") return { image: options.imageUrl, prompt, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
+  if (engine === "wan25") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
+  if (engine === "wan27") return { first_frame: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
+  if (engine === "wan3") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, resolution: options.resolution, aspect_ratio: options.aspectRatio, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
   // h3lite and h3: image-to-video takes the photo's own shape; 720p here means its 768P (480P only on Lite).
   return { first_frame_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3700)} ${ADD_NOTHING}`, duration: options.duration, resolution: options.resolution === "480p" ? "480P" : "768P" };
 }
