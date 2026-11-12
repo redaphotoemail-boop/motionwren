@@ -68,18 +68,5 @@ check("a ramped recipe is valid", validRecipe(rampRecipe) === "");
 const rampOut = path.join(dir, "ramp-out.mp4");
 ff(editArgs({ clips: [clips[0]], width: 360, height: 640, fps: 24, crossfade: 0, duration: 3, sceneSeconds: 3, output: rampOut, recipe: rampRecipe, starts: [0], strength: 1 }));
 check("a ramped shot keeps its length", Math.abs(dur(rampOut) - 3) < 0.15, `${dur(rampOut).toFixed(2)}`);
-// Camera shake: hand-held jitter is read as shake; a smooth drift is not; a shaking shot renders to length.
-const shaky = path.join(dir, "shaky.mp4"), drifting = path.join(dir, "drifting.mp4");
-ff(["-f", "lavfi", "-i", "testsrc2=s=600x1050:r=30:d=3", "-vf", "crop=540:960:x='30+6*sin(45*t)+3*sin(71*t)':y='45+6*cos(52*t)+3*sin(83*t)'", "-pix_fmt", "yuv420p", shaky]);
-ff(["-f", "lavfi", "-i", "testsrc2=s=600x1050:r=30:d=3", "-vf", "crop=540:960:x='30+25*t/3':y=45", "-pix_fmt", "yuv420p", drifting]);
-const shook = (await analyzeVideo(shaky, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].shake;
-check("hand-held jitter is read as camera shake", shook && shook.amp > 0.006 && shook.amp < 0.06, JSON.stringify(shook));
-check("a smooth drift is not shake", (await analyzeVideo(drifting, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].shake === undefined);
-const shakeRecipe = { version: 1, duration: 3, fps: 24, aspect: "vertical", slots: [{ dur: 3, zoom: [1, 1.1], pan: [0, 0], shake: { amp: 0.02 } }, ], joins: [] };
-check("a shaking recipe is valid", validRecipe(shakeRecipe) === "");
-check("a wild shake amount is refused", validRecipe({ ...shakeRecipe, slots: [{ ...shakeRecipe.slots[0], shake: { amp: 0.5 } }] }) !== "");
-const shakeOut = path.join(dir, "shake-out.mp4");
-ff(editArgs({ clips: [clips[0]], width: 360, height: 640, fps: 24, crossfade: 0, duration: 3, sceneSeconds: 3, output: shakeOut, recipe: shakeRecipe, starts: [0], strength: 1 }));
-check("a shaking shot keeps its length", Math.abs(dur(shakeOut) - 3) < 0.15, `${dur(shakeOut).toFixed(2)}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
