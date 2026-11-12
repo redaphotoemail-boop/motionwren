@@ -6,10 +6,10 @@ import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_li
 import { PHOTO_MOVE_CYCLE, cleanCards, frameKey, newManifest, saveManifest, storeFrame } from "../../_lib/production";
 import { studioToken } from "../../_lib/studio-token";
 import { musicPrompt } from "../../_lib/composer";
-import { ElevenLabsMissingKey, makeSfx, makeVoice } from "../../_lib/film-sound";
+import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "../../_lib/film-sound";
 import { musicTemplate } from "../../../music-catalog";
 import { getRecipe } from "../../_lib/wrencut";
-import { isWrenId, recipeSeconds, wrenPlan } from "../../../wrencut";
+import { isWrenId, joinTimes, recipeSeconds, wrenPlan } from "../../../wrencut";
 import { LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, emptyRestaurantInteriorFields, libraryTemplateOverlayLines, libraryTemplatePlan } from "../../../library-templates";
 
 /* Studio production on the server — the same path client videos take.
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
   if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
   if (mode === "series") {
     const picked = musicTemplate(body.music);
-    manifest.edit = { shareSeconds, crossfade: templated ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : musicPrompt({ aspect, duration, choice: templated ? LIBRARY_TEMPLATE_MUSIC_MOOD : null }) } };
+    manifest.edit = { shareSeconds, crossfade: templated ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : wren?.recipe.audio?.music?.prompt || musicPrompt({ aspect, duration, choice: templated || wren ? LIBRARY_TEMPLATE_MUSIC_MOOD : null }) } };
     if (templated) {
       // Hard cuts, the template's text over the film, and its warm look.
       const lines = libraryTemplateOverlayLines(libraryPick.libraryTemplate, libraryPick.fields, duration, shareSeconds);
@@ -125,6 +125,13 @@ export async function POST(request: Request) {
       const prompts = Array.isArray(soundIn.sfx.prompts) ? (soundIn.sfx.prompts as unknown[]).map((prompt) => clean(prompt, 140)) : [];
       const sfx = await makeSfx(env, id, Array.from({ length: scenes.length }, (_, index) => prompts[index] || ""), Math.min(sceneSeconds, 12));
       if (sfx) manifest.edit = { ...(manifest.edit || {}), sound: { ...(manifest.edit?.sound || {}), sfx } };
+    }
+    if (wren?.recipe.audio?.sfx?.length && manifest.edit) {
+      // The template's own effects on its cuts (whooshes, hits), made from its prompts. Best effort: a film never waits on them.
+      try {
+        const cutfx = await makeCutEffects(env, id, wren.recipe.audio, joinTimes(wren.recipe));
+        if (cutfx) manifest.edit.sound = { ...(manifest.edit.sound || {}), cutfx };
+      } catch { /* the film is made without them */ }
     }
     await saveManifest(env, id, manifest);
     if (inline) {

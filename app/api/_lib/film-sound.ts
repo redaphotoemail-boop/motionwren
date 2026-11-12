@@ -202,5 +202,23 @@ export function soundLayers(sound: NonNullable<import("./production").Production
     const at = start(index);
     if (at < duration - 0.5) layers.push({ url: link(file), at: Math.round(at * 1000) / 1000, gain: 0.35, kind: "sfx" });
   });
+  for (const hit of sound?.cutfx?.hits || []) {
+    if (hit.at < duration - 0.3) layers.push({ url: link(hit.file), at: Math.round(hit.at * 1000) / 1000, gain: 0.5, kind: "sfx" });
+  }
   return layers;
+}
+
+/* A WrenCut template's effects: one sound per kind (at most three), placed on its joins. A failure here never stops a film. */
+export async function makeCutEffects(env: SoundEnv, jobId: string, audio: NonNullable<import("../../wrencut").WrenRecipe["audio"]>, times: number[]) {
+  const effects = (audio.sfx || []).filter((item) => times[item.join] !== undefined);
+  const kinds = [...new Set(effects.map((item) => item.kind))].slice(0, 3);
+  const files: Record<string, string> = {};
+  for (const kind of kinds) {
+    const prompt = effects.find((item) => item.kind === kind)!.prompt;
+    const name = `cutfx-${kind}.mp3`;
+    await env.BUCKET.put(trackKey(jobId, name), await generateSoundEffect({ text: prompt, seconds: 1.5 }), { httpMetadata: { contentType: "audio/mpeg" } });
+    files[kind] = name;
+  }
+  const hits = effects.filter((item) => files[item.kind]).map((item) => ({ file: files[item.kind], at: Math.max(0, times[item.join] - item.lead) }));
+  return hits.length ? { files, hits } : undefined;
 }

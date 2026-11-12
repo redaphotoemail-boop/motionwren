@@ -4,6 +4,7 @@
    and the colour look. Pure ffmpeg + a little arithmetic, no other tools. */
 
 import { spawn } from "node:child_process";
+import { analyzeAudio } from "./wrenaudio.mjs";
 
 const sh = (command, args, { timeoutMs = 10 * 60 * 1000, binary = false } = {}) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -132,7 +133,12 @@ export async function analyzeVideo(file, { duration, fps, width, height, onStage
   const mean = (key) => frames.reduce((sum, frame) => sum + frame[key], 0) / frames.length;
   const warmth = ((mean("v") - 128) - (mean("u") - 128)) / 2;
   const grade = { warmth: round(clamp(warmth * 0.012, -0.1, 0.1)), saturation: round(clamp(mean("sat") / 34, 0.85, 1.35)) };
+  // The sound: tempo/tone of the music and the accents on the cuts, as prompts (the audio itself is never kept).
+  onStage("sound");
+  let audio;
+  try { audio = await analyzeAudio(file, { duration, joins: joins.map((join) => ({ at: join.at, type: join.type })) }); } catch { /* a recipe without sound is still a recipe */ }
   return {
+    ...(audio ? { audio: { ...(audio.music ? { music: audio.music } : {}), sfx: audio.sfx.map((item) => ({ join: item.join, kind: item.kind, lead: item.lead, prompt: item.prompt })) } } : {}),
     version: 1, duration: round(duration), fps: Math.round(fps), aspect: height > width ? "vertical" : width > height ? "horizontal" : "square",
     slots,
     // Only the joins that were actually kept between shots.

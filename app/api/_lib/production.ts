@@ -91,7 +91,7 @@ export type ProductionManifest = {
     /** A film's own voice and sound effects, made at the final edit. voice.mode "scene": one line per
         scene, each placed at its scene; "film": one script read across the whole film (voice-01.mp3).
         tracks hold file names in the job's folder ("" = none for that scene). noMusic: the film is edited with no music. */
-    sound?: { noMusic?: boolean; voice?: { mode: "scene" | "film"; voiceId: string; lines: string[]; tracks: string[] }; sfx?: { prompts: string[]; tracks: string[] } };
+    sound?: { noMusic?: boolean; voice?: { mode: "scene" | "film"; voiceId: string; lines: string[]; tracks: string[] }; sfx?: { prompts: string[]; tracks: string[] }; /** A WrenCut template's effects on its cuts: one stored sound per kind, placed at times (seconds). */ cutfx?: { files: Record<string, string>; hits: { file: string; at: number }[] } };
     key?: string;
     attempt?: number;  // every edit ever started for this film (keys are never reused)
     tries?: number;    // edits tried for the current version of the film

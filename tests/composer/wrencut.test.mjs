@@ -35,5 +35,15 @@ ff([...refParts.flatMap((f) => ["-i", f]), "-filter_complex", "[0][1][2]concat=n
 const read = await analyzeVideo(ref, { duration: 4.5, fps: 30, width: 360, height: 640 });
 check("the analyzer finds the three shots", read.slots.length === 3, `${read.slots.length} shots`);
 check("the analyzer's recipe is valid", validRecipe(read) === "", validRecipe(read));
+// Sound: a 120 BPM bed with a whoosh building into the cut at 1.5 s.
+const audio = path.join(dir, "a.wav"), sound = path.join(dir, "sound-ref.mp4"), silent = path.join(dir, "silent.mp4");
+ff(["-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*80*t)*exp(-14*mod(t\\,0.5)):s=16000:d=6", "-f", "lavfi", "-i", "anoisesrc=d=0.4:c=white:a=0.5:r=16000,afade=t=in:d=0.4,adelay=1100|1100,apad=whole_dur=6", "-filter_complex", "amix=inputs=2:duration=first:normalize=0", "-t", "6", audio]);
+ff(["-i", ref, "-i", audio, "-c:v", "copy", "-c:a", "aac", "-shortest", sound]);
+const heard = await analyzeVideo(sound, { duration: 4.5, fps: 30, width: 360, height: 640 });
+check("the music's tempo is found", heard.audio?.music?.bpm >= 115 && heard.audio.music.bpm <= 125, `bpm ${heard.audio?.music?.bpm}`);
+check("a whoosh into the first cut is found", heard.audio?.sfx?.some((item) => item.join === 0 && item.kind === "whoosh"), JSON.stringify(heard.audio?.sfx));
+check("the sound is only prompts and numbers", !JSON.stringify(heard.audio).includes(dir));
+check("a silent reference has no sound plan", (await analyzeVideo(ref, { duration: 4.5, fps: 30, width: 360, height: 640 })).audio === undefined);
+void silent;
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

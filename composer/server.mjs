@@ -759,13 +759,27 @@ async function streamFile(res, file, type) {
 }
 
 const publicAnalysis = (key) => { const job = jobs.get(key); return job ? { key, status: job.status, stage: job.stage, error: job.error, recipe: job.recipe } : { key, status: "unknown" }; };
+const SOCIAL_HOST = /(^|\.)(tiktok\.com|instagram\.com|capcut\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch|vm\.tiktok\.com)$/i;
+/* A social-site video, fetched the way a browser would (public videos only, no sign-in). Sites often refuse; then the message says what to do. */
+async function fetchSocial(link, file) {
+  try {
+    await run("yt-dlp", ["--no-playlist", "--no-warnings", "--max-filesize", "300M", "-f", "mp4/bestvideo*+bestaudio/best", "--merge-output-format", "mp4", "-o", file, link], { timeoutMs: 3 * 60 * 1000 });
+  } catch (error) {
+    const text = String(error?.message || error);
+    if (/ENOENT/.test(text)) throw new Error("This link type is not available yet. Save the video and upload the file.");
+    throw new Error("The site would not hand this video over (many Instagram and TikTok links need a sign-in). In Instagram, tap Share → Download, then upload the file here.");
+  }
+  await fs.access(file).catch(() => { throw new Error("The site would not hand this video over. Save it with Share → Download and upload the file."); });
+}
+
 async function analyzeJob(key, link) {
   const job = jobs.get(key);
   const dir = path.join(ROOT, key);
   try {
     await fs.mkdir(dir, { recursive: true });
     const file = path.join(dir, "reference.mp4");
-    await download(link, file, 300 * 1024 * 1024, "The reference video");
+    if (SOCIAL_HOST.test(new URL(link).hostname)) await fetchSocial(link, file);
+    else await download(link, file, 300 * 1024 * 1024, "The reference video");
     const info = await probe(file);
     if (!info.hasVideo || info.duration < 2 || info.duration > 180) throw new Error("The reference must be a video between 2 seconds and 3 minutes.");
     job.stage = "reading";
