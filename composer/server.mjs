@@ -320,6 +320,21 @@ export function photoClipArgs({ image, move, width, height, fps, seconds, output
    style the output is byte-identical to the single-style file of before.
    The container ships Liberation Sans. */
 const SUBTITLE_FONT_SIZE = { small: 36, medium: 48, large: 64 }; // at 1080p height
+/* A WrenCut title: its own place (x, y as fractions of the picture), size (h, the text's height as a fraction),
+   colour (tone) and entrance (fx: fade, slide or pop). A line with none of these gets no tags, as before. */
+function lineTags(line) {
+  if (!(Number.isFinite(line.y) || line.fx)) return "";
+  const x = Math.round((Number.isFinite(line.x) ? line.x : 0.5) * 1280), y = Math.round((Number.isFinite(line.y) ? line.y : 0.5) * 720);
+  const ms = (seconds) => Math.max(0, Math.round((seconds || 0) * 1000));
+  const fx = line.fx || {};
+  const parts = ["\\an5"];
+  parts.push(fx.type === "slide" ? `\\move(${x + Math.round((fx.dx || 0) * 1280)},${y + Math.round((fx.dy || 0) * 720)},${x},${y},0,${ms(fx.dur)})` : `\\pos(${x},${y})`);
+  if (Number.isFinite(line.h) && line.h > 0) parts.push(`\\fs${Math.max(14, Math.min(200, Math.round(line.h * 1000)))}`);
+  if (line.tone === "dark") parts.push("\\1c&H1A1A1A&\\3c&HF0F0F0&");
+  if (fx.type === "fade") parts.push(`\\fad(${ms(fx.dur)},150)`);
+  if (fx.type === "pop") { const from = Math.round(Math.max(0.3, Math.min(0.95, fx.from || 0.7)) * 100); parts.push(`\\fscx${from}\\fscy${from}\\t(0,${ms(fx.dur)},\\fscx100\\fscy100)\\fad(${ms(fx.dur)},150)`); }
+  return `{${parts.join("")}}`;
+}
 export function assText(lines, { position = "bottom", size = "medium", height = 1080 } = {}) {
   const cap = (value) => value.charAt(0).toUpperCase() + value.slice(1);
   const alignmentFor = (pos) => pos === "top" ? 8 : pos === "center" ? 5 : 2; // 2 bottom-center, 8 top-center, 5 middle-center
@@ -347,7 +362,7 @@ export function assText(lines, { position = "bottom", size = "medium", height = 
     return `Style: ${styleName(group)},Liberation Sans,${fontSize},&H00FFFFFF,&H00FFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,${alignmentFor(group.position)},20,20,${marginV},1`;
   });
   const events = groups.flatMap((group) =>
-    group.lines.map((line) => `Dialogue: 0,${time(line.start)},${time(line.end)},${styleName(group)},,0,0,0,,${String(line.text).replace(/\r/g, "").replace(/\n/g, "\\N").trim()}`),
+    group.lines.map((line) => `Dialogue: 0,${time(line.start)},${time(line.end)},${styleName(group)},,0,0,0,,${lineTags(line)}${String(line.text).replace(/\r/g, "").replace(/\n/g, "\\N").trim()}`),
   );
   return [
     "[Script Info]",
@@ -526,6 +541,9 @@ function validSpec(spec) {
       if (!(line.start >= 0 && line.end > line.start && line.end <= spec.duration + 1)) return "Subtitle times must fit the film.";
       if (line.position != null && !["bottom", "top", "center"].includes(line.position)) return "Subtitle line position must be bottom, top or center.";
       if (line.size != null && !["small", "medium", "large"].includes(line.size)) return "Subtitle line size must be small, medium or large.";
+      for (const key of ["x", "y", "h"]) if (line[key] != null && !(line[key] >= 0 && line[key] <= 1)) return "A title's place and size must be between 0 and 1.";
+      if (line.tone != null && !["light", "dark"].includes(line.tone)) return "A title's tone must be light or dark.";
+      if (line.fx != null && !(["fade", "slide", "pop"].includes(line.fx.type) && !(line.fx.dur > 2))) return "A title's entrance is not valid.";
     }
   }
   if (spec.voiceover !== undefined && !(spec.voiceover && typeof spec.voiceover.url === "string" && /^https?:\/\//.test(spec.voiceover.url))) return "Voiceover needs a link.";
@@ -783,7 +801,7 @@ async function analyzeJob(key, link) {
     const info = await probe(file);
     if (!info.hasVideo || info.duration < 2 || info.duration > 180) throw new Error("The reference must be a video between 2 seconds and 3 minutes.");
     job.stage = "reading";
-    job.recipe = await analyzeVideo(file, { duration: info.duration, fps: info.fps || 30, width: info.width, height: info.height, onStage: (stage) => { job.stage = stage; } });
+    job.recipe = await analyzeVideo(file, { duration: info.duration, fps: info.fps || 30, width: info.width, height: info.height, workDir: dir, onStage: (stage) => { job.stage = stage; } });
     job.status = "done"; job.stage = "done";
   } catch (error) { job.status = "failed"; job.error = String(error?.message || error).slice(0, 400); }
   finally { await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined); }

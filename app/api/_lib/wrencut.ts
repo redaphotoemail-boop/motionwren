@@ -5,7 +5,7 @@
    recipe (numbers) is stored under the name "MotionWren N". */
 
 import { composerBinding } from "./composer";
-import { parseRecipe, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
+import { parseRecipe, recipePhotos, recipeSeconds, recipeTitles, type WrenRecipe, type WrenTemplate } from "../../wrencut";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
@@ -31,7 +31,7 @@ const rowToTemplate = (row: Record<string, unknown>): WrenTemplate | null => {
   const recipe = parseRecipe(row.recipe);
   if (!recipe) return null;
   const preview = Boolean(row.preview);
-  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
+  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ...(recipe.texts?.length ? { titles: recipeTitles(recipe) } : {}), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
 };
 
 export async function listTemplates(env: Env, onlyActive = false): Promise<WrenTemplate[]> {
@@ -54,7 +54,7 @@ export async function saveTemplate(env: Env, recipe: WrenRecipe): Promise<WrenTe
   const id = crypto.randomUUID();
   const last = await env.DB.prepare(`SELECT MAX(number) AS n FROM wrencut_templates`).first<{ n: number | null }>();
   const number = (last?.n || 0) + 1;
-  const clean: WrenRecipe = { version: 1, duration: recipe.duration, fps: recipe.fps, aspect: recipe.aspect, slots: recipe.slots, joins: recipe.joins, ...(recipe.grade ? { grade: recipe.grade } : {}), ...(recipe.audio ? { audio: recipe.audio } : {}) };
+  const clean: WrenRecipe = { version: 1, duration: recipe.duration, fps: recipe.fps, aspect: recipe.aspect, slots: recipe.slots, joins: recipe.joins, ...(recipe.grade ? { grade: recipe.grade } : {}), ...(recipe.audio ? { audio: recipe.audio } : {}), ...(recipe.texts ? { texts: recipe.texts } : {}) };
   await env.DB.prepare(`INSERT INTO wrencut_templates (id, number, name, recipe, preview, active, created_at) VALUES (?, ?, ?, ?, 0, 1, ?)`).bind(id, number, `MotionWren ${number}`, JSON.stringify(clean), Date.now()).run();
   return (await listTemplates(env)).find((item) => item.id === `wren:${id}`)!;
 }

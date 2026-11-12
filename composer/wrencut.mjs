@@ -5,6 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { analyzeAudio } from "./wrenaudio.mjs";
+import { analyzeText } from "./wrentext.mjs";
 
 const sh = (command, args, { timeoutMs = 10 * 60 * 1000, binary = false } = {}) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -112,7 +113,7 @@ export function estimateMove(a, b) {
 /* A move as it will be drawn: the picture is always at least full size (zoom 1 or more). */
 const moveToSlot = (move) => ({ zoom: move.z >= 1 ? [1, round(move.z)] : [round(1 / move.z), 1], pan: [round(move.dx), round(move.dy)] });
 
-export async function analyzeVideo(file, { duration, fps, width, height, onStage = () => {} }) {
+export async function analyzeVideo(file, { duration, fps, width, height, workDir, onStage = () => {} }) {
   onStage("reading");
   const frames = await frameStats(file);
   if (frames.length < 10) throw new Error("That video is too short to read.");
@@ -137,7 +138,11 @@ export async function analyzeVideo(file, { duration, fps, width, height, onStage
   onStage("sound");
   let audio;
   try { audio = await analyzeAudio(file, { duration, joins: joins.map((join) => ({ at: join.at, type: join.type })) }); } catch { /* a recipe without sound is still a recipe */ }
+  // The titles: where, how big, when and how they come in (never their words).
+  let texts;
+  if (workDir) { try { const found = await analyzeText(file, { duration, width, height, workDir, onStage }); if (found.length) texts = found; } catch { /* a recipe without titles is still a recipe */ } }
   return {
+    ...(texts ? { texts } : {}),
     ...(audio ? { audio: { ...(audio.music ? { music: audio.music } : {}), sfx: audio.sfx.map((item) => ({ join: item.join, kind: item.kind, lead: item.lead, prompt: item.prompt })) } } : {}),
     version: 1, duration: round(duration), fps: Math.round(fps), aspect: height > width ? "vertical" : width > height ? "horizontal" : "square",
     slots,
