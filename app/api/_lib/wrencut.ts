@@ -22,6 +22,8 @@ async function ensure(env: Env) {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS wrencut_links (id TEXT PRIMARY KEY, token TEXT NOT NULL, r2_key TEXT NOT NULL, created_at INTEGER NOT NULL)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS wrencut_reads (job TEXT PRIMARY KEY, status TEXT NOT NULL, template_id TEXT, error TEXT, ref_key TEXT, created_at INTEGER NOT NULL)`),
   ]);
+  // Older tables had no engine column.
+  await env.DB.prepare(`ALTER TABLE wrencut_templates ADD COLUMN engine TEXT`).run().catch(() => undefined);
   ready = true;
 }
 
@@ -29,7 +31,7 @@ const rowToTemplate = (row: Record<string, unknown>): WrenTemplate | null => {
   const recipe = parseRecipe(row.recipe);
   if (!recipe) return null;
   const preview = Boolean(row.preview);
-  return { id: `wren:${row.id}`, name: String(row.name), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
+  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
 };
 
 export async function listTemplates(env: Env, onlyActive = false): Promise<WrenTemplate[]> {
@@ -60,6 +62,11 @@ export async function saveTemplate(env: Env, recipe: WrenRecipe): Promise<WrenTe
 export async function setActive(env: Env, id: string, active: boolean) {
   await ensure(env);
   await env.DB.prepare(`UPDATE wrencut_templates SET active = ? WHERE id = ?`).bind(active ? 1 : 0, id).run();
+}
+
+export async function setEngine(env: Env, id: string, engine: string | null) {
+  await ensure(env);
+  await env.DB.prepare(`UPDATE wrencut_templates SET engine = ? WHERE id = ?`).bind(engine, id).run();
 }
 
 export async function renameTemplate(env: Env, id: string, name: string) {

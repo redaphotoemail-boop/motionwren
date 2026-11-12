@@ -17,9 +17,9 @@ import { engineCost, type StudioEngineKey, type StudioResolution } from "../engi
 export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; hasMusic?: boolean } };
 export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
 
-type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean };
+type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void };
 
-export default function TemplateStrip({ value, onChange, engine, resolution, photoCount, disabled }: Props) {
+export default function TemplateStrip({ value, onChange, engine, resolution, photoCount, disabled, onEngine }: Props) {
   const [enabled, setEnabled] = useState<Record<string, boolean> | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -46,11 +46,11 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   const plan = chosen && photoCount >= 2 ? libraryTemplatePlan(engine, resolution, photoCount) : null;
   const wrenCost = chosenWren && photoCount >= 2 ? (() => { const wp = wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
   const cost = plan ? engineCost(engine, plan.resolution, plan.sceneSeconds * plan.count) : null;
-  const pickWren = (item: WrenTemplate) => onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos, hasMusic: item.hasMusic } });
+  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos, hasMusic: item.hasMusic } }); };
   const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined });
   const toggle = () => {
     const on = !value.on;
-    if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else onChange({ ...value, on, id: wrens[0].id, wren: { seconds: wrens[0].seconds, photos: wrens[0].photos, hasMusic: wrens[0].hasMusic } }); return; }
+    if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else { if (wrens[0].engine && onEngine) onEngine(wrens[0].engine as StudioEngineKey); onChange({ ...value, on, id: wrens[0].id, wren: { seconds: wrens[0].seconds, photos: wrens[0].photos, hasMusic: wrens[0].hasMusic } }); } return; }
     onChange({ ...value, on });
   };
   return <section className="tpl-strip" aria-label="Template">
