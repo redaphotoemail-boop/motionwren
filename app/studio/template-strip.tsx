@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplatePlan, parseLibraryEnabled, type LibraryTemplateFields, type LibraryTemplateId } from "../library-templates";
 import type { WrenTemplate } from "../wrencut";
 import { wrenPlan } from "../wrencut";
+import { PreviewPlayer } from "../wrencut-player";
 import { engineCost, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 /* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
@@ -29,6 +30,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
     return () => { cancelled = true; };
   }, []);
   const [wrens, setWrens] = useState<WrenTemplate[]>([]);
+  const [watching, setWatching] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/admin/wrencut", { cache: "no-store" }).then(async (response) => {
@@ -66,8 +68,10 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
         <strong>{item.name}</strong>
         <small>{item.photos} photos</small>
       </button>)}</div>
+      {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
+        {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
       </div>}
       {chosen && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosen.name}</strong> · {chosen.durationSeconds} s vertical · hard cuts · up to {chosen.photoSlots} photos{plan ? ` · uses ${plan.count} of your photos` : ""}{cost !== null ? ` · engine cost about $${cost.toFixed(2)}` : ""}</p>

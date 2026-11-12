@@ -4,8 +4,9 @@
 import { jsonError, requireAdmin } from "../../../_lib/account";
 import { historyOwnerIds } from "../../../_lib/history-owners";
 import { dropEdit, editFile, editKey, editState, startEdit, storeResponse } from "../../../_lib/composer";
+import { makeCutEffects, trackKey } from "../../../_lib/film-sound";
 import { fileLink, getRecipe, markPreview, previewKey } from "../../../_lib/wrencut";
-import { recipeSeconds } from "../../../../wrencut";
+import { joinTimes, recipeSeconds } from "../../../../wrencut";
 
 const jobOf = (id: string) => `wrenprev-${id}`;
 const KEY = (id: string) => editKey(jobOf(id), 1);
@@ -35,8 +36,23 @@ export async function POST(request: Request) {
     const [width, height] = square ? [540, 540] : tall ? [540, 960] : [960, 540];
     const seconds = recipeSeconds(recipe);
     // The recipe's shots decide the length; the clips only fill them.
+    // The preview has the template's sound: its music style and the effects on its cuts (best effort; a preview is never held up by them).
+    const audio = recipe.audio;
+    const layers: { url: string; at: number; gain: number; kind: "voice" | "sfx" }[] = [];
+    if (audio?.sfx?.length) {
+      try {
+        const cutfx = await makeCutEffects(env, jobOf(id), audio, joinTimes(recipe));
+        if (cutfx) {
+          const links = new Map<string, string>();
+          for (const hit of cutfx.hits) {
+            if (!links.has(hit.file)) links.set(hit.file, await fileLink(env, origin, trackKey(jobOf(id), hit.file)));
+            if (hit.at < seconds - 0.3) layers.push({ url: links.get(hit.file)!, at: Math.round(hit.at * 1000) / 1000, gain: 0.5, kind: "sfx" });
+          }
+        }
+      } catch { /* silent effects */ }
+    }
     await dropEdit(env, jobOf(id), KEY(id));
-    await startEdit(env, jobOf(id), KEY(id), { clips, width, height, duration: seconds, sceneSeconds: Math.max(2, ...recipe.slots.map((slot) => slot.dur)) + 0.5, crossfade: 0, music: null, qc: false, recipe, recipeStrength: 0.6, ...(moves.some(Boolean) ? { moves, photoFps: 24 } : {}) } as Parameters<typeof startEdit>[3]);
+    await startEdit(env, jobOf(id), KEY(id), { clips, width, height, duration: seconds, sceneSeconds: Math.max(2, ...recipe.slots.map((slot) => slot.dur)) + 0.5, crossfade: 0, music: audio?.music ? { prompt: audio.music.prompt, required: false } : null, ...(layers.length ? { layers } : {}), qc: false, recipe, recipeStrength: 0.6, ...(moves.some(Boolean) ? { moves, photoFps: 24 } : {}) } as Parameters<typeof startEdit>[3]);
     return Response.json({ started: true });
   } catch (error) { return jsonError(error); }
 }
