@@ -71,7 +71,6 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
-        {(chosenWren.titles || []).map((title, index) => <label key={index} className="tpl-field"><span>{index === 0 ? "Title" : `Text ${index + 1}`} · {title.where} · at {Math.round(title.at * 10) / 10} s</span><input value={value.texts?.[index] || ""} maxLength={80} placeholder={title.caps ? "SHOWN IN CAPITALS" : "Your words"} disabled={disabled} onChange={(event) => { const next = [...(value.texts || [])]; while (next.length < index) next.push(""); next[index] = event.target.value; onChange({ ...value, texts: next }); }}/></label>)}
         {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
       </div>}
       {chosen && <div className="tpl-fields">
