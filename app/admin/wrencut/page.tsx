@@ -55,8 +55,8 @@ export default function WrenCutPage() {
   const sendFile = (file: File) => start({ method: "POST", headers: { "Content-Type": file.type || "video/mp4" }, body: file });
   const sendLink = () => start({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: link }) });
 
-  async function act(id: string, action: "active" | "delete", active?: boolean) {
-    const response = await fetch("/api/admin/wrencut", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, active }) });
+  async function act(id: string, action: "active" | "delete" | "rename", active?: boolean, name?: string) {
+    const response = await fetch("/api/admin/wrencut", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, active, name }) });
     const data = await response.json() as { templates?: WrenTemplate[]; error?: string };
     if (response.ok && data.templates) setTemplates(data.templates); else setMessage(data.error || "That could not be saved.");
   }
@@ -84,8 +84,10 @@ export default function WrenCutPage() {
   );
 }
 
-function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; onChange: () => Promise<void>; onAct: (id: string, action: "active" | "delete", active?: boolean) => Promise<void> }) {
+function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; onChange: () => Promise<void>; onAct: (id: string, action: "active" | "delete" | "rename", active?: boolean, name?: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(template.name);
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [photos, setPhotos] = useState<string[]>([]);
@@ -94,6 +96,21 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
   const [previewUrl, setPreviewUrl] = useState(template.previewUrl || "");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  // A preview keeps being made on the server when this page is left: on return, pick it up again.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/admin/wrencut/preview?id=${template.id}`, { cache: "no-store" });
+        const data = await response.json() as { status?: string; previewUrl?: string };
+        if (cancelled) return;
+        if (data.status === "done" && data.previewUrl) { setPreviewUrl(data.previewUrl); void onChange(); }
+        else if (data.status === "running") { setStatus("Making the preview…"); follow(); }
+      } catch { /* nothing was running */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template.id]);
 
   async function openPicker() {
     setOpen(!open);
@@ -144,7 +161,13 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
       <div className="wc-top">
         <span className="wc-poster">{previewUrl ? <video src={previewUrl} muted loop playsInline autoPlay preload="metadata" /> : <b>{Math.round(template.seconds)}<small>s</small></b>}</span>
         <div className="wc-meta">
-          <h2>{template.name}</h2>
+          {renaming ? (
+            <form className="wc-rename" onSubmit={(event) => { event.preventDefault(); void onAct(template.id, "rename", undefined, nameDraft).then(() => setRenaming(false)); }}>
+              <input value={nameDraft} maxLength={40} autoFocus aria-label="Template name" onChange={(event) => setNameDraft(event.target.value)} />
+              <button type="submit" disabled={!nameDraft.trim()}>Save</button>
+              <button type="button" className="ml-del" onClick={() => setRenaming(false)}>Cancel</button>
+            </form>
+          ) : <h2>{template.name} <button type="button" className="ml-del wc-edit" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>Rename</button></h2>}
           <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}</p>
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>

@@ -62,6 +62,13 @@ export async function setActive(env: Env, id: string, active: boolean) {
   await env.DB.prepare(`UPDATE wrencut_templates SET active = ? WHERE id = ?`).bind(active ? 1 : 0, id).run();
 }
 
+export async function renameTemplate(env: Env, id: string, name: string) {
+  await ensure(env);
+  const clean = name.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+  if (!clean) throw new Error("Give the template a name.");
+  await env.DB.prepare(`UPDATE wrencut_templates SET name = ? WHERE id = ?`).bind(clean, id).run();
+}
+
 export async function deleteTemplate(env: Env, id: string) {
   await ensure(env);
   await env.DB.prepare(`DELETE FROM wrencut_templates WHERE id = ?`).bind(id).run();

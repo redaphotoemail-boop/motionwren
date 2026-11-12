@@ -1738,3 +1738,6 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .wc-history video { display: block; width: 100%; aspect-ratio: 9 / 14; object-fit: cover; pointer-events: none; }
 .wc-history small { position: absolute; right: 6px; bottom: 6px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; }
 .wc-photos { justify-self: start; }
+.wc-edit { font-size: 13px; margin-left: 8px; font-weight: 400; }
+.wc-rename { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wc-rename input { flex: 1; min-width: 140px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(127,127,127,.3); background: var(--surface); color: var(--ink); font: inherit; }
