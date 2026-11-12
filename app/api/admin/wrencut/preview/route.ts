@@ -69,7 +69,9 @@ export async function GET(request: Request) {
       await storeResponse(env.BUCKET, previewKey(id), file, "video/mp4");
       await markPreview(env, id);
       await dropEdit(env, jobOf(id), KEY(id));
-      return Response.json({ status: "done", previewUrl: `/api/wrencut/${id}/preview?v=${Date.now()}` });
+      // Say so when the preview came out without its music (the editor reports it).
+      const sound = state.music === false || state.musicError ? `The preview has no music${state.musicError ? ` (${String(state.musicError).slice(0, 160)})` : ""}.` : "";
+      return Response.json({ status: "done", previewUrl: `/api/wrencut/${id}/preview?v=${Date.now()}`, ...(sound ? { sound } : {}) });
     }
     return Response.json({ status: state.status, stage: state.stage, error: state.error });
   } catch (error) { return jsonError(error); }

@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WrenTemplate } from "../../wrencut";
+import { studioEngines } from "../../engine-catalog";
 import { PageHead } from "../ui";
 import { PreviewPlayer } from "../../wrencut-player";
 
@@ -56,8 +57,8 @@ export default function WrenCutPage() {
   const sendFile = (file: File) => start({ method: "POST", headers: { "Content-Type": file.type || "video/mp4" }, body: file });
   const sendLink = () => start({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: link }) });
 
-  async function act(id: string, action: "active" | "delete" | "rename", active?: boolean, name?: string) {
-    const response = await fetch("/api/admin/wrencut", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, active, name }) });
+  async function act(id: string, action: "active" | "delete" | "rename" | "engine", active?: boolean, name?: string, engine?: string) {
+    const response = await fetch("/api/admin/wrencut", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action, active, name, engine }) });
     const data = await response.json() as { templates?: WrenTemplate[]; error?: string };
     if (response.ok && data.templates) setTemplates(data.templates); else setMessage(data.error || "That could not be saved.");
   }
@@ -85,7 +86,7 @@ export default function WrenCutPage() {
   );
 }
 
-function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; onChange: () => Promise<void>; onAct: (id: string, action: "active" | "delete" | "rename", active?: boolean, name?: string) => Promise<void> }) {
+function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; onChange: () => Promise<void>; onAct: (id: string, action: "active" | "delete" | "rename" | "engine", active?: boolean, name?: string, engine?: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [watching, setWatching] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -139,8 +140,8 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
     const tick = async () => {
       try {
         const response = await fetch(`/api/admin/wrencut/preview?id=${template.id}`, { cache: "no-store" });
-        const data = await response.json() as { status?: string; error?: string; previewUrl?: string };
-        if (data.status === "done" && data.previewUrl) { setPreviewUrl(data.previewUrl); setStatus(""); setOpen(false); await onChange(); return; }
+        const data = await response.json() as { status?: string; error?: string; previewUrl?: string; sound?: string };
+        if (data.status === "done" && data.previewUrl) { setPreviewUrl(data.previewUrl); setStatus(""); setOpen(false); if (data.sound) setError(data.sound); await onChange(); return; }
         if (data.status === "failed" || data.status === "unknown" || !response.ok) { setStatus(""); setError(data.error || "The preview could not be made. Try again."); return; }
       } catch { /* try again */ }
       timer.current = setTimeout(tick, 3000);
@@ -174,6 +175,12 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>
+      <label className="wc-engine"><span>Made with</span>
+        <select value={template.engine || ""} onChange={(event) => { void onAct(template.id, "engine", undefined, undefined, event.target.value); }}>
+          <option value="">Studio&rsquo;s current engine</option>
+          {studioEngines.filter((item) => !item.unavailable && !item.photoMove).map((item) => <option key={item.key} value={item.key}>{item.shortName}</option>)}
+        </select>
+      </label>
       <div className="wc-actions">
         {previewUrl ? <button type="button" className="secondary" onClick={() => setWatching(true)}>Watch with sound</button> : null}
         <button type="button" className="secondary" onClick={() => { void openPicker(); }}>{previewUrl ? "Make a new preview" : "Make the preview"}</button>

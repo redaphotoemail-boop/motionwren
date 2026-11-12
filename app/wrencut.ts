@@ -25,6 +25,8 @@ export type WrenTemplate = {
   seconds: number;
   /** How many different photos the template is built for. */
   photos: number;
+  /** The engine this template is made with in Studio (set in WrenCut). */
+  engine?: string;
   hasPreview: boolean;
   /** The template carries its own music style (and effects) from the reference. */
   hasMusic?: boolean;
