@@ -19,6 +19,6 @@ protected section below is missing. If you must change one on purpose, Reda has 
 - Baked prompts (never touched): customer-production.ts STATIC_LOCK/MOVEMENTS; studio/page.tsx realEstateBasePrompt / realEstateMovements / realEstatePrompt / multiShotStabilityLock
 
 ## Admin
-- Library Studio: video templates + music library
+- Library Studio: video templates + MotionWren templates + music library
 - Studio Ads: upload, templates, scenes, actors, sound, subtitles
 - WrenCut (/admin/wrencut): reference upload/link → template "MotionWren N" (no reference info kept), History/photo preview, show-in-Studio switch

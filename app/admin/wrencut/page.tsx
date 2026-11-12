@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WrenTemplate } from "../../wrencut";
 import { PageHead } from "../ui";
+import { PreviewPlayer } from "../../wrencut-player";
 
 type HistoryItem = { id: string; prompt: string; duration: number; videoUrl: string; createdAt: number };
 const STAGES: Record<string, string> = { sound: "Listening for music and effects…", downloading: "Receiving the video…", reading: "Finding the cuts…", cuts: "Finding the cuts…", moves: "Reading the camera moves…", colour: "Reading the colour…", saving: "Saving the template…" };
@@ -86,6 +87,7 @@ export default function WrenCutPage() {
 
 function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; onChange: () => Promise<void>; onAct: (id: string, action: "active" | "delete" | "rename", active?: boolean, name?: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [watching, setWatching] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(template.name);
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
@@ -173,6 +175,7 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>
       <div className="wc-actions">
+        {previewUrl ? <button type="button" className="secondary" onClick={() => setWatching(true)}>Watch with sound</button> : null}
         <button type="button" className="secondary" onClick={() => { void openPicker(); }}>{previewUrl ? "Make a new preview" : "Make the preview"}</button>
         <button type="button" className="ml-del" onClick={() => { if (window.confirm(`Delete ${template.name}?`)) void onAct(template.id, "delete"); }}>Delete</button>
       </div>
@@ -195,6 +198,7 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
           <button type="button" disabled={Boolean(status) || (!picked.length && !photos.length)} onClick={() => { void build(); }}>Make the preview</button>
         </div>
       ) : null}
+      {watching && previewUrl ? <PreviewPlayer src={previewUrl} title={template.name} onClose={() => setWatching(false)} /> : null}
       {status ? <p className="wc-busy" role="status"><i />{status}</p> : null}
       {error ? <p className="notice">{error}</p> : null}
     </section>
