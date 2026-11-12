@@ -13,7 +13,7 @@ import { wrenPlan } from "../wrencut";
 import { engineCost, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 /* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
-export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number } };
+export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; hasMusic?: boolean } };
 export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
 
 type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean };
@@ -44,11 +44,11 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   const plan = chosen && photoCount >= 2 ? libraryTemplatePlan(engine, resolution, photoCount) : null;
   const wrenCost = chosenWren && photoCount >= 2 ? (() => { const wp = wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
   const cost = plan ? engineCost(engine, plan.resolution, plan.sceneSeconds * plan.count) : null;
-  const pickWren = (item: WrenTemplate) => onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos } });
+  const pickWren = (item: WrenTemplate) => onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos, hasMusic: item.hasMusic } });
   const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined });
   const toggle = () => {
     const on = !value.on;
-    if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else onChange({ ...value, on, id: wrens[0].id, wren: { seconds: wrens[0].seconds, photos: wrens[0].photos } }); return; }
+    if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else onChange({ ...value, on, id: wrens[0].id, wren: { seconds: wrens[0].seconds, photos: wrens[0].photos, hasMusic: wrens[0].hasMusic } }); return; }
     onChange({ ...value, on });
   };
   return <section className="tpl-strip" aria-label="Template">
@@ -67,7 +67,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
         <small>{item.photos} photos</small>
       </button>)}</div>
       {chosenWren && <div className="tpl-fields">
-        <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
+        <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
       </div>}
       {chosen && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosen.name}</strong> · {chosen.durationSeconds} s vertical · hard cuts · up to {chosen.photoSlots} photos{plan ? ` · uses ${plan.count} of your photos` : ""}{cost !== null ? ` · engine cost about $${cost.toFixed(2)}` : ""}</p>

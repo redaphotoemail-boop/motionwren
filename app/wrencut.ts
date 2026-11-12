@@ -15,6 +15,8 @@ export type WrenRecipe = {
   slots: { dur: number; zoom: [number, number]; pan: [number, number] }[];
   joins: { type: "cut" | "dissolve" | "flash"; dur: number }[];
   grade?: { warmth: number; saturation: number };
+  /** The reference's sound as prompts: its music (tempo, mood) and an effect on some of the joins. No audio is kept. */
+  audio?: { music?: { bpm?: number; prompt: string }; sfx?: { join: number; kind: "whoosh" | "hit" | "flash"; lead: number; prompt: string }[] };
 };
 
 export type WrenTemplate = {
@@ -24,6 +26,9 @@ export type WrenTemplate = {
   /** How many different photos the template is built for. */
   photos: number;
   hasPreview: boolean;
+  /** The template carries its own music style (and effects) from the reference. */
+  hasMusic?: boolean;
+  hasEffects?: boolean;
   previewUrl?: string;
   active: boolean;
   createdAt: number;
@@ -54,4 +59,15 @@ export function wrenPlan(engine: StudioEngineKey, resolution: StudioResolution, 
   const allowed = filmSceneDurations(engine, resolution);
   const sceneSeconds = allowed.find((option) => option >= share - 1e-9) || allowed[allowed.length - 1];
   return { count, sceneSeconds, shareSeconds: Math.min(sceneSeconds, Math.round(share * 1000) / 1000), totalSeconds: seconds, resolution };
+}
+
+/* When each join falls in the finished film (seconds): the middle of its overlap. */
+export function joinTimes(recipe: WrenRecipe): number[] {
+  let acc = recipe.slots[0]?.dur || 0;
+  return recipe.joins.map((join, index) => {
+    const x = overlap(join);
+    const time = acc - x + x / 2;
+    acc += (recipe.slots[index + 1]?.dur || 0) - x;
+    return Math.round(time * 1000) / 1000;
+  });
 }

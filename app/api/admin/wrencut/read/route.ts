@@ -1,13 +1,12 @@
 /* Starts reading a reference video: either a file sent as the request body
-   (video/*) or a direct link in JSON. Social-site pages (TikTok, Instagram,
-   CapCut) are not video files and usually cannot be fetched, so the page
-   says so up front instead of failing later. */
+   (video/*) or a link in JSON. A link to a video file is fetched directly; a
+   social-site link (TikTok, Instagram, CapCut…) is fetched by the editing
+   service as best it can, and fails with a plain message if the site refuses. */
 import { jsonError, requireAdmin } from "../../../_lib/account";
 import { uploadBody } from "../../../_lib/history-owners";
 import { fileLink, referenceKey, startRead } from "../../../_lib/wrencut";
 
 const MAX_BYTES = 300 * 1024 * 1024;
-const SOCIAL = /(^|\.)(tiktok\.com|instagram\.com|capcut\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch)$/i;
 
 export async function POST(request: Request) {
   try {
@@ -28,7 +27,6 @@ export async function POST(request: Request) {
     let link: URL;
     try { link = new URL(String(body.url || "").trim()); } catch { return Response.json({ error: "Paste a link to the video file, or upload the video." }, { status: 400 }); }
     if (link.protocol !== "https:" && link.protocol !== "http:") return Response.json({ error: "Paste a link to the video file, or upload the video." }, { status: 400 });
-    if (SOCIAL.test(link.hostname)) return Response.json({ error: "TikTok, Instagram and CapCut pages cannot be downloaded from here. Save the video (or screen-record it) and upload the file instead.", social: true }, { status: 422 });
     await startRead(env, job, link.toString());
     return Response.json({ job });
   } catch (error) { return jsonError(error); }

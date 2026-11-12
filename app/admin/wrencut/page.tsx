@@ -10,7 +10,7 @@ import type { WrenTemplate } from "../../wrencut";
 import { PageHead } from "../ui";
 
 type HistoryItem = { id: string; prompt: string; duration: number; videoUrl: string; createdAt: number };
-const STAGES: Record<string, string> = { downloading: "Receiving the video…", reading: "Finding the cuts…", cuts: "Finding the cuts…", moves: "Reading the camera moves…", colour: "Reading the colour…", saving: "Saving the template…" };
+const STAGES: Record<string, string> = { sound: "Listening for music and effects…", downloading: "Receiving the video…", reading: "Finding the cuts…", cuts: "Finding the cuts…", moves: "Reading the camera moves…", colour: "Reading the colour…", saving: "Saving the template…" };
 
 export default function WrenCutPage() {
   const [templates, setTemplates] = useState<WrenTemplate[]>([]);
@@ -69,12 +69,12 @@ export default function WrenCutPage() {
         <section className="panel wc-bring">
           <div className="panel-head"><h2>Bring a reference</h2></div>
           <label className={busy ? "ml-file off" : "ml-file"}>Upload the video<input type="file" accept="video/*" disabled={Boolean(busy)} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void sendFile(file); }} /></label>
-          <div className="wc-or"><span>or paste a link to the video file</span></div>
+          <div className="wc-or"><span>or paste a link</span></div>
           <div className="wc-link">
             <input type="url" inputMode="url" placeholder="https://…/video.mp4" value={link} disabled={Boolean(busy)} onChange={(event) => setLink(event.target.value)} />
             <button type="button" className="secondary" disabled={Boolean(busy) || !link.trim()} onClick={() => { void sendLink(); }}>Read it</button>
           </div>
-          <p className="muted small">TikTok, Instagram and CapCut pages are not video files and usually cannot be downloaded from here. Save the video, or screen-record it, and upload the file.</p>
+          <p className="muted small">Paste a TikTok, Instagram or other video link and the server will try to fetch it. Some links are blocked by the site. If this one is, use Instagram\u2019s Share → Download, then upload the file.</p>
           {busy ? <p className="wc-busy" role="status"><i />{busy}</p> : null}
         </section>
         {templates.map((template) => <TemplateCard key={template.id} template={template} onChange={load} onAct={act} />)}
@@ -145,7 +145,7 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
         <span className="wc-poster">{previewUrl ? <video src={previewUrl} muted loop playsInline autoPlay preload="metadata" /> : <b>{Math.round(template.seconds)}<small>s</small></b>}</span>
         <div className="wc-meta">
           <h2>{template.name}</h2>
-          <p className="muted">{template.seconds} s · built for {template.photos} photos</p>
+          <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}</p>
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>
