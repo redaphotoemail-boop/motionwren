@@ -5,6 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { analyzeAudio } from "./wrenaudio.mjs";
+import { analyzeText } from "./wrentext.mjs";
 
 const sh = (command, args, { timeoutMs = 10 * 60 * 1000, binary = false } = {}) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -110,9 +111,33 @@ export function estimateMove(a, b) {
 }
 
 /* A move as it will be drawn: the picture is always at least full size (zoom 1 or more). */
+/* How fast the picture moves through a shot, over time: the size of the change between frames. A shot whose
+   movement swells and fades (a speed ramp) shows as a curve; steady footage stays flat and gets no curve.
+   Returns [[u, speed], …] (u = 0..1 along the shot, speed relative to the shot's own average) or null. */
+async function speedCurve(file, start, end) {
+  const length = end - start;
+  if (length < 0.8) return null;
+  const fps = 15, w = 64, h = 112;
+  let raw;
+  try { raw = (await sh("ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(start + 0.06), "-t", String(Math.max(0.3, length - 0.12)), "-i", file, "-an", "-vf", `fps=${fps},scale=${w}:${h}:flags=area,format=gray`, "-f", "rawvideo", "-"], { binary: true, timeoutMs: 60_000 })).stdout; } catch { return null; }
+  const size = w * h, count = Math.floor(raw.length / size);
+  if (count < 8) return null;
+  const energy = [];
+  for (let f = 1; f < count; f += 1) { let sum = 0; for (let i = 0; i < size; i += 1) sum += Math.abs(raw[f * size + i] - raw[(f - 1) * size + i]); energy.push(sum / size); }
+  // Smooth over three frames.
+  const smooth = energy.map((_, i) => (energy[Math.max(0, i - 1)] + energy[i] + energy[Math.min(energy.length - 1, i + 1)]) / 3);
+  const sorted = [...smooth].sort((a, b) => a - b);
+  const low = sorted[Math.floor(sorted.length * 0.1)], high = sorted[Math.floor(sorted.length * 0.9)], mid = sorted[Math.floor(sorted.length / 2)];
+  if (mid < 1.2 || high / Math.max(low, 0.4) < 2.4) return null; // too still, or too even
+  const at = (u) => smooth[Math.min(smooth.length - 1, Math.max(0, Math.round(u * (smooth.length - 1))))];
+  const points = [0, 0.2, 0.4, 0.6, 0.8, 1].map((u) => [u, at(u) / mid]);
+  const mean = points.reduce((sum, point) => sum + point[1], 0) / points.length;
+  return points.map(([u, v]) => [u, round(clamp(v / mean, 0.3, 3))]);
+}
+
 const moveToSlot = (move) => ({ zoom: move.z >= 1 ? [1, round(move.z)] : [round(1 / move.z), 1], pan: [round(move.dx), round(move.dy)] });
 
-export async function analyzeVideo(file, { duration, fps, width, height, onStage = () => {} }) {
+export async function analyzeVideo(file, { duration, fps, width, height, workDir, onStage = () => {} }) {
   onStage("reading");
   const frames = await frameStats(file);
   if (frames.length < 10) throw new Error("That video is too short to read.");
@@ -127,7 +152,8 @@ export async function analyzeVideo(file, { duration, fps, width, height, onStage
     if (length > 0.7) {
       try { move = estimateMove(await grayFrame(file, start + pad), await grayFrame(file, end - Math.max(0.12, (i < joins.length ? joins[i].dur : 0) / 2 + 0.05))); } catch { /* a shot that cannot be measured stays still */ }
     }
-    slots.push({ dur: round(length), ...moveToSlot(move) });
+    const speed = await speedCurve(file, start + pad, end - 0.05).catch(() => null);
+    slots.push({ dur: round(length), ...moveToSlot(move), ...(speed ? { speed } : {}) });
   }
   // The look: warmth from the blue/red balance, richness from saturation.
   const mean = (key) => frames.reduce((sum, frame) => sum + frame[key], 0) / frames.length;
@@ -137,7 +163,11 @@ export async function analyzeVideo(file, { duration, fps, width, height, onStage
   onStage("sound");
   let audio;
   try { audio = await analyzeAudio(file, { duration, joins: joins.map((join) => ({ at: join.at, type: join.type })) }); } catch { /* a recipe without sound is still a recipe */ }
+  // The titles: where, how big, when and how they come in (never their words).
+  let texts;
+  if (workDir) { try { const found = await analyzeText(file, { duration, width, height, workDir, onStage }); if (found.length) texts = found; } catch { /* a recipe without titles is still a recipe */ } }
   return {
+    ...(texts ? { texts } : {}),
     ...(audio ? { audio: { ...(audio.music ? { music: audio.music } : {}), sfx: audio.sfx.map((item) => ({ join: item.join, kind: item.kind, lead: item.lead, prompt: item.prompt })) } } : {}),
     version: 1, duration: round(duration), fps: Math.round(fps), aspect: height > width ? "vertical" : width > height ? "horizontal" : "square",
     slots,
@@ -163,12 +193,47 @@ export function validRecipe(recipe) {
     if (!(slot.dur >= 0.3 && slot.dur <= 30)) return "A shot's length is out of range.";
     if (!Array.isArray(slot.zoom) || slot.zoom.length !== 2 || slot.zoom.some((z) => !(z >= 1 && z <= 1.6))) return "A shot's zoom is out of range.";
     if (!Array.isArray(slot.pan) || slot.pan.length !== 2 || slot.pan.some((p) => !(Math.abs(p) <= 0.3))) return "A shot's slide is out of range.";
+    if (slot.speed !== undefined && !(Array.isArray(slot.speed) && slot.speed.length >= 2 && slot.speed.length <= 8 && slot.speed.every((point) => Array.isArray(point) && point[0] >= 0 && point[0] <= 1 && point[1] >= 0.2 && point[1] <= 4))) return "A shot's speed ramp is out of range.";
   }
   for (const [i, join] of recipe.joins.entries()) {
     if (!["cut", "dissolve", "flash"].includes(join.type) || !(join.dur >= 0.02 && join.dur <= 1.2)) return "A join is out of range.";
     if (joinOverlap(join) >= Math.min(recipe.slots[i].dur, recipe.slots[i + 1].dur)) return "A join is longer than its shots.";
   }
   return "";
+}
+
+/* The slices of a ramped shot. speed = [[u, s], …]: s is how fast the source runs at u (0..1 along the shot); strength
+   blends toward steady (1 = as read). Fast slices are blurred by blending neighbouring frames; slow ones are
+   smoothed by making in-between frames, so slow motion does not stutter. */
+const SLICES = 8;
+export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
+  const total = d + 0.2;
+  const at = (u) => {
+    const pts = speed;
+    if (u <= pts[0][0]) return pts[0][1];
+    for (let k = 1; k < pts.length; k += 1) if (u <= pts[k][0]) { const [u0, s0] = pts[k - 1], [u1, s1] = pts[k]; return s0 + (s1 - s0) * ((u - u0) / Math.max(1e-6, u1 - u0)); }
+    return pts[pts.length - 1][1];
+  };
+  const lines = [], labels = [];
+  const sliceLen = total / SLICES;
+  let source = 0;
+  const parts = [];
+  for (let k = 0; k < SLICES; k += 1) {
+    const raw = at(Math.min(1, ((k + 0.5) * sliceLen) / d));
+    const s = 1 + (raw - 1) * strength;
+    parts.push({ s, from: source, to: source + sliceLen * s });
+    source += sliceLen * s;
+  }
+  const pre = `[${index}:v]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${Math.ceil(source + 1)},split=${SLICES}${parts.map((_, k) => `[rp${index}_${k}]`).join("")}`;
+  lines.push(pre);
+  parts.forEach((part, k) => {
+    const blur = part.s > 1.35 ? `,tmix=frames=${Math.min(5, Math.max(2, Math.round(part.s * 1.5)))}` : "";
+    const smooth = part.s < 0.75 ? `,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1:scd=none` : "";
+    lines.push(`[rp${index}_${k}]trim=start=${part.from.toFixed(4)}:end=${part.to.toFixed(4)},setpts=PTS-STARTPTS${blur},setpts=PTS/${part.s.toFixed(4)}${smooth},fps=${fps}[rq${index}_${k}]`);
+    labels.push(`[rq${index}_${k}]`);
+  });
+  lines.push(`${labels.join("")}concat=n=${SLICES}:v=1:a=0,trim=duration=${total.toFixed(3)},setpts=PTS-STARTPTS[rr${index}]`);
+  return { lines, label: `rr${index}` };
 }
 
 /* The filter graph for a recipe: clip i (input i) becomes shot i, moved as the recipe says, then all joined.
@@ -184,7 +249,12 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
     const w2 = width * SS, h2 = height * SS;
     const u = `(t/${d.toFixed(3)})`;
     const z = `(${z0.toFixed(4)}+(${(z1 - z0).toFixed(4)})*${u})`;
-    filters.push(`[${i}:v]trim=start=${Math.max(0, starts[i] || 0).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=3,trim=duration=${(d + 0.2).toFixed(3)},fps=${fps},scale=${w2}:${h2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w2}:${h2},`
+    // A speed ramp re-times the shot through a few short slices (each at its own speed), blurred where it speeds up
+    // and smoothed where it slows down; a shot without one is untouched.
+    const ramp = slot.speed ? rampHead({ index: i, speed: slot.speed, d, start: Math.max(0, starts[i] || 0), fps, strength: 1 }) : null;
+    if (ramp) filters.push(...ramp.lines);
+    const head = ramp ? `[${ramp.label}]` : `[${i}:v]trim=start=${Math.max(0, starts[i] || 0).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=3,trim=duration=${(d + 0.2).toFixed(3)},`;
+    filters.push(`${head}fps=${fps},scale=${w2}:${h2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w2}:${h2},`
       + `scale=w='${w2}*${z}':h='${h2}*${z}':eval=frame:flags=bilinear,`
       + `crop=${w2}:${h2}:x='min(max((in_w-${w2})/2+${(px * w2).toFixed(2)}*(${u}-0.5)*-1,0),in_w-${w2})':y='min(max((in_h-${h2})/2+${(py * h2).toFixed(2)}*(${u}-0.5)*-1,0),in_h-${h2})',`
       + `scale=${width}:${height}:flags=lanczos,setsar=1,format=yuv420p[s${i}]`);

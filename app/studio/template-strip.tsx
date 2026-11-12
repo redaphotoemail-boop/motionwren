@@ -14,7 +14,7 @@ import { PreviewPlayer } from "../wrencut-player";
 import { engineCost, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 /* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
-export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; hasMusic?: boolean } };
+export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; hasMusic?: boolean }; texts?: string[] };
 export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
 
 type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void };
@@ -46,7 +46,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   const plan = chosen && photoCount >= 2 ? libraryTemplatePlan(engine, resolution, photoCount) : null;
   const wrenCost = chosenWren && photoCount >= 2 ? (() => { const wp = wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
   const cost = plan ? engineCost(engine, plan.resolution, plan.sceneSeconds * plan.count) : null;
-  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos, hasMusic: item.hasMusic } }); };
+  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos, hasMusic: item.hasMusic }, texts: [] }); };
   const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined });
   const toggle = () => {
     const on = !value.on;
@@ -71,6 +71,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
+        {(chosenWren.titles || []).map((title, index) => <label key={index} className="tpl-field"><span>{index === 0 ? "Title" : `Text ${index + 1}`} · {title.where} · at {Math.round(title.at * 10) / 10} s</span><input value={value.texts?.[index] || ""} maxLength={80} placeholder={title.caps ? "SHOWN IN CAPITALS" : "Your words"} disabled={disabled} onChange={(event) => { const next = [...(value.texts || [])]; while (next.length < index) next.push(""); next[index] = event.target.value; onChange({ ...value, texts: next }); }}/></label>)}
         {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
       </div>}
       {chosen && <div className="tpl-fields">

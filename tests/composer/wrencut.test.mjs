@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { editArgs } from "../../composer/server.mjs";
+import { assText, editArgs } from "../../composer/server.mjs";
 import { analyzeVideo, recipeDuration, validRecipe } from "../../composer/wrencut.mjs";
 
 let pass = 0, fail = 0;
@@ -45,5 +45,28 @@ check("a whoosh into the first cut is found", heard.audio?.sfx?.some((item) => i
 check("the sound is only prompts and numbers", !JSON.stringify(heard.audio).includes(dir));
 check("a silent reference has no sound plan", (await analyzeVideo(ref, { duration: 4.5, fps: 30, width: 360, height: 640 })).audio === undefined);
 void silent;
+// Titles: where, when and how they come in — never their words.
+const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+const titled = path.join(dir, "titled.mp4");
+ff(["-f", "lavfi", "-i", "color=c=0x334455:s=540x960:r=24:d=5", "-vf", `drawtext=text='GRAND OPENING':fontfile=${font}:fontsize=58:fontcolor=white:x=(w-text_w)/2:y=300:alpha='if(lt(t,1),0,min(1,(t-1)/0.5))':enable='between(t,0,4)',drawtext=text='Visit us today':fontfile=${font}:fontsize=40:fontcolor=white:x='(w-text_w)/2+200*max(0\\,1-(t-2)/0.5)':y=700:enable='gte(t,2)'`, "-pix_fmt", "yuv420p", titled]);
+const seen = await analyzeVideo(titled, { duration: 5, fps: 24, width: 540, height: 960, workDir: dir });
+check("both titles are found", seen.texts?.length === 2, `${seen.texts?.length}`);
+check("the title is centred high, in capitals, fading in", seen.texts?.[0] && Math.abs(seen.texts[0].x - 0.5) < 0.05 && seen.texts[0].y < 0.4 && seen.texts[0].caps && seen.texts[0].fx?.type === "fade", JSON.stringify(seen.texts?.[0]));
+check("the second title slides in from the side", seen.texts?.[1]?.fx?.type === "slide" && Math.abs(seen.texts[1].fx.dx) > 0.15, JSON.stringify(seen.texts?.[1]));
+check("no words are kept", !/GRAND|OPENING|Visit/i.test(JSON.stringify(seen)));
+const ass = assText([{ start: 1, end: 3, text: "HI", y: 0.33, h: 0.046, fx: { type: "slide", dur: 0.4, dx: 0.3, dy: 0 } }, { start: 0, end: 2, text: "plain" }]);
+check("a title carries its place and entrance; a plain line stays plain", /\{\\an5\\move\(/.test(ass) && /,plain$/m.test(ass));
+// Speed ramps: an accelerating pan reads as a slow→fast curve; a steady pan has none; a ramped shot renders to length.
+const accel = path.join(dir, "accel.mp4"), steady = path.join(dir, "steady.mp4");
+ff(["-f", "lavfi", "-i", "testsrc2=s=1620x960:r=30:d=3", "-vf", "crop=540:960:x='(iw-540)*pow(t/3\\,2.5)':y=0", "-pix_fmt", "yuv420p", accel]);
+ff(["-f", "lavfi", "-i", "testsrc2=s=1620x960:r=30:d=3", "-vf", "crop=540:960:x='(iw-540)*t/3':y=0", "-pix_fmt", "yuv420p", steady]);
+const ramped = (await analyzeVideo(accel, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].speed;
+check("an accelerating shot gets a speed ramp (slow start, fast end)", Array.isArray(ramped) && ramped[0][1] < 0.6 && Math.max(...ramped.map((p) => p[1])) > 1.6, JSON.stringify(ramped));
+check("a steady shot gets none", (await analyzeVideo(steady, { duration: 3, fps: 30, width: 540, height: 960 })).slots[0].speed === undefined);
+const rampRecipe = { version: 1, duration: 3, fps: 24, aspect: "vertical", slots: [{ dur: 3, zoom: [1, 1], pan: [0, 0], speed: [[0, 0.5], [0.5, 1], [1, 2.6]] }], joins: [] };
+check("a ramped recipe is valid", validRecipe(rampRecipe) === "");
+const rampOut = path.join(dir, "ramp-out.mp4");
+ff(editArgs({ clips: [clips[0]], width: 360, height: 640, fps: 24, crossfade: 0, duration: 3, sceneSeconds: 3, output: rampOut, recipe: rampRecipe, starts: [0], strength: 1 }));
+check("a ramped shot keeps its length", Math.abs(dur(rampOut) - 3) < 0.15, `${dur(rampOut).toFixed(2)}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

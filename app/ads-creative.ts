@@ -83,7 +83,9 @@ export function estimateAdCost(engine: StudioEngineKey, resolution: StudioResolu
 
 /* ---------- subtitles ---------- */
 
-export type SubtitleLine = { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large" };
+export type TitleFx = { type: "fade" | "slide" | "pop"; dur: number; dx?: number; dy?: number; from?: number };
+/* x, y, h: a WrenCut title's place and size as fractions of the picture; tone and fx: its colour and entrance. */
+export type SubtitleLine = { start: number; end: number; text: string; position?: "bottom" | "top" | "center"; size?: "small" | "medium" | "large"; x?: number; y?: number; h?: number; tone?: "light" | "dark"; fx?: TitleFx };
 export type SubtitleStyle = { position: "bottom" | "top" | "center"; size: "small" | "medium" | "large" };
 
 const SUBTITLE_FONT_SIZE = { small: 36, medium: 48, large: 64 } as const; // at 1080p height

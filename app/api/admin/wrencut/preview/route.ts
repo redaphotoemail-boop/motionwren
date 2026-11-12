@@ -6,7 +6,7 @@ import { historyOwnerIds } from "../../../_lib/history-owners";
 import { dropEdit, editFile, editKey, editState, startEdit, storeResponse } from "../../../_lib/composer";
 import { makeCutEffects, trackKey } from "../../../_lib/film-sound";
 import { fileLink, getRecipe, markPreview, previewKey } from "../../../_lib/wrencut";
-import { joinTimes, recipeSeconds } from "../../../../wrencut";
+import { joinTimes, recipeSeconds, titleLines } from "../../../../wrencut";
 
 const jobOf = (id: string) => `wrenprev-${id}`;
 const KEY = (id: string) => editKey(jobOf(id), 1);
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       } catch { /* silent effects */ }
     }
     await dropEdit(env, jobOf(id), KEY(id));
-    await startEdit(env, jobOf(id), KEY(id), { clips, width, height, duration: seconds, sceneSeconds: Math.max(2, ...recipe.slots.map((slot) => slot.dur)) + 0.5, crossfade: 0, music: audio?.music ? { prompt: audio.music.prompt, required: false } : null, ...(layers.length ? { layers } : {}), qc: false, recipe, recipeStrength: 0.6, ...(moves.some(Boolean) ? { moves, photoFps: 24 } : {}) } as Parameters<typeof startEdit>[3]);
+    await startEdit(env, jobOf(id), KEY(id), { clips, width, height, duration: seconds, sceneSeconds: Math.max(2, ...recipe.slots.map((slot) => slot.dur)) + 0.5, crossfade: 0, ...(recipe.texts?.length ? { subtitles: { lines: titleLines(recipe, ["Your title", "Your message", "Your details", "Your website", "More here", "And here", "Last line", "The end"], seconds) } } : {}), music: audio?.music ? { prompt: audio.music.prompt, required: false } : null, ...(layers.length ? { layers } : {}), qc: false, recipe, recipeStrength: 0.6, ...(moves.some(Boolean) ? { moves, photoFps: 24 } : {}) } as Parameters<typeof startEdit>[3]);
     return Response.json({ started: true });
   } catch (error) { return jsonError(error); }
 }
