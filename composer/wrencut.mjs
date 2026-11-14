@@ -232,6 +232,14 @@ export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
   return { lines, label: `rr${index}` };
 }
 
+/* A speed-ramped shot on its own: the clip is re-timed (and blurred / smoothed) into a short file of exactly the shot's
+   length plus its overlap. Doing this one shot at a time, before the film is joined, keeps the editor's memory low: all
+   shots ramped inside one big graph held every shot's frames at once and ran the editor out of memory on long films. */
+export function rampClipArgs({ input, output, speed, d, start, fps }) {
+  const ramp = rampHead({ index: 0, speed, d, start: Math.max(0, start || 0), fps, strength: 1 });
+  return ["-y", "-i", input, "-filter_complex", ramp.lines.join(";"), "-map", `[${ramp.label}]`, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-pix_fmt", "yuv420p", "-r", String(fps), output];
+}
+
 /* The filter graph for a recipe: clip i (input i) becomes shot i, moved as the recipe says, then all joined.
    `starts[i]` is where in clip i the shot begins. Returns the graph lines and the label of the joined picture. */
 export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1 }) {
