@@ -14,20 +14,22 @@ export async function POST(request: Request) {
     await requireAdmin(env);
     const job = crypto.randomUUID().replaceAll("-", "");
     const origin = new URL(request.url).origin;
+    const asked = new URL(request.url).searchParams.get("template");
+    const target = asked && /^[0-9a-f-]{36}$/.test(asked) ? asked : null; // re-read an existing template
     const type = request.headers.get("content-type") || "";
     if (type.startsWith("video/")) {
       const size = Number(request.headers.get("content-length")) || 0;
       if (!size || size > MAX_BYTES) return Response.json({ error: "Choose a video under 300 MB." }, { status: 413 });
       const key = referenceKey(job);
       await env.BUCKET.put(key, await uploadBody(request, size), { httpMetadata: { contentType: type.split(";")[0] } });
-      await startRead(env, job, await fileLink(env, origin, key), key);
+      await startRead(env, job, await fileLink(env, origin, key), key, target);
       return Response.json({ job });
     }
     const body = await request.json().catch(() => ({})) as { url?: unknown };
     let link: URL;
     try { link = new URL(String(body.url || "").trim()); } catch { return Response.json({ error: "Paste a link to the video file, or upload the video." }, { status: 400 }); }
     if (link.protocol !== "https:" && link.protocol !== "http:") return Response.json({ error: "Paste a link to the video file, or upload the video." }, { status: 400 });
-    await startRead(env, job, link.toString());
+    await startRead(env, job, link.toString(), null, target);
     return Response.json({ job });
   } catch (error) { return jsonError(error); }
 }

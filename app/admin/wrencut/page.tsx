@@ -10,6 +10,7 @@ import type { WrenTemplate } from "../../wrencut";
 import { studioEngines } from "../../engine-catalog";
 import { PageHead } from "../ui";
 import { PreviewPlayer } from "../../wrencut-player";
+import { FxChips } from "../../fx-chips";
 
 type HistoryItem = { id: string; prompt: string; duration: number; videoUrl: string; createdAt: number };
 const STAGES: Record<string, string> = { moves: "Reading camera moves and speed ramps…", sound: "Listening for music and effects…", downloading: "Receiving the video…", reading: "Finding the cuts…", cuts: "Finding the cuts…", colour: "Reading the colour…", saving: "Saving the template…" };
@@ -36,7 +37,7 @@ export default function WrenCutPage() {
       try {
         const response = await fetch(`/api/admin/wrencut?job=${job}`, { cache: "no-store" });
         const data = await response.json() as { status?: string; stage?: string; error?: string; template?: WrenTemplate };
-        if (data.status === "done" && data.template) { setBusy(""); setMessage(`${data.template.name} is ready — ${data.template.seconds} s, built for ${data.template.photos} photos. Add its preview below.`); await load(); return; }
+        if (data.status === "done" && data.template) { setBusy(""); setMessage(`${data.template.name} is ready — ${data.template.seconds} s, built for ${data.template.photos} photos. ${data.template.ramps ? `${data.template.ramps} speed ramps found.` : "No speed ramps found in this reference."} Make its preview below.`); await load(); return; }
         if (data.status === "failed" || data.status === "unknown" || !response.ok) { setBusy(""); setMessage(data.error || "The video could not be read. Try again."); return; }
         setBusy(STAGES[data.stage || ""] || "Reading the edit…");
       } catch { /* try again on the next tick */ }
@@ -45,10 +46,10 @@ export default function WrenCutPage() {
     void tick();
   }
 
-  async function start(init: RequestInit) {
+  async function start(init: RequestInit, target?: string) {
     setMessage(""); setBusy("Receiving the video…");
     try {
-      const response = await fetch("/api/admin/wrencut/read", init);
+      const response = await fetch(target ? `/api/admin/wrencut/read?template=${target}` : "/api/admin/wrencut/read", init);
       const data = await response.json() as { job?: string; error?: string };
       if (!response.ok || !data.job) throw new Error(data.error || "The video could not be sent.");
       follow(data.job);
@@ -79,15 +80,17 @@ export default function WrenCutPage() {
           <p className="muted small">Paste a TikTok, Instagram or other video link and the server will try to fetch it. Some links are blocked by the site. If this one is, use Instagram\u2019s Share → Download, then upload the file.</p>
           {busy ? <p className="wc-busy" role="status"><i />{busy}</p> : null}
         </section>
-        {templates.map((template) => <TemplateCard key={template.id} template={template} onChange={load} onAct={act} />)}
+        {templates.map((template) => <TemplateCard key={template.id} template={template} onChange={load} onAct={act} onReread={(init) => start(init, template.id.replace(/^wren:/, ""))} busy={Boolean(busy)} />)}
         {loaded && !templates.length ? <p className="muted">No templates yet. Bring the first reference above.</p> : null}
       </div>
     </div>
   );
 }
 
-function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; onChange: () => Promise<void>; onAct: (id: string, action: "active" | "delete" | "rename" | "engine", active?: boolean, name?: string, engine?: string) => Promise<void> }) {
+function TemplateCard({ template, onChange, onAct, onReread, busy }: { template: WrenTemplate; onChange: () => Promise<void>; onReread: (init: RequestInit) => Promise<void>; busy: boolean; onAct: (id: string, action: "active" | "delete" | "rename" | "engine", active?: boolean, name?: string, engine?: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [rereading, setRereading] = useState(false);
+  const [relink, setRelink] = useState("");
   const [watching, setWatching] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(template.name);
@@ -171,7 +174,8 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
               <button type="button" className="ml-del" onClick={() => setRenaming(false)}>Cancel</button>
             </form>
           ) : <h2>{template.name} <button type="button" className="ml-del wc-edit" onClick={() => { setNameDraft(template.name); setRenaming(true); }}>Rename</button></h2>}
-          <p className="muted">{template.seconds} s · built for {template.photos} photos{template.hasMusic ? " · music style" : ""}{template.hasEffects ? " · cut effects" : ""}{template.ramps ? ` · ${template.ramps} speed ramps with motion blur` : " · no speed ramps found in the reference"}</p>
+          <p className="muted">{template.seconds} s · built for {template.photos} photos</p>
+          <FxChips items={template.effects} />
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>
@@ -184,8 +188,19 @@ function TemplateCard({ template, onChange, onAct }: { template: WrenTemplate; o
       <div className="wc-actions">
         {previewUrl ? <button type="button" className="secondary" onClick={() => setWatching(true)}>Watch with sound</button> : null}
         <button type="button" className="secondary" onClick={() => { void openPicker(); }}>{previewUrl ? "Make a new preview" : "Make the preview"}</button>
+        <button type="button" className="secondary" onClick={() => setRereading((value) => !value)}>Update from a reference</button>
         <button type="button" className="ml-del" onClick={() => { if (window.confirm(`Delete ${template.name}?`)) void onAct(template.id, "delete"); }}>Delete</button>
       </div>
+      {rereading ? (
+        <div className="wc-picker">
+          <p className="muted small">Read a reference again into {template.name}. Its speed ramps, motion blur, camera moves, cuts, sound and colour are replaced by what the video shows; the name, engine and on/off stay. The reference is deleted afterwards, and the old preview is cleared so you can make a new one.</p>
+          <label className={busy ? "ml-file off" : "ml-file"}>Upload the video<input type="file" accept="video/*" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) { setRereading(false); void onReread({ method: "POST", headers: { "Content-Type": file.type || "video/mp4" }, body: file }); } }} /></label>
+          <div className="wc-link">
+            <input type="url" inputMode="url" placeholder="or paste a link" value={relink} disabled={busy} onChange={(event) => setRelink(event.target.value)} />
+            <button type="button" className="secondary" disabled={busy || !relink.trim()} onClick={() => { setRereading(false); void onReread({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: relink }) }); setRelink(""); }}>Read it</button>
+          </div>
+        </div>
+      ) : null}
       {open ? (
         <div className="wc-picker">
           <p className="muted small">Choose videos from History (they are cut to fit), or upload photos. This template is built for {template.photos} photos — more clips than that are fine, fewer repeat.</p>
