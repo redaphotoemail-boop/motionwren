@@ -48,6 +48,8 @@ export async function POST(request: Request) {
   const wrenAsked = mode === "series" && typeof body.template === "object" && body.template !== null ? (body.template as { wren?: unknown }).wren : undefined;
   const wren = isWrenId(wrenAsked) ? await getRecipe(env, wrenAsked) : null;
   if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
+  // A template film is always real video. A Photo move engine only pans over a still photo, so it cannot be used with a template.
+  if (wren && studioEngine(engine).photoMove) return NextResponse.json({ error: "This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos, not video. Choose another engine." }, { status: 400 });
   const aspect = templated || wren?.recipe.aspect === "vertical" ? "vertical" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
   const scenesIn = Array.isArray(body.scenes) ? body.scenes as SceneBody[] : [];
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");

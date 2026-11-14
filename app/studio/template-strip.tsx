@@ -12,7 +12,7 @@ import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInterior
 import type { WrenTemplate } from "../wrencut";
 import { wrenPlan } from "../wrencut";
 import { PreviewPlayer } from "../wrencut-player";
-import { engineCost, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
+import { engineCost, studioEngine, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 /* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
 export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; hasMusic?: boolean }; texts?: string[] };
@@ -72,6 +72,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       </button>)}</div>
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
+        {studioEngine(engine).photoMove ? <p className="notice">This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos. Choose another engine above.</p> : null}
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
         {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
       </div>}
