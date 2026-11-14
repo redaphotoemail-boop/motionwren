@@ -232,22 +232,26 @@ export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
   return { lines, label: `rr${index}` };
 }
 
-/* A speed-ramped shot on its own: the clip is re-timed (and blurred / smoothed) into a short file of exactly the shot's
-   length plus its overlap. Doing this one shot at a time, before the film is joined, keeps the editor's memory low: all
-   shots ramped inside one big graph held every shot's frames at once and ran the editor out of memory on long films. */
-export function rampClipArgs({ input, output, speed, d, start, fps }) {
-  const ramp = rampHead({ index: 0, speed, d, start: Math.max(0, start || 0), fps, strength: 1 });
-  return ["-y", "-i", input, "-filter_complex", ramp.lines.join(";"), "-map", `[${ramp.label}]`, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-pix_fmt", "yuv420p", "-r", String(fps), output];
+/* One shot made on its own: re-timed (speed ramp, blur), moved, sized, written as a short near-lossless file of the shot's
+   length plus its overlap. Doing the shots one at a time, then joining the files, keeps the editor's memory flat however
+   long the film is (one big graph held every shot's frames at once and ran the editor out of memory on long films). */
+export function shotArgs({ recipe, index, input, output, width, height, fps, start, strength }) {
+  const slot = recipe.slots[index];
+  const one = { ...recipe, slots: [slot], joins: [], grade: undefined };
+  const built = recipeChain({ recipe: one, width, height, fps, starts: [start || 0], strength });
+  return ["-y", "-i", input, "-filter_complex", built.filters.join(";"), "-map", `[${built.last}]`, "-t", (slot.dur + 0.2).toFixed(3), "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", String(fps), output];
 }
 
 /* The filter graph for a recipe: clip i (input i) becomes shot i, moved as the recipe says, then all joined.
    `starts[i]` is where in clip i the shot begins. Returns the graph lines and the label of the joined picture. */
-export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1 }) {
+export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1, prepared = false }) {
   const filters = [];
   const n = recipe.slots.length;
   const SS = 2; // drawn at double size so slow moves do not shimmer
   recipe.slots.forEach((slot, i) => {
     const d = slot.dur;
+    // Prepared: this shot was already moved, ramped and sized in its own pass (see shotArgs); only the join is left.
+    if (prepared) { filters.push(`[${i}:v]fps=${fps},setsar=1,format=yuv420p[s${i}]`); return; }
     const z0 = 1 + (slot.zoom[0] - 1) * strength, z1 = 1 + (slot.zoom[1] - 1) * strength;
     const px = slot.pan[0] * strength, py = slot.pan[1] * strength;
     const w2 = width * SS, h2 = height * SS;

@@ -213,7 +213,7 @@ async function getMusic(spec, dir, job) {
 }
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
-import { analyzeVideo, assignClips, rampClipArgs, recipeChain, recipeDuration, validRecipe } from "./wrencut.mjs";
+import { analyzeVideo, assignClips, recipeChain, shotArgs, recipeDuration, validRecipe } from "./wrencut.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 
@@ -399,7 +399,7 @@ export function layerArgs({ inputs, duration, output }) {
   return args;
 }
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength, prepared }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -407,7 +407,7 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   let last = "v0";
   if (recipe) {
     // A WrenCut template: each clip is a shot moved and joined as the recipe says.
-    const built = recipeChain({ recipe, width, height, fps, starts, strength: Number.isFinite(strength) ? strength : 1 });
+    const built = recipeChain({ recipe, width, height, fps, starts, strength: Number.isFinite(strength) ? strength : 1, prepared: prepared === true });
     filters.push(...built.filters);
     last = built.last;
   } else {
@@ -629,19 +629,22 @@ async function compose(key, spec) {
     if (spec.recipe) {
       const picks = assignClips(spec.recipe, infos.map((info) => info.duration));
       editFiles = picks.map((pick) => files[pick.clip]);
-      let starts = picks.map((pick) => pick.start), recipe = spec.recipe;
-      // Speed ramps are done one shot at a time first (low memory); the film is then joined from those short files.
-      if (recipe.slots.some((slot) => slot.speed)) {
-        recipe = { ...recipe, slots: recipe.slots.map((slot) => ({ ...slot })) };
-        for (const [i, slot] of recipe.slots.entries()) {
-          if (!slot.speed) continue;
-          job.stage = `ramp ${i + 1}/${recipe.slots.length}`;
-          const rampFile = path.join(dir, `ramp-${String(i + 1).padStart(2, "0")}.mp4`);
-          await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...rampClipArgs({ input: editFiles[i], output: rampFile, speed: slot.speed, d: slot.dur, start: starts[i], fps })]);
-          editFiles[i] = rampFile; starts[i] = 0; delete recipe.slots[i].speed;
+      // Every shot is made on its own first (one at a time at full HD), then the film is joined from those files: memory stays flat
+      // however many shots there are, and a shot that fails says which one.
+      const shotFiles = new Array(picks.length);
+      let nextShot = 0;
+      const lanes = spec.width * spec.height > 1_000_000 ? 1 : 2; // a full-HD shot is worked on alone: it needs about 1.2 GB
+      await Promise.all(Array.from({ length: lanes }, async () => {
+        while (nextShot < picks.length) {
+          const i = nextShot; nextShot += 1;
+          job.stage = `shot ${i + 1}/${picks.length}`;
+          shotFiles[i] = path.join(dir, `shot-${String(i + 1).padStart(2, "0")}.mp4`);
+          try { await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...shotArgs({ recipe: spec.recipe, index: i, input: editFiles[i], output: shotFiles[i], width: spec.width, height: spec.height, fps, start: picks[i].start, strength: Number.isFinite(spec.recipeStrength) ? spec.recipeStrength : 1 })]); }
+          catch (error) { throw new Error(`Shot ${i + 1} could not be made: ${String(error?.message || error).slice(0, 300)}`); }
         }
-      }
-      recipeInput = { recipe, starts, strength: spec.recipeStrength };
+      }));
+      editFiles = shotFiles;
+      recipeInput = { recipe: spec.recipe, starts: picks.map(() => 0), strength: spec.recipeStrength, prepared: true };
     }
     const editDuration = spec.recipe ? recipeDuration(spec.recipe) : spec.duration;
 
@@ -701,7 +704,7 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
-    const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => infos[files.indexOf(file)].audioStreams > 0), speeds: spec.speeds, grade: spec.grade };
+    const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => (infos[files.indexOf(file)]?.audioStreams || 0) > 0), speeds: spec.speeds, grade: spec.grade };
     try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.

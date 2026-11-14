@@ -6,7 +6,7 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { assText, editArgs } from "../../composer/server.mjs";
-import { analyzeVideo, rampClipArgs, recipeDuration, validRecipe } from "../../composer/wrencut.mjs";
+import { analyzeVideo, recipeDuration, shotArgs, validRecipe } from "../../composer/wrencut.mjs";
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { if (ok) pass += 1; else fail += 1; console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); };
@@ -75,7 +75,7 @@ ff(editArgs({ clips: [clips[0]], width: 360, height: 640, fps: 24, crossfade: 0,
 check("a ramped shot keeps its length", Math.abs(dur(rampOut) - 3) < 0.15, `${dur(rampOut).toFixed(2)}`);
 // Ramps done one shot at a time (low memory): the shot comes out as its own short file of the right length.
 const rampFile = path.join(dir, "ramp-one.mp4");
-ff(rampClipArgs({ input: clips[0], output: rampFile, speed: [[0, 0.5], [0.5, 1], [1, 2.6]], d: 2, start: 0, fps: 24 }));
-check("a ramped shot made on its own has the shot's length (plus its overlap)", Math.abs(dur(rampFile) - 2.2) < 0.15, `${dur(rampFile).toFixed(2)}`);
+ff(shotArgs({ recipe: { ...rampRecipe, slots: [{ dur: 2, zoom: [1, 1.1], pan: [0, 0], speed: [[0, 0.5], [0.5, 1], [1, 2.6]] }] }, index: 0, input: clips[0], output: rampFile, width: 360, height: 640, fps: 24, start: 0, strength: 0.6 }));
+check("a shot made on its own has the shot's length (plus its overlap)", Math.abs(dur(rampFile) - 2.2) < 0.15, `${dur(rampFile).toFixed(2)}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
