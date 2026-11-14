@@ -67,7 +67,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       </button>)}{wrens.map((item) => <button type="button" role="radio" aria-checked={value.id === item.id} key={item.id} className={value.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => pickWren(item)} disabled={disabled}>
         <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{Math.round(item.seconds)}<small>s</small></b>}</span>
         <strong>{item.name}</strong>
-        <small>{item.photos} photos</small>
+        <small>{item.guide ? `Best with ${item.guide.best} photos · at least ${item.guide.least}` : `${item.photos} photos`}</small>
         <FxChips items={item.effects} />
       </button>)}</div>
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}

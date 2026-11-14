@@ -5,7 +5,7 @@
    recipe (numbers) is stored under the name "MotionWren N". */
 
 import { composerBinding } from "./composer";
-import { parseRecipe, recipeEffects, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
+import { parseRecipe, recipeEffects, recipePhotoGuide, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
@@ -32,7 +32,7 @@ const rowToTemplate = (row: Record<string, unknown>): WrenTemplate | null => {
   const recipe = parseRecipe(row.recipe);
   if (!recipe) return null;
   const preview = Boolean(row.preview);
-  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ramps: recipe.slots.filter((slot) => slot.speed).length, effects: recipeEffects(recipe), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
+  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ramps: recipe.slots.filter((slot) => slot.speed).length, effects: recipeEffects(recipe), guide: recipePhotoGuide(recipe), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
 };
 
 export async function listTemplates(env: Env, onlyActive = false): Promise<WrenTemplate[]> {

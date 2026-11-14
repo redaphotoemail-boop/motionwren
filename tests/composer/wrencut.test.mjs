@@ -6,7 +6,7 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { assText, editArgs } from "../../composer/server.mjs";
-import { analyzeVideo, recipeDuration, shotArgs, validRecipe } from "../../composer/wrencut.mjs";
+import { analyzeVideo, assignClips, recipeDuration, shotArgs, validRecipe } from "../../composer/wrencut.mjs";
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { if (ok) pass += 1; else fail += 1; console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); };
@@ -76,6 +76,12 @@ check("a ramped shot keeps its length", Math.abs(dur(rampOut) - 3) < 0.15, `${du
 // Ramps done one shot at a time (low memory): the shot comes out as its own short file of the right length.
 const rampFile = path.join(dir, "ramp-one.mp4");
 ff(shotArgs({ recipe: { ...rampRecipe, slots: [{ dur: 2, zoom: [1, 1.1], pan: [0, 0], speed: [[0, 0.5], [0.5, 1], [1, 2.6]] }] }, index: 0, input: clips[0], output: rampFile, width: 360, height: 640, fps: 24, start: 0, strength: 0.6 }));
+{
+  const story = { slots: Array.from({ length: 12 }, () => ({ dur: 0.8 })) };
+  const picks = assignClips(story, [5, 5, 5, 5]);
+  check("shots take the clips in story order (a room is not scattered)", picks.every((pick, index) => index === 0 || pick.clip >= picks[index - 1].clip) && new Set(picks.map((pick) => pick.clip)).size === 4, picks.map((pick) => pick.clip).join(""));
+  check("a clip's shots use different moments of it", picks.filter((pick) => pick.clip === 0).every((pick, index, all) => index === 0 || pick.start > all[index - 1].start));
+}
 check("a shot made on its own has the shot's length (plus its overlap)", Math.abs(dur(rampFile) - 2.2) < 0.15, `${dur(rampFile).toFixed(2)}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

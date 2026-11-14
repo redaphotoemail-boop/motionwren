@@ -285,11 +285,15 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
 }
 
 /* Which clip fills each shot, and where in it the shot starts, when there are fewer clips than shots. */
+/* Shots take the clips in story order: the first shots come from the first photo's clip, the next from the second, and so on.
+   A clip that serves several shots gives each a different moment of its footage, so a room is never scattered through the film. */
 export function assignClips(recipe, clipDurations) {
+  const count = clipDurations.length, slots = recipe.slots.length;
+  const clipOf = recipe.slots.map((_, index) => Math.min(count - 1, Math.floor(index * count / slots)));
+  const total = clipDurations.map((_, clip) => clipOf.filter((value) => value === clip).length);
   const uses = clipDurations.map(() => 0);
-  const total = clipDurations.map((_, index) => recipe.slots.filter((__, slot) => slot % clipDurations.length === index).length);
   return recipe.slots.map((slot, index) => {
-    const clip = index % clipDurations.length;
+    const clip = clipOf[index];
     const occurrence = uses[clip]++;
     const room = Math.max(0, clipDurations[clip] - slot.dur - 0.2);
     return { clip, start: round(total[clip] > 1 ? room * (occurrence / (total[clip] - 1)) : 0) };
