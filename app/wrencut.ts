@@ -37,6 +37,8 @@ export type WrenTemplate = {
   ramps?: number;
   /** Everything the template does, in plain words, for its thumbnail. on=false marks something the reference did not have. */
   effects?: { label: string; on: boolean }[];
+  /** Photos that give the best film, and the fewest that still work. */
+  guide?: { best: number; least: number };
   previewUrl?: string;
   active: boolean;
   createdAt: number;
@@ -71,6 +73,8 @@ export function recipeEffects(recipe: WrenRecipe): { label: string; on: boolean 
 }
 
 /* Photos the template asks for: one per shot, at most 12 (a photo can fill more than one shot). */
+/* How many photos give a coherent film: about three shots from each photo's clip, and never less than the footage the edit needs (5-second scenes). */
+export const recipePhotoGuide = (recipe: WrenRecipe) => ({ best: Math.max(2, Math.min(12, Math.ceil(recipe.slots.length / 3))), least: Math.max(2, Math.min(12, Math.ceil(recipeSeconds(recipe) / 5))) });
 export const recipePhotos = (recipe: WrenRecipe) => Math.max(2, Math.min(12, recipe.slots.length));
 
 export function parseRecipe(value: unknown): WrenRecipe | null {
