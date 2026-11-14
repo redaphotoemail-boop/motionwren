@@ -213,7 +213,7 @@ async function getMusic(spec, dir, job) {
 }
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
-import { analyzeVideo, assignClips, recipeChain, recipeDuration, validRecipe } from "./wrencut.mjs";
+import { analyzeVideo, assignClips, rampClipArgs, recipeChain, recipeDuration, validRecipe } from "./wrencut.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 
@@ -629,7 +629,19 @@ async function compose(key, spec) {
     if (spec.recipe) {
       const picks = assignClips(spec.recipe, infos.map((info) => info.duration));
       editFiles = picks.map((pick) => files[pick.clip]);
-      recipeInput = { recipe: spec.recipe, starts: picks.map((pick) => pick.start), strength: spec.recipeStrength };
+      let starts = picks.map((pick) => pick.start), recipe = spec.recipe;
+      // Speed ramps are done one shot at a time first (low memory); the film is then joined from those short files.
+      if (recipe.slots.some((slot) => slot.speed)) {
+        recipe = { ...recipe, slots: recipe.slots.map((slot) => ({ ...slot })) };
+        for (const [i, slot] of recipe.slots.entries()) {
+          if (!slot.speed) continue;
+          job.stage = `ramp ${i + 1}/${recipe.slots.length}`;
+          const rampFile = path.join(dir, `ramp-${String(i + 1).padStart(2, "0")}.mp4`);
+          await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...rampClipArgs({ input: editFiles[i], output: rampFile, speed: slot.speed, d: slot.dur, start: starts[i], fps })]);
+          editFiles[i] = rampFile; starts[i] = 0; delete recipe.slots[i].speed;
+        }
+      }
+      recipeInput = { recipe, starts, strength: spec.recipeStrength };
     }
     const editDuration = spec.recipe ? recipeDuration(spec.recipe) : spec.duration;
 
