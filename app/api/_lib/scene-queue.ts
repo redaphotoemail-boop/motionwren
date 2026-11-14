@@ -159,6 +159,11 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
 
     // 3. Every scene ready: join them (or save a single clip).
     if (segments.every(Boolean)) {
+      // First make sure we hold our own copy of EVERY finished scene. The engine's links die after about an hour, and only two
+      // scenes are copied per step, so a long film could reach the joiner with most scenes uncopied; if joining then failed or
+      // was resumed later, those scenes were gone and the film could not be finished. (Copies are made in parallel.)
+      const missing = segments.map((_, index) => index).filter((index) => !manifest.photoMoves?.[index] && !manifest.saved[index] && manifest.outputs[index] && now - manifest.readyAt[index] <= COPY_WINDOW_MS);
+      await Promise.all(missing.map(async (index) => { try { manifest.saved[index] = await keepScene(env, jobId, index, manifest.outputs[index]); } catch { /* the engine's link is still used */ } }));
       await saveManifest(env, jobId, manifest);
       await persist(env, jobId, ids, segments);
       await hooks.assemble(segments as string[], manifest);
