@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { WrenTemplate } from "../../wrencut";
 import { PreviewPlayer } from "../../wrencut-player";
+import { FxChips } from "../../fx-chips";
 
 export function WrenTemplates() {
   const [items, setItems] = useState<WrenTemplate[] | null>(null);
@@ -31,7 +32,7 @@ export function WrenTemplates() {
         {items.map((item) => (
           <li key={item.id} className={item.active ? "" : "off"}>
             <button type="button" className="ml-play" aria-label={`Watch ${item.name}`} disabled={!item.previewUrl} onClick={() => setWatching(item)}>▶</button>
-            <span className="ml-name"><strong>{item.name}</strong><small>{item.seconds} s · {item.photos} photos{item.hasMusic ? " · music" : ""}{item.hasEffects ? " · effects" : ""}{item.previewUrl ? "" : " · no preview yet"}</small></span>
+            <span className="ml-name"><strong>{item.name}</strong><small>{item.seconds} s · {item.photos} photos{item.previewUrl ? "" : " · no preview yet"}</small><FxChips items={item.effects} /></span>
             <button type="button" role="switch" aria-checked={item.active} aria-label={`Show ${item.name} in Studio`} className={item.active ? "ml-switch on" : "ml-switch"} onClick={() => { void toggle(item); }}><i /></button>
           </li>
         ))}

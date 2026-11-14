@@ -23,6 +23,7 @@ const library = readFileSync("app/admin/library-studio/page.tsx", "utf8");
 assert.ok(library.includes("MusicLibrary"), "Library Studio lost the music library");
 assert.ok(library.includes("WrenTemplates"), "Library Studio lost the MotionWren templates");
 const wrencut = readFileSync("app/admin/wrencut/page.tsx", "utf8");
-for (const text of ["Bring a reference", "Make the preview", "Show in Studio"]) assert.ok(wrencut.includes(text), `WrenCut lost: ${text}`);
+for (const text of ["Bring a reference", "Make the preview", "Show in Studio", "Update from a reference"]) assert.ok(wrencut.includes(text), `WrenCut lost: ${text}`);
 assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("api/admin/wrencut"), "The Studio template grid lost the WrenCut templates");
+assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("FxChips"), "The Studio template thumbnails lost their effect chips");
 console.log("protected features: all present");

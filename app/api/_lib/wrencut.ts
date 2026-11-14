@@ -5,7 +5,7 @@
    recipe (numbers) is stored under the name "MotionWren N". */
 
 import { composerBinding } from "./composer";
-import { parseRecipe, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
+import { parseRecipe, recipeEffects, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
@@ -20,10 +20,11 @@ async function ensure(env: Env) {
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS wrencut_templates (id TEXT PRIMARY KEY, number INTEGER NOT NULL, name TEXT NOT NULL, recipe TEXT NOT NULL, preview INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL)`),
     /* One short-lived link per file the composer must fetch (a reference upload or a History video). */
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS wrencut_links (id TEXT PRIMARY KEY, token TEXT NOT NULL, r2_key TEXT NOT NULL, created_at INTEGER NOT NULL)`),
-    env.DB.prepare(`CREATE TABLE IF NOT EXISTS wrencut_reads (job TEXT PRIMARY KEY, status TEXT NOT NULL, template_id TEXT, error TEXT, ref_key TEXT, created_at INTEGER NOT NULL)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS wrencut_reads (job TEXT PRIMARY KEY, status TEXT NOT NULL, template_id TEXT, error TEXT, ref_key TEXT, target TEXT, created_at INTEGER NOT NULL)`),
   ]);
   // Older tables had no engine column.
   await env.DB.prepare(`ALTER TABLE wrencut_templates ADD COLUMN engine TEXT`).run().catch(() => undefined);
+  await env.DB.prepare(`ALTER TABLE wrencut_reads ADD COLUMN target TEXT`).run().catch(() => undefined);
   ready = true;
 }
 
@@ -31,7 +32,7 @@ const rowToTemplate = (row: Record<string, unknown>): WrenTemplate | null => {
   const recipe = parseRecipe(row.recipe);
   if (!recipe) return null;
   const preview = Boolean(row.preview);
-  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ramps: recipe.slots.filter((slot) => slot.speed).length, ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
+  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ramps: recipe.slots.filter((slot) => slot.speed).length, effects: recipeEffects(recipe), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
 };
 
 export async function listTemplates(env: Env, onlyActive = false): Promise<WrenTemplate[]> {
@@ -56,6 +57,16 @@ export async function saveTemplate(env: Env, recipe: WrenRecipe): Promise<WrenTe
   const number = (last?.n || 0) + 1;
   const clean: WrenRecipe = { version: 1, duration: recipe.duration, fps: recipe.fps, aspect: recipe.aspect, slots: recipe.slots, joins: recipe.joins, ...(recipe.grade ? { grade: recipe.grade } : {}), ...(recipe.audio ? { audio: recipe.audio } : {}) };
   await env.DB.prepare(`INSERT INTO wrencut_templates (id, number, name, recipe, preview, active, created_at) VALUES (?, ?, ?, ?, 0, 1, ?)`).bind(id, number, `MotionWren ${number}`, JSON.stringify(clean), Date.now()).run();
+  return (await listTemplates(env)).find((item) => item.id === `wren:${id}`)!;
+}
+
+/* Re-reads a template from a fresh reference: the recipe is replaced (its name, engine and on/off stay). The old preview showed the old edit, so it is cleared. */
+export async function replaceRecipe(env: Env, id: string, recipe: WrenRecipe): Promise<WrenTemplate> {
+  await ensure(env);
+  const clean: WrenRecipe = { version: 1, duration: recipe.duration, fps: recipe.fps, aspect: recipe.aspect, slots: recipe.slots, joins: recipe.joins, ...(recipe.grade ? { grade: recipe.grade } : {}), ...(recipe.audio ? { audio: recipe.audio } : {}) };
+  const done = await env.DB.prepare(`UPDATE wrencut_templates SET recipe = ?, preview = 0 WHERE id = ?`).bind(JSON.stringify(clean), id).run();
+  if (!done.meta.changes) throw new Error("That template no longer exists.");
+  await env.BUCKET.delete(previewKey(id)).catch(() => undefined);
   return (await listTemplates(env)).find((item) => item.id === `wren:${id}`)!;
 }
 
@@ -113,12 +124,12 @@ function stub(env: unknown, name: string): Stub {
 
 export type ReadState = { status: "running" | "done" | "failed" | "unknown"; stage?: string; error?: string; recipe?: WrenRecipe };
 
-export async function startRead(env: Env, job: string, link: string, refKey: string | null = null) {
+export async function startRead(env: Env, job: string, link: string, refKey: string | null = null, target: string | null = null) {
   await ensure(env);
   const response = await stub(env, `wrencut-${job}`).fetch(`http://composer/analyze/${job}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: link }) });
   const data = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(data.error || `The editing service refused the video (HTTP ${response.status}).`);
-  await env.DB.prepare(`INSERT OR IGNORE INTO wrencut_reads (job, status, ref_key, created_at) VALUES (?, 'running', ?, ?)`).bind(job, refKey, Date.now()).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO wrencut_reads (job, status, ref_key, target, created_at) VALUES (?, 'running', ?, ?, ?)`).bind(job, refKey, target, Date.now()).run();
 }
 
 /* The uploaded reference is deleted as soon as the reading ends, either way. */
@@ -130,7 +141,7 @@ async function dropReference(env: Env, job: string) {
 /* Polls the composer; when the reading is done, makes the template exactly once. */
 export async function readState(env: Env, job: string): Promise<{ status: string; stage?: string; error?: string; template?: WrenTemplate }> {
   await ensure(env);
-  const saved = await env.DB.prepare(`SELECT status, template_id AS templateId, error FROM wrencut_reads WHERE job = ?`).bind(job).first<{ status: string; templateId: string | null; error: string | null }>();
+  const saved = await env.DB.prepare(`SELECT status, template_id AS templateId, error, target FROM wrencut_reads WHERE job = ?`).bind(job).first<{ status: string; templateId: string | null; error: string | null; target: string | null }>();
   if (!saved) return { status: "unknown" };
   if (saved.status === "done" && saved.templateId) return { status: "done", template: (await listTemplates(env)).find((item) => item.id === `wren:${saved.templateId}`) };
   if (saved.status === "failed") return { status: "failed", error: saved.error || "The video could not be read." };
@@ -153,7 +164,7 @@ export async function readState(env: Env, job: string): Promise<{ status: string
     const claim = await env.DB.prepare(`UPDATE wrencut_reads SET status = 'saving' WHERE job = ? AND status = 'running'`).bind(job).run();
     if (!claim.meta.changes) return { status: "running", stage: "saving" };
     let template: WrenTemplate;
-    try { template = await saveTemplate(env, data.recipe); }
+    try { template = saved.target ? await replaceRecipe(env, saved.target, data.recipe) : await saveTemplate(env, data.recipe); }
     catch (error) { await env.DB.prepare(`UPDATE wrencut_reads SET status = 'running' WHERE job = ?`).bind(job).run(); throw error; }
     await env.DB.prepare(`UPDATE wrencut_reads SET status = 'done', template_id = ? WHERE job = ?`).bind(template.id.replace(/^wren:/, ""), job).run();
     await stub(env, `wrencut-${job}`).fetch(`http://composer/analyze/${job}`, { method: "DELETE" }).catch(() => undefined);

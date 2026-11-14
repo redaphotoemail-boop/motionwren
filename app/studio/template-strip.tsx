@@ -6,6 +6,7 @@
    Off by default. Only templates switched on in Library Studio show.
    Nothing here touches a scene prompt. */
 
+import { FxChips } from "../fx-chips";
 import { useEffect, useState } from "react";
 import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplatePlan, parseLibraryEnabled, type LibraryTemplateFields, type LibraryTemplateId } from "../library-templates";
 import type { WrenTemplate } from "../wrencut";
@@ -67,6 +68,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
         <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{Math.round(item.seconds)}<small>s</small></b>}</span>
         <strong>{item.name}</strong>
         <small>{item.photos} photos</small>
+        <FxChips items={item.effects} />
       </button>)}</div>
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">

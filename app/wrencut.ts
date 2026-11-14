@@ -35,6 +35,8 @@ export type WrenTemplate = {
   hasEffects?: boolean;
   /** Shots with a speed ramp. */
   ramps?: number;
+  /** Everything the template does, in plain words, for its thumbnail. on=false marks something the reference did not have. */
+  effects?: { label: string; on: boolean }[];
   previewUrl?: string;
   active: boolean;
   createdAt: number;
@@ -45,6 +47,29 @@ export const isWrenId = (value: unknown): value is string => typeof value === "s
 
 const overlap = (join: { type: string; dur: number }) => join.type === "cut" ? 0.04 : join.type === "flash" ? 0.16 : join.dur;
 export const recipeSeconds = (recipe: WrenRecipe) => Math.round((recipe.slots.reduce((sum, slot) => sum + slot.dur, 0) - recipe.joins.reduce((sum, join) => sum + overlap(join), 0)) * 1000) / 1000;
+/* What a template does, in plain words — shown on its thumbnail so the edit's ingredients are visible at a glance. */
+export function recipeEffects(recipe: WrenRecipe): { label: string; on: boolean }[] {
+  const count = (type: string) => recipe.joins.filter((join) => join.type === type).length;
+  const out: { label: string; on: boolean }[] = [];
+  const cuts = count("cut"), dissolves = count("dissolve"), flashes = count("flash");
+  out.push({ label: `${recipe.slots.length} shots`, on: true });
+  if (cuts) out.push({ label: `${cuts} hard ${cuts === 1 ? "cut" : "cuts"}`, on: true });
+  if (dissolves) out.push({ label: `${dissolves} ${dissolves === 1 ? "crossfade" : "crossfades"}`, on: true });
+  if (flashes) out.push({ label: `${flashes} flash ${flashes === 1 ? "transition" : "transitions"}`, on: true });
+  const ramps = recipe.slots.filter((slot) => slot.speed).length;
+  out.push(ramps ? { label: `Speed ramps ×${ramps}`, on: true } : { label: "No speed ramps", on: false });
+  out.push(ramps ? { label: "Motion blur", on: true } : { label: "No motion blur", on: false });
+  const zooms = recipe.slots.filter((slot) => Math.abs(slot.zoom[1] - slot.zoom[0]) > 0.02).length;
+  const slides = recipe.slots.filter((slot) => Math.hypot(slot.pan[0], slot.pan[1]) > 0.01).length;
+  if (zooms) out.push({ label: `Camera push/pull ×${zooms}`, on: true });
+  if (slides) out.push({ label: `Camera slide ×${slides}`, on: true });
+  if (recipe.grade) out.push({ label: "Colour look", on: true });
+  if (recipe.audio?.music) out.push({ label: recipe.audio.music.bpm ? `Music · ${recipe.audio.music.bpm} BPM` : "Music style", on: true });
+  const sfx = recipe.audio?.sfx?.length || 0;
+  if (sfx) out.push({ label: `Cut sounds ×${sfx}`, on: true });
+  return out;
+}
+
 /* Photos the template asks for: one per shot, at most 12 (a photo can fill more than one shot). */
 export const recipePhotos = (recipe: WrenRecipe) => Math.max(2, Math.min(12, recipe.slots.length));
 
