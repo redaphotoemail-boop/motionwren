@@ -1,3 +1,5 @@
+import { fitRecipe, pairWhooshRamps } from "../../../wrencut-fit";
+import { storyOrder } from "../../_lib/room-order";
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, engineCost, engineUpscales, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
@@ -56,6 +58,9 @@ export async function POST(request: Request) {
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
   if (valid.length !== scenesIn.length || !valid.length || valid.length > 12) return NextResponse.json({ error: "Every scene needs a clear prompt (and at most 12 scenes)." }, { status: 400 });
   if (mode === "series" && valid.length < 2) return NextResponse.json({ error: "Add at least two scenes." }, { status: 400 });
+  // A template film walks through the home in story order, and the template is tailored to the number of photos given.
+  const ordered = wren && (body.template as { storyOrder?: unknown }).storyOrder !== false ? (await storyOrder(env, valid)).scenes : valid;
+  const recipe = wren ? pairWhooshRamps(fitRecipe(wren.recipe, ordered.length)) : null;
 
   // How many scenes and how long each, so the film lands on the chosen length.
   let count = 1, sceneSeconds: number, duration: number, shareSeconds = 0;
@@ -65,12 +70,12 @@ export async function POST(request: Request) {
   } else {
     const length = VIDEO_LENGTHS.includes(Number(body.length) as (typeof VIDEO_LENGTHS)[number]) ? Number(body.length) : 30;
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
-    const plan = wren ? wrenPlan(engine, resolution, valid.length, recipeSeconds(wren.recipe)) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value));
+    const plan = wren ? wrenPlan(engine, resolution, valid.length, recipeSeconds(recipe!)) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value));
     count = plan.count; sceneSeconds = plan.sceneSeconds; duration = plan.totalSeconds; shareSeconds = plan.shareSeconds;
   }
   const lengths: number[] = mode === "single" ? engineDurationOptions(engine, resolution) : filmSceneDurations(engine, resolution);
   if (!lengths.includes(sceneSeconds)) return NextResponse.json({ error: "This engine cannot make scenes of that length." }, { status: 400 });
-  const scenes = valid.slice(0, count);
+  const scenes = ordered.slice(0, count);
   const seed = Number.isInteger(body.seed) && Number(body.seed) >= 0 ? Number(body.seed) : undefined;
   const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
   const label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 60) : mode === "single" ? "Single clip" : `${duration}-second film`;
@@ -104,7 +109,7 @@ export async function POST(request: Request) {
   if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
   if (mode === "series") {
     const picked = musicTemplate(body.music);
-    manifest.edit = { shareSeconds, crossfade: templated ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : wren?.recipe.audio?.music?.prompt || musicPrompt({ aspect, duration, choice: templated || wren ? LIBRARY_TEMPLATE_MUSIC_MOOD : null }) } };
+    manifest.edit = { shareSeconds, crossfade: templated ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : recipe?.audio?.music?.prompt || musicPrompt({ aspect, duration, choice: templated || wren ? LIBRARY_TEMPLATE_MUSIC_MOOD : null }) } };
     if (templated) {
       // Hard cuts, the template's text over the film, and its warm look.
       const lines = libraryTemplateOverlayLines(libraryPick.libraryTemplate, libraryPick.fields, duration, shareSeconds);
@@ -112,7 +117,7 @@ export async function POST(request: Request) {
       manifest.edit.grade = "warm";
     }
     if (wren) {
-      manifest.edit.crossfade = 0; manifest.edit.recipe = wren.recipe;
+      manifest.edit.crossfade = 0; manifest.edit.recipe = recipe!;
     }
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
   }
@@ -130,10 +135,10 @@ export async function POST(request: Request) {
       const sfx = await makeSfx(env, id, Array.from({ length: scenes.length }, (_, index) => prompts[index] || ""), Math.min(sceneSeconds, 12));
       if (sfx) manifest.edit = { ...(manifest.edit || {}), sound: { ...(manifest.edit?.sound || {}), sfx } };
     }
-    if (wren?.recipe.audio?.sfx?.length && manifest.edit) {
+    if (recipe?.audio?.sfx?.length && manifest.edit) {
       // The template's own effects on its cuts (whooshes, hits), made from its prompts. Best effort: a film never waits on them.
       try {
-        const cutfx = await makeCutEffects(env, id, wren.recipe.audio, joinTimes(wren.recipe));
+        const cutfx = await makeCutEffects(env, id, recipe!.audio, joinTimes(recipe!));
         if (cutfx) manifest.edit.sound = { ...(manifest.edit.sound || {}), cutfx };
       } catch { /* the film is made without them */ }
     }
