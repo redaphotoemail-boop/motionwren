@@ -139,9 +139,9 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
       ids[index] = ""; segments[index] = photo.link; manifest.states[index] = "ready"; manifest.reasons[index] = ""; manifest.outputs[index] = photo.link; manifest.readyAt[index] = now;
     });
 
-    // Keep our own copy of finished scenes (at most two per step).
+    // Keep our own copy of finished scenes (up to six per step, so a slow film never loses one to the hour limit).
     let copies = 0;
-    for (let index = 0; index < count && copies < 2; index += 1) {
+    for (let index = 0; index < count && copies < 6; index += 1) {
       if (manifest.photoMoves?.[index] || manifest.states[index] !== "ready" || manifest.saved[index] || !manifest.outputs[index] || now - manifest.readyAt[index] > COPY_WINDOW_MS) continue;
       copies += 1;
       try { manifest.saved[index] = await keepScene(env, jobId, index, manifest.outputs[index]); } catch { /* tried again next step */ }
