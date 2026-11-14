@@ -203,7 +203,7 @@ function TemplateCard({ template, onChange, onAct, onReread, busy }: { template:
       ) : null}
       {open ? (
         <div className="wc-picker">
-          <p className="muted small">Choose videos from History (they are cut to fit), or upload photos. This template is built for {template.photos} photos — more clips than that are fine, fewer repeat.</p>
+          <p className="muted small">Choose videos from History (they are cut to fit), or upload photos. This template is built for {template.photos} photos — more clips than that are fine, fewer repeat. Videos give the true look. A photo can only get a slow push here, so a preview made from photos reads like a slideshow; in Studio your photos are turned into real video first.</p>
           {history === null ? <p className="muted small">Loading History…</p> : history.length ? (
             <ul className="wc-history">
               {history.map((item) => (
