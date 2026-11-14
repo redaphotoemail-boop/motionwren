@@ -215,7 +215,7 @@ function TemplateCard({ template, onChange, onAct, onReread, busy }: { template:
                 </li>
               ))}
             </ul>
-          ) : <p className="muted small">No videos in History yet.</p>}
+          ) : <p className="muted small">No videos found in History for the account you are signed in with. A film made in Studio with this template is saved there, and shows here.</p>}
           <label className="ml-file wc-photos">Upload photos{photos.length ? ` (${photos.length} added)` : ""}<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { void addPhotos(event.target.files); event.target.value = ""; }} /></label>
           <button type="button" disabled={Boolean(status) || (!picked.length && !photos.length)} onClick={() => { void build(); }}>Make the preview</button>
         </div>
