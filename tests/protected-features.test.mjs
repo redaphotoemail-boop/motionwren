@@ -35,5 +35,6 @@ assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").
 assert.ok(readFileSync("app/api/studio/clips/route.ts", "utf8").includes("requireAdmin"), "The clips list lost its admin check");
 const studioPage = readFileSync("app/studio/page.tsx", "utf8");
 for (const text of ["Photo shape", "Horizontal", "Social", "Crop-safe"]) assert.ok(studioPage.includes(text), `The Studio frame size lost: ${text}`);
+for (const text of ["arrived and were checked", "Send again", "Checking every photo"]) assert.ok(studioPage.includes(text), `The Studio photo verification lost: ${text}`);
 assert.ok(editFilm.includes("Frame"), "The Edit film panel lost the Frame (cut to 16:9 / vertical) choice");
 console.log("protected features: all present");

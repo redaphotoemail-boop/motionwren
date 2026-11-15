@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QualityTab from "./quality-tab";
 import { explainSend, loadSendLog, saveSendLog, type SendLog } from "./send-log";
+import { clearPending, savePending, type PendingUpload } from "./pending-upload";
+export { loadPending, clearPending, type PendingUpload } from "./pending-upload";
 
 /* Studio production, as the owner sees it. Every Studio video is made on the
    server (see /api/studio/production): this file only watches. Jobs are
@@ -126,60 +128,110 @@ export function useStudioJobs(handlers: { onFinished?: (job: StudioJob) => void;
   return { jobs, track, forget, restored, offline };
 }
 
-export type Sending = { id: string; done: number; total: number };
+export type Sending = { id: string; done: number; total: number; phase?: "sending" | "checking" };
+/** The studio's confirmation that every photo is stored and was checked (its size matches what the phone sent). */
+export type Receipt = { id: string; count: number; at: number };
+type SendHooks = { onCreated?: (job: StudioJob) => void; onProgress: (sending: Sending) => void; onVerified?: (receipt: Receipt) => void };
 
-/* Starts a Studio video in three small steps: create it (nothing is made or
-   charged yet), send each scene's photo, then start. The job is shown from
-   the first step, so the loading view appears at once. A photo that fails to
-   send is tried again; once all are in, the server finishes starting even if
-   the page is refreshed. */
-export async function startStudioProduction(body: Record<string, unknown>, photos: string[], hooks: { onCreated: (job: StudioJob) => void; onProgress: (sending: Sending) => void }): Promise<StudioJob> {
-  const created = await fetch("/api/studio/production", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await created.json().catch(() => ({}));
-  if (!created.ok || !data.job?.id) throw new Error(data.error || "The video could not start. Please try again.");
-  const job = data.job as StudioJob;
-  const count = Number(data.plan?.count) || photos.length;
-  hooks.onCreated(job);
-  hooks.onProgress({ id: job.id, done: 0, total: count });
+const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+/* Sends the photos of a film that exists on the server and starts it, proving each step:
+   every photo carries its SHA-256 and the server reads it back before it replies; when all are in, the start request says
+   how big each photo was and the server checks what it really holds. A photo that is missing or short is sent again (twice at most)
+   before the film starts. Nothing is charged until the film starts. Resumable: `only` limits it to the photos still missing. */
+async function deliverPhotos(job: StudioJob, blobs: Blob[], hooks: SendHooks, only?: number[]): Promise<StudioJob> {
+  const count = blobs.length;
   // What this phone saw while sending (kept on the device for the stopped-film explanation), and the screen kept awake meanwhile.
-  const log: SendLog = { startedAt: Date.now(), sizes: [], hiddenMs: 0, hiddenTimes: 0, events: [], sent: 0 };
+  const log: SendLog = { startedAt: Date.now(), sizes: blobs.map((blob) => blob.size), hiddenMs: 0, hiddenTimes: 0, events: [], sent: 0 };
   let hiddenAt = 0;
   const onVisibility = () => { if (document.visibilityState === "hidden") hiddenAt = Date.now(); else if (hiddenAt) { log.hiddenMs += Date.now() - hiddenAt; log.hiddenTimes += 1; hiddenAt = 0; saveSendLog(job.id, log); } };
   document.addEventListener("visibilitychange", onVisibility);
   let wake: { release: () => Promise<void> } | null = null;
   try { void (navigator as unknown as { wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request("screen").then((lock) => { wake = lock; }).catch(() => undefined); } catch { /* not supported: sending still works */ }
   saveSendLog(job.id, log);
+  const digests = await Promise.all(blobs.map(async (blob) => hex(await crypto.subtle.digest("SHA-256", await blob.arrayBuffer()))));
+  let sentCount = count - (only ? only.length : count);
+  hooks.onProgress({ id: job.id, done: sentCount, total: count, phase: "sending" });
   // Photos go up one at a time, at full quality, so the first arrives as soon as possible. Each try gives up after two minutes (a stalled connection) and tries again, so one stuck upload can't leave the film waiting.
-  let sentCount = 0, nextIndex = 0;
   async function sendPhoto(index: number) {
-    const blob = await (await fetch(photos[index])).blob();
-    log.sizes[index] = blob.size;
+    const blob = blobs[index];
     let sent = false, reason = "";
     for (let attempt = 0; attempt < 4 && !sent; attempt += 1) {
       if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 1200 * attempt));
       const controller = new AbortController(); const timer = window.setTimeout(() => controller.abort(), 120_000); const began = Date.now();
       const note = (outcome: SendLog["events"][number]["outcome"], detail?: string) => { log.events.push({ scene: index + 1, attempt: attempt + 1, bytes: blob.size, ms: Date.now() - began, outcome, ...(detail ? { detail: detail.slice(0, 120) } : {}) }); saveSendLog(job.id, log); };
       try {
-        const response = await fetch(`/api/studio/production/${job.id}?scene=${index + 1}`, { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob, signal: controller.signal });
-        if (response.ok) { sent = true; note("ok"); }
-        else { reason = ((await response.json().catch(() => ({}))) as { error?: string }).error || ""; note("refused", reason || `HTTP ${response.status}`); if (response.status < 500 && response.status !== 429) break; }
+        const response = await fetch(`/api/studio/production/${job.id}?scene=${index + 1}`, { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg", "x-photo-sha256": digests[index] }, body: blob, signal: controller.signal });
+        const answer = await response.json().catch(() => ({})) as { error?: string; bytes?: number; sha256?: string };
+        // Only the studio's own receipt counts: it must name the same size and fingerprint the phone sent.
+        if (response.ok && answer.bytes === blob.size && answer.sha256 === digests[index]) { sent = true; note("ok"); }
+        else { reason = answer.error || (response.ok ? "The receipt did not match the photo." : ""); note("refused", reason || `HTTP ${response.status}`); if (response.status < 500 && response.status !== 429 && response.status !== 422) break; }
       } catch { reason = "The connection dropped or stalled."; note(controller.signal.aborted ? "timeout" : "dropped"); }
       finally { window.clearTimeout(timer); }
     }
     if (!sent) throw new Error(`Scene ${index + 1}'s photo could not be sent. ${reason} Nothing was made or charged — please try again.`.replace(/\s+/g, " "));
-    sentCount += 1; log.sent = sentCount; saveSendLog(job.id, log); hooks.onProgress({ id: job.id, done: sentCount, total: count });
+    sentCount += 1; log.sent = sentCount; saveSendLog(job.id, log); hooks.onProgress({ id: job.id, done: sentCount, total: count, phase: "sending" });
   }
   try {
-    await Promise.all(Array.from({ length: 1 }, async () => { while (nextIndex < count) { const index = nextIndex; nextIndex += 1; await sendPhoto(index); } }));
+    const queue = only ? [...only] : Array.from({ length: count }, (_, index) => index);
+    for (let round = 0; round < 3; round += 1) {
+      for (const index of queue.splice(0)) await sendPhoto(index);
+      hooks.onProgress({ id: job.id, done: count, total: count, phase: "checking" });
+      const started = await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photos: blobs.map((blob, index) => ({ bytes: blob.size, sha256: digests[index] })) }) });
+      const result = await started.json().catch(() => ({})) as { error?: string; missing?: number[]; verified?: number; job?: StudioJob };
+      if (started.ok && result.job?.id) { hooks.onVerified?.({ id: job.id, count: result.verified || count, at: Date.now() }); return result.job; }
+      // Some photos are missing or short on the server: send just those again, then check again.
+      if (started.status === 409 && result.missing?.length && round < 2) { queue.push(...result.missing.map((scene) => scene - 1).filter((index) => index >= 0 && index < count)); sentCount = count - queue.length; hooks.onProgress({ id: job.id, done: sentCount, total: count, phase: "sending" }); continue; }
+      throw new Error(result.error || "The video could not start. Please try again.");
+    }
+    throw new Error("The studio could not confirm every photo. Nothing was made or charged — please try again.");
   } finally {
     log.finishedAt = Date.now(); saveSendLog(job.id, log);
     document.removeEventListener("visibilitychange", onVisibility);
     wake?.release().catch(() => undefined);
   }
-  const started = await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-  const result = await started.json().catch(() => ({}));
-  if (!started.ok || !result.job?.id) throw new Error(result.error || "The video could not start. Please try again.");
-  return result.job as StudioJob;
+}
+
+async function beginFilm(body: Record<string, unknown>, blobs: Blob[], hooks: SendHooks, tab: string): Promise<StudioJob> {
+  const created = await fetch("/api/studio/production", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await created.json().catch(() => ({}));
+  if (!created.ok || !data.job?.id) throw new Error(data.error || "The video could not start. Please try again.");
+  const job = data.job as StudioJob;
+  hooks.onCreated?.(job);
+  hooks.onProgress({ id: job.id, done: 0, total: Number(data.plan?.count) || blobs.length, phase: "sending" });
+  // Kept on the device until the studio confirms every photo, so a closed page or a dropped connection can be finished with "Send again".
+  await savePending({ jobId: job.id, tab, body, photos: blobs, at: Date.now() });
+  const started = await deliverPhotos(job, blobs, hooks);
+  await clearPending(job.id);
+  return started;
+}
+
+/* Starts a Studio video in small, proven steps: create it (nothing is made or charged yet), send each scene's photo with a
+   fingerprint, let the studio read each back, then start only once it has confirmed every photo. The job is shown from the
+   first step, so the loading view appears at once. */
+export async function startStudioProduction(body: Record<string, unknown>, photos: string[], hooks: SendHooks, tab = ""): Promise<StudioJob> {
+  const blobs = await Promise.all(photos.map(async (photo) => (await fetch(photo)).blob()));
+  return beginFilm(body, blobs, hooks, tab);
+}
+
+/** A film whose photos were left unfinished: what the studio holds of it now (null if it can't be asked). */
+export async function checkUnfinished(jobId: string): Promise<{ status: string; total: number; sizes: number[]; received: number } | null> {
+  try { const response = await fetch(`/api/studio/production/${jobId}?photos=1`, { cache: "no-store" }); return response.ok ? await response.json() : null; } catch { return null; }
+}
+
+/** Finishes sending: the same film if the studio is still waiting for it (only the missing photos go), else a new one from the same photos and settings. */
+export async function resumeStudioUpload(pending: PendingUpload, hooks: SendHooks): Promise<StudioJob> {
+  const state = await checkUnfinished(pending.jobId);
+  if (state && state.status === "starting" && state.total === pending.photos.length) {
+    const missing = state.sizes.map((size: number, index: number) => size === pending.photos[index].size ? -1 : index).filter((index: number) => index >= 0);
+    const job = { id: pending.jobId } as StudioJob;
+    const started = await deliverPhotos(job, pending.photos, hooks, missing.length ? missing : []);
+    await clearPending(pending.jobId);
+    return started;
+  }
+  const started = await beginFilm(pending.body, pending.photos, hooks, pending.tab);
+  await clearPending(pending.jobId);
+  return started;
 }
 
 /* Resumes a stopped video: finished scenes are kept when possible. */

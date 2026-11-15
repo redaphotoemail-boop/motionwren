@@ -1920,3 +1920,5 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .prod-diagnose summary { cursor: pointer; color: rgba(243, 241, 236, .9); }
 .prod-diagnose p { margin: 8px 0 0; line-height: 1.45; }
 .prod-diagnose ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
+.send-bar .send-close { margin-left: auto; border: 0; background: none; color: inherit; font-size: 20px; line-height: 1; padding: 4px 8px; cursor: pointer; opacity: .6; }
+.send-bar .send-action { margin-left: auto; border: 0; border-radius: 999px; padding: 8px 14px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
