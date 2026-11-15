@@ -5,7 +5,7 @@ import { filmShape } from "../original-shape";
 import SaveVideo from "../components/save-video";
 import { templateMotions } from "../film-motion";
 import { videoRef } from "../video-ref";
-import ClipPicker from "./clip-picker";
+import ClipPicker, { type ChosenClip } from "./clip-picker";
 import QualityTab, { QualityBadge, type QualityStatus } from "./quality-tab";
 import CostTab from "./cost-tab";
 import SuggestEdit from "./suggest-edit";
@@ -329,6 +329,8 @@ export default function Home() {
   // Studio videos that stopped in the last few hours stay visible (with "Pick up where it stopped").
   const stoppedJobs = Object.values(production.jobs).filter((job) => !isActive(job) && job.status === "failed" && !dismissed.includes(job.id)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 8);
   const seriesGenerating = starting === "series";
+  const [clipChoice, setClipChoice] = useState<ChosenClip[]>([]);
+  const viaClips = shots.length < 2 && clipChoice.length >= 2;
   const output = singleJob?.status === "succeeded" ? branded[singleJob.id]?.url || singleJob.videoUrl || "" : "";
   const outputFormat: OutputFormat = singleJob && branded[singleJob.id] ? branded[singleJob.id].format : "mp4";
   const extendOutput = extendJob?.status === "succeeded" ? branded[extendJob.id]?.url || extendJob.videoUrl || "" : "";
@@ -540,6 +542,17 @@ export default function Home() {
   }
   function moveMiddleFrame(index: number, direction: -1 | 1) {
     setMiddleFrames((current) => { const target = index + direction; if (target < 0 || target >= current.length) return current; const next = [...current]; [next[index], next[target]] = [next[target], next[index]]; return next; }); clearResult("transition");
+  }
+  /* Makes a film from saved clips (no new generation). Used by the clip picker's own button and by the main button once 2+ clips are chosen. */
+  async function makeFromClips(clips: ChosenClip[], note: (message: string) => void) {
+    setStarting("clips"); setError("");
+        try {
+          const response = await fetch("/api/studio/production/from-clips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clips, titles: titlesPayload(titles), music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : defaultMusicId({ aspect, duration: seriesLength })), ...(tpl.on && tpl.id.startsWith("wren:") ? { template: { wren: tpl.id } } : {}) }) });
+          const data = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string };
+          if (!response.ok || !data.job) { note(data.error || "The film could not start."); return; }
+          production.track({ ...data.job, scenes: data.job.scenes || null }); setJobIds((current) => ({ ...current, series: data.job!.id })); setClipChoice([]);
+        } catch { note("The film could not start. Check your connection."); }
+        finally { setStarting(""); }
   }
   async function acceptSeriesFiles(files: FileList | File[]) {
     const selected = Array.from(files).filter((file) => file.type.startsWith("image/")).slice(0, Math.max(0, 12 - shots.length));
@@ -760,16 +773,7 @@ export default function Home() {
             <div className="shot-list">{shots.map((shot, index) => <article className="shot-card" key={shot.id}><div className="shot-thumb"><img src={shot.source} alt=""/><span>{String(index + 1).padStart(2, "0")}</span></div><div className="shot-info"><strong>{shot.name}</strong><label><span>Camera movement</span><select value={shot.motion} onChange={(e) => updateShot(shot.id, { motion: e.target.value as MotionKey })} disabled={seriesGenerating}>{motions.filter((item) => item.key !== "custom").map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>{shot.status !== "idle" && <small className={`shot-status ${shot.status}`}>{shot.status === "succeeded" ? "Ready" : shot.status === "failed" ? shot.error : shot.status === "starting" ? "Starting…" : shot.status === "finishing" ? "Finishing…" : "Generating…"}</small>}</div><div className="shot-order"><span>ORDER</span><div><button onClick={() => moveShot(index, -1)} disabled={index === 0 || seriesGenerating} aria-label="Move scene earlier" title="Move scene earlier">↑</button><button onClick={() => moveShot(index, 1)} disabled={index === shots.length - 1 || seriesGenerating} aria-label="Move scene later" title="Move scene later">↓</button></div><button className="remove-shot" onClick={() => setShots((current) => current.filter((item) => item.id !== shot.id))} disabled={seriesGenerating} aria-label={`Remove scene ${index + 1}`}>×</button></div></article>)}</div>
           </>}
         </div>
-      <div className="panel series-clips"><ClipPicker disabled={seriesGenerating} starting={starting === "clips"} onMake={async (clips, note) => {
-        setStarting("clips"); setError("");
-        try {
-          const response = await fetch("/api/studio/production/from-clips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clips, titles: titlesPayload(titles), music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : defaultMusicId({ aspect, duration: seriesLength })), ...(tpl.on && tpl.id.startsWith("wren:") ? { template: { wren: tpl.id } } : {}) }) });
-          const data = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string };
-          if (!response.ok || !data.job) { note(data.error || "The film could not start."); return; }
-          production.track({ ...data.job, scenes: data.job.scenes || null }); setJobIds((current) => ({ ...current, series: data.job!.id }));
-        } catch { note("The film could not start. Check your connection."); }
-        finally { setStarting(""); }
-      }}/></div>
+      <div className="panel series-clips"><ClipPicker disabled={seriesGenerating} starting={starting === "clips"} chosen={clipChoice} onChosen={setClipChoice} onMake={makeFromClips}/></div>
       <TemplateStrip value={tpl} onChange={setTpl} onEngine={(next) => { setEngine(next); const available = studioEngine(next).resolutions; setResolution((current) => available.includes(current) ? current : available[available.length - 1]); }} engine={engine} resolution={resolution} photoCount={shots.filter((shot) => shot.source).length} photos={shots.filter((shot) => shot.source).map((shot) => ({ name: shot.name, source: shot.source }))} onFrame={(frame) => setAspect(frame)} onArrange={(order) => setShots((current) => { const have = current.filter((shot) => shot.source), rest = current.filter((shot) => !shot.source); return [...order.map((index) => have[index]).filter(Boolean), ...rest]; })} disabled={seriesGenerating}/>
       <SuggestEdit photoCount={shots.length} disabled={seriesGenerating} getImages={() => Promise.all(shots.map((shot) => smallPhoto(shot.source)))} onApply={(template, music) => {
         if (template) { if (template.engine) { setEngine(template.engine as StudioEngineKey); const available = studioEngine(template.engine as StudioEngineKey).resolutions; setResolution((current) => available.includes(current) ? current : available[available.length - 1]); } setTpl((current) => ({ ...current, on: true, id: template.id, wren: { seconds: template.seconds, photos: template.photos, best: template.guide?.best, hasMusic: template.hasMusic }, texts: [] })); }
@@ -803,7 +807,7 @@ export default function Home() {
           <div className="series-summary"><div><span>Length</span><strong>{stitchedDuration}s</strong></div><div><span>Scenes</span><strong>{shots.length < 2 ? 0 : planScenes}</strong></div><div><span>Engine cost</span><strong>{shots.length < 2 ? "—" : `$${seriesCost.toFixed(2)}`}</strong></div></div>
           {seriesJob && (isActive(seriesJob) || seriesJob.status === "failed") && <ProductionView job={seriesJob} title={`${seriesJob.status === "failed" ? "Your" : "Making your"} ${seriesJob.category.replace(/^Studio · /, "") || "film"}`} thumbs={localThumbs[seriesJob.id]} onStop={() => stopJob("series")} onResume={() => resumeJob(seriesJob.id)} onStartOver={() => startOver(seriesJob.id)} onDelete={() => deleteJob(seriesJob.id)} offline={production.offline} sending={sending}/>}
           {error && <div className="error">{error}</div>}
-          <div className="series-actions"><button className="generate" onClick={generateSeries} disabled={!connected || shots.length < 2 || seriesGenerating || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" ? "Sending your scenes…" : isActive(seriesJob) ? `Make another ${seriesLength}-second film` : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button></div>
+          <div className="series-actions"><button className="generate" onClick={viaClips ? () => makeFromClips(clipChoice, setError) : generateSeries} disabled={!connected || (shots.length < 2 && !viaClips) || seriesGenerating || starting === "clips" || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" || starting === "clips" ? "Sending your scenes…" : viaClips ? `Make a film from your ${clipChoice.length} saved clips · no new generation` : isActive(seriesJob) ? `Make another ${seriesLength}-second film` : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button>{connected && shots.length < 2 && !viaClips && <p className="series-hint">{shots.length ? "Add one more photo to make a film" : "Add 2 or more photos, or choose 2 or more saved clips below"}</p>}</div>
           {historyMessage && <p className="history-message">{historyMessage}</p>}
           <p className="queue-note">Scenes are made on our server, in turn. A scene that fails is redone automatically, up to three tries. The film is edited with crossfades and one music track, then saved to History — you can close or refresh this page.</p>
           <div className="stitched-result"><span className="label">FINAL VIDEO</span>{stitchedOutput ? <><video src={stitchedOutput} controls playsInline/>{downloadLink(stitchedOutput, seriesJob, stitchedFormat, "motionwren-film")}</> : <><strong>Your film will appear here</strong><small>Scenes stay in your order, cross-dissolve, and share one music track.</small></>}{overlayWork && seriesJob && overlayWork.id === seriesJob.id && <p className={overlayWork.busy ? "history-message" : "error"}>{overlayWork.busy ? `Adding the listing cards… ${overlayWork.message}` : overlayWork.message}</p>}</div>

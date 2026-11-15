@@ -11,10 +11,10 @@ export type ChosenClip = { jobId: string; scene: number };
 
 const shape = (aspect: string) => aspect === "vertical" ? "9:16" : aspect === "cinematic" ? "2.39:1" : aspect === "square" ? "1:1" : "16:9";
 
-export default function ClipPicker({ disabled, starting, onMake }: { disabled?: boolean; starting?: boolean; onMake: (clips: ChosenClip[], note: (message: string) => void) => void }) {
+export default function ClipPicker({ disabled, starting, onMake, chosen, onChosen }: { disabled?: boolean; starting?: boolean; onMake: (clips: ChosenClip[], note: (message: string) => void) => void; chosen: ChosenClip[]; onChosen: (next: ChosenClip[] | ((current: ChosenClip[]) => ChosenClip[])) => void }) {
   const [open, setOpen] = useState(false);
   const [films, setFilms] = useState<Film[] | null>(null);
-  const [chosen, setChosen] = useState<ChosenClip[]>([]);
+  const [shown, setShown] = useState(4); // films listed at first; the rest on request, so the page stays short
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<{ src: string; poster: string; title: string } | null>(null);
   async function toggle() {
@@ -31,10 +31,10 @@ export default function ClipPicker({ disabled, starting, onMake }: { disabled?: 
   const position = (jobId: string, scene: number) => chosen.findIndex((item) => item.jobId === jobId && item.scene === scene);
   function pick(film: Film, scene: Scene) {
     const at = position(film.id, scene.index);
-    if (at >= 0) return setChosen((current) => current.filter((_, index) => index !== at));
+    if (at >= 0) return onChosen((current) => current.filter((_, index) => index !== at));
     if (chosen.length >= 12) return setNote("A film can use up to 12 clips.");
     if (lockedShape && film.aspect !== lockedShape) return setNote(`Clips of one shape only. Your first clip is ${shape(lockedShape)}.`);
-    setNote(""); setChosen((current) => [...current, { jobId: film.id, scene: scene.index }]);
+    setNote(""); onChosen((current) => [...current, { jobId: film.id, scene: scene.index }]);
   }
   return <div className="clip-picker">
     <button type="button" className="add-scene" onClick={toggle} disabled={disabled} aria-expanded={open}><span>▶</span>Use clips already made</button>
@@ -42,7 +42,7 @@ export default function ClipPicker({ disabled, starting, onMake }: { disabled?: 
       <p className="clip-help">Choose clips from your earlier films, in the order you want them. No new generation: only the edit is made.</p>
       {!films && !note && <p className="clip-help">Loading your clips…</p>}
       {films && !films.length && <p className="clip-help">No saved clips yet. Finished films keep their clips from now on.</p>}
-      {films?.map((film) => <section className="clip-film" key={film.id}>
+      {films?.slice(0, shown).map((film) => <section className="clip-film" key={film.id}>
         <header><strong>{film.label}</strong><small>{videoRef(film.id)} · {shape(film.aspect)} · {new Date(film.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small></header>
         <div className="clip-grid">{film.scenes.map((scene) => {
           const at = position(film.id, scene.index);
@@ -57,6 +57,7 @@ export default function ClipPicker({ disabled, starting, onMake }: { disabled?: 
           </div>;
         })}</div>
       </section>)}
+      {films && films.length > shown && <button type="button" className="clip-more" onClick={() => setShown((count) => count + 6)}>Show {Math.min(6, films.length - shown)} more films</button>}
       {note && <p className="clip-note">{note}</p>}
       {preview && <div className="clip-preview" role="dialog" aria-modal="true" aria-label="Clip preview" onClick={() => setPreview(null)}>
         <div onClick={(event) => event.stopPropagation()}>
