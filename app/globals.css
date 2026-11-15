@@ -1990,3 +1990,26 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .qual-prompt { margin: 6px 0 0; font-size: 12px; line-height: 1.45; white-space: pre-wrap; opacity: .85; }
 .qual-fix { margin-top: 10px; width: 100%; padding: 11px 0; border: 0; border-radius: 999px; background: var(--ink); color: var(--paper); font-weight: 600; cursor: pointer; }
 .qual-fix:disabled { opacity: .5; cursor: default; }
+
+/* Compact pickers: one scrolling row instead of a long page. */
+.tpl-tabs { display: flex; gap: 6px; }
+.tpl-tabs button { padding: 7px 14px; border: 0; border-radius: 999px; background: var(--paper); color: var(--muted); font: 600 13px/1 inherit; cursor: pointer; }
+.tpl-tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.tpl-rail { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 8px; margin: 0 -2px; -webkit-overflow-scrolling: touch; }
+.tpl-rail > .tpl-tile { flex: 0 0 132px; scroll-snap-align: start; padding-bottom: 10px; }
+.tpl-rail .tpl-poster { aspect-ratio: 9 / 11; }
+.tpl-rail .tpl-tile strong { font-size: 13px; padding: 0 10px; }
+.tpl-rail .tpl-tile small { font-size: 12px; padding: 0 10px; }
+.tpl-rail .tpl-tile .fx-chips { display: none; }
+.tpl-now { display: flex; align-items: center; gap: 12px; }
+.tpl-now strong { font-size: 14px; }
+.tpl-now small { color: var(--muted); font-size: 13px; }
+.series-hint { margin: 8px 0 0; text-align: center; color: var(--muted); font-size: 13px; }
+.clip-panel { max-height: 64vh; overflow-y: auto; overscroll-behavior: contain; }
+.clip-grid { display: flex; grid-template-columns: none; gap: 8px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }
+.clip-grid > .clip-cell { flex: 0 0 96px; scroll-snap-align: start; }
+.clip-film { margin: 0 0 10px; }
+.clip-bar { position: sticky; bottom: -16px; margin: 10px -16px -16px; padding: 12px 16px; background: var(--surface); }
+.clip-more { width: 100%; padding: 10px 0; border: 0; border-radius: 10px; background: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; }
+.tpl-rail[hidden] { display: none; }
+.tpl-hint { color: var(--muted); font-size: 13px; line-height: 1.45; }

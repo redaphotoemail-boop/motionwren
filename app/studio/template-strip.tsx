@@ -34,6 +34,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   }, []);
   const [wrens, setWrens] = useState<WrenTemplate[]>([]);
   const [watching, setWatching] = useState(false);
+  const [tabPick, setTab] = useState<"listing" | "social" | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/admin/wrencut", { cache: "no-store" }).then(async (response) => {
@@ -44,7 +45,9 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   }, []);
   const templates = LIBRARY_TEMPLATES.filter((item) => isLibraryTemplateVisible(item.id, enabled || {}));
   if (!enabled || (!templates.length && !wrens.length)) return null;
+  const hasSocial = wrens.some((item) => item.social);
   const chosenWren = wrens.find((item) => item.id === value.id);
+  const tab = tabPick || (chosenWren?.social ? "social" : "listing"); // follows the chosen template until the tab is tapped
   const chosen = templates.find((item) => item.id === value.id);
   const plan = chosen && photoCount >= 2 ? libraryTemplatePlan(engine, resolution, photoCount) : null;
   const chosenSocial = chosenWren?.social ? socialSpec(chosenWren.social.key) : null;
@@ -72,12 +75,14 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       <button type="button" role="switch" aria-checked={value.on} aria-label="Use a template" className={value.on ? "ml-switch on" : "ml-switch"} disabled={disabled} onClick={toggle}><i/></button>
     </div>
     {value.on && <>
-      <div className="tpl-grid" role="radiogroup" aria-label="Templates">{templates.map((item) => <button type="button" role="radio" aria-checked={value.id === item.id} key={item.id} className={value.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => pickBuiltIn(item.id)} disabled={disabled}>
+      {hasSocial ? <div className="tpl-tabs" role="tablist" aria-label="Template type"><button type="button" role="tab" aria-selected={tab === "listing"} onClick={() => setTab("listing")}>Listing films</button><button type="button" role="tab" aria-selected={tab === "social"} onClick={() => setTab("social")}>Social media</button></div> : null}
+      <div className="tpl-rail" role="radiogroup" aria-label="Templates" hidden={Boolean(hasSocial) && tab !== "listing"}>{templates.map((item) => <button type="button" role="radio" aria-checked={value.id === item.id} key={item.id} className={value.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => pickBuiltIn(item.id)} disabled={disabled}>
         <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{item.durationSeconds}<small>s</small></b>}</span>
         <strong>{item.name}</strong>
         <small>{item.photoSlots} photos · vertical</small>
       </button>)}{wrens.filter((item) => !item.social).map(renderWren)}</div>
-      {wrens.some((item) => item.social) ? <><div className="tpl-section"><strong>Social media</strong><small>Short, on-the-beat edits for Reels, TikTok, Shorts and YouTube. Each tells you what photos it needs, then checks yours.</small></div><div className="tpl-grid" role="radiogroup" aria-label="Social media templates">{wrens.filter((item) => item.social).map(renderWren)}</div></> : null}
+      {hasSocial ? <div className="tpl-rail" role="radiogroup" aria-label="Social media templates" hidden={tab !== "social"}>{wrens.filter((item) => item.social).map(renderWren)}</div> : null}
+      {hasSocial && tab === "social" ? <small className="tpl-hint">Short, on-the-beat edits for Reels, TikTok, Shorts and YouTube. Each tells you what photos it needs, then checks yours.</small> : null}
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
         {studioEngine(engine).photoMove ? <p className="notice">This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos. Choose another engine above.</p> : null}
