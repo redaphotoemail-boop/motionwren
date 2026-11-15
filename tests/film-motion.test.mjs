@@ -1,0 +1,11 @@
+import { templateMotions } from "../app/film-motion.ts";
+let fail = 0;
+const check = (name, ok, d = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${name}${d ? ` — ${d}` : ""}`); if (!ok) fail += 1; };
+const five = templateMotions(5);
+check("push-in leads", five[0] === "push" && five.filter((m) => m === "push").length >= 2, five.join());
+check("orbit second, slide third", five.includes("orbit") && five.includes("slide") && five.indexOf("orbit") < five.indexOf("slide"));
+check("pull-back only at the end", five.at(-1) === "pull" && five.slice(0, -1).every((m) => m !== "pull"));
+check("short films have no pull-back", !templateMotions(3).includes("pull"));
+check("never a focus shift", !templateMotions(12).includes("focus"));
+check("count matches", templateMotions(9).length === 9 && templateMotions(0).length === 0);
+process.exit(fail ? 1 : 0);

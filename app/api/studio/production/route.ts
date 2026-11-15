@@ -3,7 +3,7 @@ import { storyOrder } from "../../_lib/room-order";
 import { cleanFilmTitles } from "../../../titles";
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
-import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, engineCost, engineUpscales, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
+import { autoFilmSeconds, AUTO_SECONDS_PER_PHOTO, CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, engineCost, engineUpscales, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, isEngineKey } from "../../../engine-providers";
 import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_lib/render-jobs";
 import { PHOTO_MOVE_CYCLE, cleanCards, frameKey, newManifest, saveManifest, storeFrame } from "../../_lib/production";
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   } else {
     const length = VIDEO_LENGTHS.includes(Number(body.length) as (typeof VIDEO_LENGTHS)[number]) ? Number(body.length) : 30;
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
-    const plan = wren ? wrenPlan(engine, resolution, valid.length, recipeSeconds(recipe!)) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value));
+    const plan = wren ? wrenPlan(engine, resolution, valid.length, recipeSeconds(recipe!)) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : (body.autoTime === true ? scenePlan(engine, resolution, autoFilmSeconds(valid.length), valid.length, AUTO_SECONDS_PER_PHOTO) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value)));
     count = plan.count; sceneSeconds = plan.sceneSeconds; duration = plan.totalSeconds; shareSeconds = plan.shareSeconds;
   }
   const lengths: number[] = mode === "single" ? engineDurationOptions(engine, resolution) : filmSceneDurations(engine, resolution);

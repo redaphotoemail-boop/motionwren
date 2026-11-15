@@ -354,6 +354,13 @@ export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, ta
   return { count: best.count, sceneSeconds: best.sceneSeconds, shareSeconds: Math.round(best.share * 1000) / 1000, totalSeconds: targetSeconds };
 }
 
+/** Automatic film length: 5 seconds per photo (at most 12 photos), less the soft overlap where the shots join. */
+export const AUTO_SECONDS_PER_PHOTO = 5;
+export function autoFilmSeconds(photoCount: number) {
+  const photos = Math.max(2, Math.min(12, Math.floor(photoCount) || 2));
+  return Math.round((photos * AUTO_SECONDS_PER_PHOTO - (photos - 1) * CROSSFADE_SECONDS) * 100) / 100;
+}
+
 /** Manager's "Scene timing" setting: "3" or "5" fixes it; anything else is automatic. */
 export function sceneTimingSetting(value: string | null | undefined): 3 | 5 | undefined {
   return value === "3" ? 3 : value === "5" ? 5 : undefined;

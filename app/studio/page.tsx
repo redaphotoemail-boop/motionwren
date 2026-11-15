@@ -1,6 +1,7 @@
 "use client";
 
 import SaveVideo from "../components/save-video";
+import { templateMotions } from "../film-motion";
 import SuggestEdit from "./suggest-edit";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, smallPhoto, type FinalSound } from "./final-edit";
 import { defaultMusicId } from "../music-catalog";
@@ -13,7 +14,7 @@ import { motionLabel } from "../motion-label";
 import { ChangeEvent, DragEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../ui-icon";
 import { drawListingOverlays, listingFactsText } from "./overlays";
-import { PHOTO_MOVE_FOR_MOTION, engineCost, scenePlan, studioEngine, studioEngines, VIDEO_LENGTHS, type StudioEngineKey, type StudioResolution, type VideoLength } from "../engine-catalog";
+import { PHOTO_MOVE_FOR_MOTION, autoFilmSeconds, AUTO_SECONDS_PER_PHOTO, engineCost, scenePlan, studioEngine, studioEngines, VIDEO_LENGTHS, type StudioEngineKey, type StudioResolution, type VideoLength } from "../engine-catalog";
 import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startOverStudioJob, startStudioProduction, stopStudioJob, stoppedMessage, useStudioJobs, type Sending, type StudioJob } from "./production";
 
 type MotionKey = "push" | "orbit" | "slide" | "focus" | "pull" | "walkthrough" | "tilt" | "mixed" | "custom";
@@ -291,7 +292,7 @@ export default function Home() {
   const [status, setStatus] = useState<JobStatus>("idle"); const [error, setError] = useState("");
   const [extendSource, setExtendSource] = useState(""); const [extendPreview, setExtendPreview] = useState(""); const [extendName, setExtendName] = useState("");
   // Every Studio video is made on the server; these point at each tab's latest one.
-  const [seriesLength, setSeriesLength] = useState<VideoLength>(30);
+  const [seriesLength, setSeriesLength] = useState<VideoLength>(30); const [autoTime, setAutoTime] = useState(true);
   const [tpl, setTpl] = useState<TemplatePick>(emptyTemplatePick());
   const [titles, setTitles] = useState<TitlesInput>(emptyTitles());
   const [finalSound, setFinalSound] = useState<FinalSound>(emptySound(""));
@@ -330,7 +331,7 @@ export default function Home() {
   const audioPrompt = selectedEngine.audio ? [soundEnabled ? `Generate synchronized music, ambience and sound effects: ${soundDirection}` : "", voiceoverEnabled && voiceoverText.trim() ? `Include a clear professional voiceover that says exactly: "${voiceoverText.trim()}". Keep narration intelligible above the music and effects.` : ""].filter(Boolean).join(" ") : "";
   const seriesAudioRequested = soundEnabled || voiceoverEnabled; const finalPrompt = buildPrompt(motion, details, category, "", speed, aspect, audioPrompt); const extensionPrompt = buildPrompt(motion, `Continue the scene naturally from this exact final frame. ${details}`, category, "Preserve seamless continuity with the preceding clip: same subject, lighting, color grade, lens, environment and direction of action.", speed, aspect, audioPrompt); const price = estimateCost(engine, resolution, frames);
   // The film length decides how many scenes are used and how long each runs (same plan the server uses).
-  const plan = tpl.on && tpl.wren && tpl.id.startsWith("wren:") ? wrenPlan(engine, resolution, Math.max(2, shots.length), tpl.wren.best && shots.length < tpl.wren.best ? Math.max(4, Math.round(tpl.wren.seconds * Math.max(2, shots.length) / tpl.wren.best)) : tpl.wren.seconds) : tpl.on && tpl.id !== "none" ? libraryTemplatePlan(engine, resolution, Math.max(2, shots.length)) : scenePlan(engine, resolution, seriesLength, Math.max(2, shots.length), secondsPerImage === "auto" ? undefined : secondsPerImage); const planScenes = Math.min(plan.count, shots.length); const stitchedDuration = plan.totalSeconds; const seriesCost = engineCost(engine, resolution, plan.sceneSeconds * Math.max(planScenes, 2)); const shortOfLength = shots.length >= 2 && stitchedDuration < seriesLength - 3;
+  const plan = tpl.on && tpl.wren && tpl.id.startsWith("wren:") ? wrenPlan(engine, resolution, Math.max(2, shots.length), tpl.wren.best && shots.length < tpl.wren.best ? Math.max(4, Math.round(tpl.wren.seconds * Math.max(2, shots.length) / tpl.wren.best)) : tpl.wren.seconds) : tpl.on && tpl.id !== "none" ? libraryTemplatePlan(engine, resolution, Math.max(2, shots.length)) : autoTime ? scenePlan(engine, resolution, autoFilmSeconds(shots.length), Math.max(2, shots.length), AUTO_SECONDS_PER_PHOTO) : scenePlan(engine, resolution, seriesLength, Math.max(2, shots.length), secondsPerImage === "auto" ? undefined : secondsPerImage); const planScenes = Math.min(plan.count, shots.length); const stitchedDuration = plan.totalSeconds; const seriesCost = engineCost(engine, resolution, plan.sceneSeconds * Math.max(planScenes, 2)); const shortOfLength = shots.length >= 2 && stitchedDuration < seriesLength - 3;
   const branding: RealEstateBranding = { listingEnabled, listingTitle, listingBeds, listingBaths, listingSquareFeet, listingPrice, listingMessage, agentEnabled, agentName, agentEmail, agentPhone, agentLogo, agentLogoName };
   const brandingProps: RealEstateBrandingProps = { ...branding, setListingEnabled, setListingTitle, setListingBeds, setListingBaths, setListingSquareFeet, setListingPrice, setListingMessage, setAgentEnabled, setAgentName, setAgentEmail, setAgentPhone, acceptAgentLogo, removeAgentLogo: () => { setAgentLogo(""); setAgentLogoName(""); } };
   // A link such as /studio?mode=series opens that tab.
@@ -555,7 +556,7 @@ export default function Home() {
      saves the finished film to History. */
   async function generateSeries() {
     if (shots.length < 2) return setError("Add at least two scenes first.");
-    const used = shots.slice(0, planScenes);
+    const used = shots.slice(0, planScenes).map((shot, index, list) => tpl.on && tpl.id !== "none" && shot.motion !== "custom" ? { ...shot, motion: templateMotions(list.length)[index] as MotionKey } : shot);
     if (finalSound.voiceMode !== "off") {
       if (!finalSound.voiceId) return setError("Choose a voice for the voiceover, or turn the voiceover off.");
       const wrote = finalSound.voiceMode === "film" ? finalSound.film.trim() : finalSound.lines.slice(0, used.length).some((line) => line.trim());
@@ -573,7 +574,7 @@ export default function Home() {
         return { prompt: buildPrompt(shot.motion, direction, category, continuity, speed, aspect, sceneAudio ? audioPrompt : "", true), audio: sceneAudio };
       });
       const photos = await Promise.all(used.map((shot) => prepareFrame(shot.source, aspect, engine, true)));
-      await launch("series", { mode: "series", scenes, engine, resolution, aspect, length: seriesLength, seed: seed ? Number(seed) : null, label: `${seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "", cards: cardsPayload(), titles: titlesPayload(titles), ...(tpl.on && tpl.id.startsWith("wren:") ? { template: { wren: tpl.id, texts: tpl.texts || [] } } : tpl.on && tpl.id !== "none" ? { template: { libraryTemplate: tpl.id, ...tpl.fields } } : {}), music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : tpl.on && tpl.id !== "none" ? "luxe" : defaultMusicId({ aspect, duration: seriesLength })), sound: finalSound.voiceMode !== "off" || finalSound.sfxOn ? { voice: finalSound.voiceMode !== "off" ? { mode: finalSound.voiceMode, voiceId: finalSound.voiceId, lines: finalSound.lines.slice(0, used.length), film: finalSound.film } : null, sfx: { on: finalSound.sfxOn, prompts: finalSound.sfx.slice(0, used.length) } } : undefined }, photos, (job) => {
+      await launch("series", { mode: "series", scenes, engine, resolution, aspect, length: seriesLength, autoTime: autoTime && !tpl.on, seed: seed ? Number(seed) : null, label: `${autoTime && !tpl.on ? Math.round(stitchedDuration) : seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "", cards: cardsPayload(), titles: titlesPayload(titles), ...(tpl.on && tpl.id.startsWith("wren:") ? { template: { wren: tpl.id, texts: tpl.texts || [] } } : tpl.on && tpl.id !== "none" ? { template: { libraryTemplate: tpl.id, ...tpl.fields } } : {}), music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : tpl.on && tpl.id !== "none" ? "luxe" : defaultMusicId({ aspect, duration: seriesLength })), sound: finalSound.voiceMode !== "off" || finalSound.sfxOn ? { voice: finalSound.voiceMode !== "off" ? { mode: finalSound.voiceMode, voiceId: finalSound.voiceId, lines: finalSound.lines.slice(0, used.length), film: finalSound.film } : null, sfx: { on: finalSound.sfxOn, prompts: finalSound.sfx.slice(0, used.length) } } : undefined }, photos, (job) => {
         setLocalThumbs((current) => ({ ...current, [job.id]: used.map((shot) => shot.source) }));
       });
     } catch (err) { setError(err instanceof Error ? err.message : "The film could not start."); }
@@ -730,8 +731,9 @@ export default function Home() {
           <details><summary>Advanced controls</summary><div className="field-row advanced"><label><span className="label">Continuity direction</span><DictationTextarea rows={4} value={continuity} onValue={setContinuity} placeholder="What must remain visually consistent across all scenes?" ariaLabel="Continuity direction"/></label><label><span className="label">Seed</span><input value={seed} onChange={(e) => setSeed(e.target.value.replace(/\D/g, ""))} placeholder="Random" inputMode="numeric"/></label></div></details>
         </div>
         <div className="panel series-output"><Heading number="04" title="Make the film" note="One finished video, joined on our server"/>
-          <div className="length-picker" role="radiogroup" aria-label="Film length">{VIDEO_LENGTHS.map((length) => <button type="button" key={length} role="radio" aria-checked={seriesLength === length} className={seriesLength === length ? "active" : ""} onClick={() => { setSeriesLength(length); clearResult("series"); }} disabled={seriesGenerating}><strong>{length} s</strong><small>{length === 15 ? "Reel · story" : length === 30 ? "Listing film" : "Full tour"}</small></button>)}</div>
-          <p className="length-plan">{shots.length < 2 ? "Add at least two scenes." : `Uses ${planScenes === shots.length ? `all ${planScenes}` : `your first ${planScenes} of ${shots.length}`} scenes · ${plan.sceneSeconds} s each · about ${stitchedDuration} s.`}{shortOfLength && " Add more scenes to reach the full length."}</p>
+          <div className="length-auto"><div><strong>Automatic time</strong><small>{autoTime ? `${AUTO_SECONDS_PER_PHOTO} seconds per photo — the length follows how many photos you add.` : "Choose the length yourself."}</small></div><button type="button" role="switch" aria-checked={autoTime} aria-label="Automatic time" className={autoTime ? "ml-switch on" : "ml-switch"} disabled={seriesGenerating} onClick={() => { setAutoTime((value) => !value); clearResult("series"); }}><i/></button></div>
+          <div className={autoTime ? "length-picker is-auto" : "length-picker"} role="radiogroup" aria-label="Film length">{VIDEO_LENGTHS.map((length) => <button type="button" key={length} role="radio" aria-checked={seriesLength === length} className={seriesLength === length ? "active" : ""} onClick={() => { setSeriesLength(length); clearResult("series"); }} disabled={seriesGenerating || autoTime}><strong>{length} s</strong><small>{length === 15 ? "Reel · story" : length === 30 ? "Listing film" : "Full tour"}</small></button>)}</div>
+          <p className="length-plan">{shots.length < 2 ? "Add at least two scenes." : `Uses ${planScenes === shots.length ? `all ${planScenes}` : `your first ${planScenes} of ${shots.length}`} scenes · ${plan.sceneSeconds} s each · about ${stitchedDuration} s.`}{shortOfLength && !autoTime && " Add more scenes to reach the full length."}</p>
           <div className="series-summary"><div><span>Length</span><strong>{stitchedDuration}s</strong></div><div><span>Scenes</span><strong>{shots.length < 2 ? 0 : planScenes}</strong></div><div><span>Engine cost</span><strong>{shots.length < 2 ? "—" : `$${seriesCost.toFixed(2)}`}</strong></div></div>
           {seriesJob && (isActive(seriesJob) || seriesJob.status === "failed") && <ProductionView job={seriesJob} title={`${seriesJob.status === "failed" ? "Your" : "Making your"} ${seriesJob.category.replace(/^Studio · /, "") || "film"}`} thumbs={localThumbs[seriesJob.id]} onStop={() => stopJob("series")} onResume={() => resumeJob(seriesJob.id)} onStartOver={() => startOver(seriesJob.id)} onDelete={() => deleteJob(seriesJob.id)} offline={production.offline} sending={sending}/>}
           {error && <div className="error">{error}</div>}
