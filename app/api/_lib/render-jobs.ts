@@ -760,7 +760,7 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
       throw error;
     }
   }
-  if (manifest && film && row.kind !== "ad-series" && !(upscaling && manifest.upscale?.stored) && await judgeFilm(env, fresh, manifest as Required<ProductionManifest>, key)) {
+  if (manifest && film && row.kind !== "ad-series" && !manifest.fromClips && !(upscaling && manifest.upscale?.stored) && await judgeFilm(env, fresh, manifest as Required<ProductionManifest>, key)) {
     await film.body?.cancel().catch(() => undefined);
     await dropEdit(env, row.id, key);
     return null;

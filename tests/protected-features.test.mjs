@@ -29,4 +29,8 @@ assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("FxChip
 const editFilm = readFileSync("app/studio/edit-film.tsx", "utf8");
 for (const text of ["Scenes and movement", "Listing cards", "Sound", "Your clips", "Edit again with a template"]) assert.ok(editFilm.includes(text), `The Edit film panel lost: ${text}`);
 assert.ok(readFileSync("app/studio/page.tsx", "utf8").includes("TitlesPanel"), "The Studio finishing panel lost the cinematic titles");
+const clipPicker = readFileSync("app/studio/clip-picker.tsx", "utf8");
+assert.ok(clipPicker.includes("Use saved clips") || clipPicker.includes("saved clips"), "Studio lost the saved-clips picker");
+assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").includes("requireAdmin"), "The saved-clips route lost its admin check");
+assert.ok(readFileSync("app/api/studio/clips/route.ts", "utf8").includes("requireAdmin"), "The clips list lost its admin check");
 console.log("protected features: all present");
