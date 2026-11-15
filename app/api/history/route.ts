@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "../_lib/account";
+import { loadManifest } from "../_lib/production";
 import { HISTORY_COOKIE as COOKIE, historyOwnerIds, uploadBody } from "../_lib/history-owners";
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
@@ -18,7 +19,17 @@ export async function GET() {
   if (!ownerIds.length) return NextResponse.json({ items: [] });
   const placeholders = ownerIds.map(() => "?").join(",");
   const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt, (SELECT id FROM render_jobs WHERE history_id = generation_history.id AND kind LIKE 'studio%' LIMIT 1) AS jobId FROM generation_history WHERE owner_id IN (${placeholders}) AND engine != 'delivered' AND id NOT IN (SELECT history_id FROM render_jobs WHERE history_id IS NOT NULL AND kind NOT LIKE 'studio%') ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
-  return NextResponse.json({ items: result.results.map((item) => ({ ...item, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` })) });
+  // Which films were made with a template (or from saved clips), so History can say so.
+  const made = await Promise.all(result.results.map(async (item) => {
+    const jobId = (item as { jobId?: string | null }).jobId;
+    if (!jobId) return { template: null as string | null, fromClips: false };
+    try {
+      const manifest = await loadManifest(env, jobId);
+      const template = manifest?.edit?.templateName || (manifest?.edit?.recipe ? "Template" : manifest?.edit?.grade === "warm" ? "Library template" : null);
+      return { template, fromClips: Boolean(manifest?.fromClips) };
+    } catch { return { template: null, fromClips: false }; }
+  }));
+  return NextResponse.json({ items: result.results.map((item, index) => ({ ...item, template: made[index].template, fromClips: made[index].fromClips, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` })) });
 }
 
 export async function POST(request: Request) {

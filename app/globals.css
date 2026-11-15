@@ -1868,3 +1868,23 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .history-card-body .cost-list { margin: 0 0 12px; }
 .history-card-body .history-prompt { margin: 0 0 14px !important; border-top: 1px solid var(--line) !important; }
 .history-card-body .history-prompt summary { padding: 12px 0; font-size: 13px !important; font-weight: 500; }
+
+.clip-panel { margin-top: 12px; padding: 16px; border-radius: 16px; background: var(--surface); }
+.clip-help { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.clip-film { margin: 0 0 16px; }
+.clip-film header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.clip-film header strong { font-size: 14px; }
+.clip-film header small { color: var(--faint); font-size: 12px; }
+.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.clip-item { position: relative; padding: 0; border: 2px solid transparent; border-radius: 12px; overflow: hidden; background: var(--paper); cursor: pointer; text-align: left; }
+.clip-item img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.clip-item small { display: block; padding: 6px 8px; color: var(--muted); font-size: 11px; }
+.clip-item b { position: absolute; top: 6px; left: 6px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 12px; }
+.clip-item.on { border-color: var(--ink); }
+.clip-item.blocked { opacity: .35; }
+.clip-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.clip-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
+.clip-bar button { min-height: 40px; padding: 0 18px; border: 0; border-radius: 12px; background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; }
+.clip-bar button:disabled { opacity: .4; cursor: default; }
+
+.history-meta .history-tag { background: var(--ink); color: var(--paper); }

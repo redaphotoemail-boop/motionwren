@@ -26,3 +26,5 @@ protected section below is missing. If you must change one on purpose, Reda has 
 - Edit film panel (Studio History → Edit): Scenes and movement, Listing cards, Sound, and "Your clips" (each saved clip viewable, "Edit again with a template" with the choice of which clips to use, no engine cost).
 
 - Cinematic titles (Studio "Finish your film" → Titles, and Edit film → Titles): five fonts, words typed at the start and/or the end; drawn by the composer (composer/titles.mjs, composer/fonts); never read from a reference video.
+
+- Saved clips (Studio, owner only): pick clips from History to make a new film with no engine charge; routes /api/studio/clips and /api/studio/production/from-clips are admin-only. History cards tag template films ("Template · name") and "Saved clips".

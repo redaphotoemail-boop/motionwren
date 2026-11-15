@@ -116,10 +116,10 @@ export async function POST(request: Request) {
       // Hard cuts, the template's text over the film, and its warm look.
       const lines = libraryTemplateOverlayLines(libraryPick.libraryTemplate, libraryPick.fields, duration, shareSeconds);
       if (lines.length) manifest.edit.subtitles = { lines };
-      manifest.edit.grade = "warm";
+      manifest.edit.grade = "warm"; manifest.edit.templateName = "Library template";
     }
     if (wren) {
-      manifest.edit.crossfade = 0; manifest.edit.recipe = recipe!;
+      manifest.edit.crossfade = 0; manifest.edit.recipe = recipe!; manifest.edit.templateName = wren.name;
     }
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
     const filmTitles = cleanFilmTitles(body.titles);
