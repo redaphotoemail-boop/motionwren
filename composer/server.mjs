@@ -86,6 +86,7 @@ function run(command, args, { timeoutMs = 15 * 60 * 1000 } = {}) {
   });
 }
 
+const EDITOR_BUILD = "2026-11-15-shot-length";
 async function probe(file) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate,duration", "-of", "json", file], { timeoutMs: 60_000 });
   const data = JSON.parse(stdout);
@@ -94,6 +95,7 @@ async function probe(file) {
   const [num, den] = String(video?.r_frame_rate || "0/1").split("/").map(Number);
   return {
     duration: Number(data.format?.duration) || Number(video?.duration) || 0,
+    videoDuration: Number(video?.duration) || 0,
     width: video?.width || 0, height: video?.height || 0,
     fps: den ? num / den : 0,
     hasVideo: Boolean(video), audioStreams: audio.length,
@@ -729,13 +731,16 @@ async function compose(key, spec) {
     job.stage = "checking";
     const check = await probe(output);
     if (!check.hasVideo || Math.abs(check.duration - spec.duration) > 0.25) throw new Error(`The edit came out ${round(check.duration, 2)} s instead of ${spec.duration} s.`);
+    // The length above is the longest stream (the music can be longer than the picture). The picture itself must run the whole film:
+    // a film whose picture stops early while the music plays on is never delivered.
+    if (check.videoDuration && Math.abs(check.videoDuration - editDuration) > 0.4) throw new Error(`The picture came out ${round(check.videoDuration, 2)} s instead of ${round(editDuration, 2)} s.`);
     if (check.width !== spec.width || check.height !== spec.height) throw new Error(`The edit came out ${check.width}×${check.height}.`);
     if ((music || voiceover) && check.audioStreams !== 1) throw new Error("The edit is missing its sound.");
     // The free quality check: it only reports, it never fails or changes the film.
     if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards) }); }
     if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: Number.isInteger(spec.stills) ? Math.max(4, Math.min(24, spec.stills)) : 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }
     const stat = await fs.stat(output);
-    Object.assign(job, { status: "done", stage: "done", finishedAt: Date.now(), outputBytes: stat.size, duration: round(check.duration, 3), width: check.width, height: check.height, fps, music: Boolean(music) });
+    Object.assign(job, { status: "done", stage: "done", finishedAt: Date.now(), outputBytes: stat.size, duration: round(check.duration, 3), width: check.width, height: check.height, videoDuration: round(check.videoDuration || check.duration, 3), build: EDITOR_BUILD, fps, music: Boolean(music) });
     if (music) job.musicBytes = (await fs.stat(music)).size;
     // The downloaded scenes are no longer needed.
     await Promise.allSettled(files.map((file) => fs.rm(file, { force: true })));
