@@ -20,12 +20,19 @@ export async function GET() {
   const placeholders = ownerIds.map(() => "?").join(",");
   const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt, (SELECT id FROM render_jobs WHERE history_id = generation_history.id AND kind LIKE 'studio%' LIMIT 1) AS jobId FROM generation_history WHERE owner_id IN (${placeholders}) AND engine != 'delivered' AND id NOT IN (SELECT history_id FROM render_jobs WHERE history_id IS NOT NULL AND kind NOT LIKE 'studio%') ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
   // Which films were made with a template (or from saved clips), so History can say so.
+  // Films made before template names were recorded: find the template by its music style (the one thing every film keeps); with a single template, that is it.
+  const known = await env.DB.prepare(`SELECT name, recipe FROM wrencut_templates`).all<{ name: string; recipe: string }>().then((r) => (r.results || []).map((row) => { let music = ""; try { music = JSON.parse(row.recipe)?.audio?.music?.prompt || ""; } catch { /* unreadable recipe */ } return { name: row.name, music }; })).catch(() => [] as { name: string; music: string }[]);
+  const nameOf = (recipe: { audio?: { music?: { prompt?: string } } } | undefined) => {
+    const music = recipe?.audio?.music?.prompt || "";
+    const same = music ? known.filter((item) => item.music === music) : [];
+    return same.length === 1 ? same[0].name : known.length === 1 ? known[0].name : "Template";
+  };
   const made = await Promise.all(result.results.map(async (item) => {
     const jobId = (item as { jobId?: string | null }).jobId;
     if (!jobId) return { template: null as string | null, fromClips: false };
     try {
       const manifest = await loadManifest(env, jobId);
-      const template = manifest?.edit?.templateName || (manifest?.edit?.recipe ? "Template" : manifest?.edit?.grade === "warm" ? "Library template" : null);
+      const template = manifest?.edit?.templateName || (manifest?.edit?.recipe ? nameOf(manifest.edit.recipe as { audio?: { music?: { prompt?: string } } }) : manifest?.edit?.grade === "warm" ? "Library template" : null);
       return { template, fromClips: Boolean(manifest?.fromClips) };
     } catch { return { template: null, fromClips: false }; }
   }));
