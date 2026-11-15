@@ -1846,3 +1846,25 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .qual-item { display: grid; grid-template-columns: 110px 1fr; gap: 10px; margin: 8px 0; align-items: start; }
 .qual-item video { width: 100%; border-radius: 8px; background: #000; }
 .qual-item small { display: block; opacity: .65; font-size: 12px; margin-top: 2px; }
+
+/* History card: a clean, aligned footer — price and date on one line, one primary action, then equal secondary actions. */
+.history-card-footer { flex-direction: column; align-items: stretch; gap: 14px; padding-top: 14px; }
+.history-card-footer > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.history-card-footer > div:first-child strong { display: inline; font: 600 22px/1 var(--display); letter-spacing: -.02em; }
+.history-card-footer > div:first-child small { display: inline; margin: 0; font-size: 12px; text-align: right; }
+.history-card-footer > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+.history-card-footer a, .history-card-footer button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; border: 0; border-radius: 12px; font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; transition: background .15s var(--ease), color .15s var(--ease); }
+.history-card-footer > div:last-child > :first-child { flex: 1 1 100%; background: var(--ink); color: var(--paper); }
+.history-card-footer > div:last-child > :not(:first-child) { flex: 1 1 0; background: var(--paper); color: var(--ink); }
+.history-card-footer > div:last-child > :not(:first-child):hover { background: var(--line); }
+.history-card-footer > div:last-child > button:last-child { color: var(--muted); font-weight: 500; }
+
+/* Cost, Quality and Prompt: quiet, equal rows. */
+.history-card-body .cost-tab { margin: 0; border-top: 1px solid var(--line); }
+.history-card-body .cost-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px 0; font: 500 13px/1 var(--body, inherit); color: var(--muted); text-decoration: none; }
+.history-card-body .cost-toggle::after { content: "›"; font-size: 16px; line-height: 1; transition: transform .2s var(--ease); }
+.history-card-body .cost-toggle[aria-expanded="true"] { color: var(--ink); }
+.history-card-body .cost-toggle[aria-expanded="true"]::after { transform: rotate(90deg); }
+.history-card-body .cost-list { margin: 0 0 12px; }
+.history-card-body .history-prompt { margin: 0 0 14px !important; border-top: 1px solid var(--line) !important; }
+.history-card-body .history-prompt summary { padding: 12px 0; font-size: 13px !important; font-weight: 500; }
