@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import QualityTab from "./quality-tab";
+import { explainSend, loadSendLog, saveSendLog, type SendLog } from "./send-log";
 
 /* Studio production, as the owner sees it. Every Studio video is made on the
    server (see /api/studio/production): this file only watches. Jobs are
@@ -140,25 +141,41 @@ export async function startStudioProduction(body: Record<string, unknown>, photo
   const count = Number(data.plan?.count) || photos.length;
   hooks.onCreated(job);
   hooks.onProgress({ id: job.id, done: 0, total: count });
+  // What this phone saw while sending (kept on the device for the stopped-film explanation), and the screen kept awake meanwhile.
+  const log: SendLog = { startedAt: Date.now(), sizes: [], hiddenMs: 0, hiddenTimes: 0, events: [], sent: 0 };
+  let hiddenAt = 0;
+  const onVisibility = () => { if (document.visibilityState === "hidden") hiddenAt = Date.now(); else if (hiddenAt) { log.hiddenMs += Date.now() - hiddenAt; log.hiddenTimes += 1; hiddenAt = 0; saveSendLog(job.id, log); } };
+  document.addEventListener("visibilitychange", onVisibility);
+  let wake: { release: () => Promise<void> } | null = null;
+  try { void (navigator as unknown as { wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request("screen").then((lock) => { wake = lock; }).catch(() => undefined); } catch { /* not supported: sending still works */ }
+  saveSendLog(job.id, log);
   // Photos go up one at a time, at full quality, so the first arrives as soon as possible. Each try gives up after two minutes (a stalled connection) and tries again, so one stuck upload can't leave the film waiting.
   let sentCount = 0, nextIndex = 0;
   async function sendPhoto(index: number) {
     const blob = await (await fetch(photos[index])).blob();
+    log.sizes[index] = blob.size;
     let sent = false, reason = "";
     for (let attempt = 0; attempt < 4 && !sent; attempt += 1) {
       if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 1200 * attempt));
-      const controller = new AbortController(); const timer = window.setTimeout(() => controller.abort(), 120_000);
+      const controller = new AbortController(); const timer = window.setTimeout(() => controller.abort(), 120_000); const began = Date.now();
+      const note = (outcome: SendLog["events"][number]["outcome"], detail?: string) => { log.events.push({ scene: index + 1, attempt: attempt + 1, bytes: blob.size, ms: Date.now() - began, outcome, ...(detail ? { detail: detail.slice(0, 120) } : {}) }); saveSendLog(job.id, log); };
       try {
         const response = await fetch(`/api/studio/production/${job.id}?scene=${index + 1}`, { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob, signal: controller.signal });
-        if (response.ok) sent = true;
-        else { reason = ((await response.json().catch(() => ({}))) as { error?: string }).error || ""; if (response.status < 500 && response.status !== 429) break; }
-      } catch { reason = "The connection dropped or stalled."; }
+        if (response.ok) { sent = true; note("ok"); }
+        else { reason = ((await response.json().catch(() => ({}))) as { error?: string }).error || ""; note("refused", reason || `HTTP ${response.status}`); if (response.status < 500 && response.status !== 429) break; }
+      } catch { reason = "The connection dropped or stalled."; note(controller.signal.aborted ? "timeout" : "dropped"); }
       finally { window.clearTimeout(timer); }
     }
     if (!sent) throw new Error(`Scene ${index + 1}'s photo could not be sent. ${reason} Nothing was made or charged — please try again.`.replace(/\s+/g, " "));
-    sentCount += 1; hooks.onProgress({ id: job.id, done: sentCount, total: count });
+    sentCount += 1; log.sent = sentCount; saveSendLog(job.id, log); hooks.onProgress({ id: job.id, done: sentCount, total: count });
   }
-  await Promise.all(Array.from({ length: 1 }, async () => { while (nextIndex < count) { const index = nextIndex; nextIndex += 1; await sendPhoto(index); } }));
+  try {
+    await Promise.all(Array.from({ length: 1 }, async () => { while (nextIndex < count) { const index = nextIndex; nextIndex += 1; await sendPhoto(index); } }));
+  } finally {
+    log.finishedAt = Date.now(); saveSendLog(job.id, log);
+    document.removeEventListener("visibilitychange", onVisibility);
+    wake?.release().catch(() => undefined);
+  }
   const started = await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   const result = await started.json().catch(() => ({}));
   if (!started.ok || !result.job?.id) throw new Error(result.error || "The video could not start. Please try again.");
@@ -209,7 +226,7 @@ export function stoppedMessage(job: Pick<StudioJob, "error" | "status">) {
   if (/not.?found|not supported|unavailable|HTTP 40[34]/i.test(error)) return "The video engine rejected this request. Its model looks unavailable right now. Start over with a different engine.";
   if (/throttl|rate limit|burst|429/i.test(error)) return "Stopped while the video engine was busy. Resume finishes it.";
   if (/credit/i.test(error)) return "Paused: the video engine account needs credit. Resume once it's topped up.";
-  if (/photos did not finish|no photo/i.test(error)) return "The photos didn't finish uploading. Start over to make it.";
+  if (/photos did not finish|no photo/i.test(error)) { const got = /(\d+) of (\d+) photos? reached/i.exec(error); return got ? (Number(got[1]) === 0 ? `None of the ${got[2]} photos reached the server. Nothing was made or charged. Send them again from the Studio.` : `Only ${got[1]} of ${got[2]} photos reached the server. Nothing was made or charged. Send them again from the Studio.`) : "The photos didn't all reach the server. Nothing was made or charged. Send them again from the Studio."; }
   if (/failed \d+ times|could not be made/i.test(error)) return "A scene couldn't be made after 3 tries. Resume tries it again.";
   if (/too long|time limit/i.test(error)) return "This video took too long and was stopped. Resume tries again.";
   if (/input_file|join|stitch|edit|compos/i.test(error)) return "Stopped while the scenes were being joined. Resume finishes it.";
@@ -250,8 +267,10 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
   const inLine = job.status === "generating" && !scenes.some((scene) => ["creating", "submitting"].includes(scene.state));
   const ready = job.status === "generating" ? Math.min(job.completed, scenes.length) : ["stitching", "saving", "succeeded"].includes(job.status) ? scenes.length : 0;
   const percent = percentOf(job, sending);
+  const uploadFailed = job.status === "failed" && /photos did not finish|no photo/i.test(String(job.error || ""));
+  const got = /(\d+) of (\d+) photos? reached/i.exec(String(job.error || ""));
   const steps = [
-    { key: "sent", label: job.status === "starting" && sending && sending.id === job.id && sending.done < sending.total ? `Sending photos · ${sending.done} of ${sending.total}` : "Photos sent", done: job.status !== "starting", current: job.status === "starting" },
+    { key: "sent", label: uploadFailed ? `Photos not received${got ? ` · ${got[1]} of ${got[2]}` : ""}` : job.status === "starting" && sending && sending.id === job.id && sending.done < sending.total ? `Sending photos · ${sending.done} of ${sending.total}` : "Photos sent", done: job.status !== "starting" && !uploadFailed, current: job.status === "starting" },
     { key: "scenes", label: many ? `Creating scenes${job.status === "generating" ? ` · ${ready} of ${scenes.length}` : ""}` : "Creating the clip", done: ["stitching", "saving", "succeeded"].includes(job.status), current: job.status === "generating" },
     ...(many ? [{ key: "join", label: "Editing with music", done: ["saving", "succeeded"].includes(job.status), current: job.status === "stitching" }] : []),
     { key: "save", label: "Saving to History", done: job.status === "succeeded", current: job.status === "saving" },
@@ -267,6 +286,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
         {!active && job.status === "failed" && job.error && <small className="prod-reason prod-raw">Why: {String(job.error).slice(0, 400)}</small>}
+        {uploadFailed && (() => { const why = explainSend(loadSendLog(job.id), Number(got?.[2]) || scenes.length); return <details className="prod-diagnose"><summary>What happened</summary><p>{why.verdict}</p>{why.facts.length > 0 && <ul>{why.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>}<p>{why.advice}</p></details>; })()}
         {(job.scenes || []).some((scene) => scene.flagged) && <div className="prod-quality"><QualityTab id={job.id} job label="Preview what was flagged"/></div>}
       </div>
       {active && onStop && <button type="button" className="prod-stop" onClick={onStop}>Stop</button>}

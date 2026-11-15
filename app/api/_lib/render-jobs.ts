@@ -804,11 +804,14 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
   return historyId;
 }
 
+/** How long the server waits for the photos of a new film (each photo that arrives restarts the wait). Nothing is made or charged while it waits. */
+const PHOTO_WAIT_MS = 10 * 60 * 1000;
+
 export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
   if (["succeeded", "failed"].includes(row.status)) return row;
   try {
     // The photos are still on their way (a phone on a slow connection can take minutes for the first one): wait 5 minutes, not 90 seconds, for photos that have not arrived. Every photo that arrives restarts the wait.
-    if (row.status === "starting" && Date.now() - row.updatedAt > 90 * 1000 && Date.now() - row.updatedAt <= 5 * 60 * 1000 && row.kind.startsWith("studio-")) {
+    if (row.status === "starting" && Date.now() - row.updatedAt > 90 * 1000 && Date.now() - row.updatedAt <= PHOTO_WAIT_MS && row.kind.startsWith("studio-")) {
       const waiting = await loadManifest(env, row.id);
       if (waiting && (await framesPresent(env, row.id, waiting.inputs.length)).some((value) => !value)) return row;
     }
@@ -820,7 +823,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
         if (Date.now() - row.updatedAt > 10 * 60 * 1000) throw new Error("The video could not start. Please try again.");
       } else {
         const present = row.kind.startsWith("studio-") ? await framesPresent(env, row.id, manifest.inputs.length) : [];
-        if (present.some((value) => !value)) throw new Error("The photos did not finish sending (the connection dropped, or the phone went to sleep during the upload), so nothing was made. Please start again.");
+        if (present.some((value) => !value)) throw new Error(`The photos did not finish sending: ${present.filter(Boolean).length} of ${present.length} photos reached the server in the ${Math.round(PHOTO_WAIT_MS / 60000)} minutes after the film was created. Nothing was made or charged.`);
         if (await beginQueue(env, row.id)) {
           const fresh = await getRenderJob(env, row.id);
           if (fresh) await stepSceneQueue(env, row.id, token, webhookUrl, queueHooks(env, fresh, token, webhookUrl), () => getRenderJob(env, row.id));

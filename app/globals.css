@@ -1915,3 +1915,8 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .send-bar.send-ok { background: var(--surface); color: var(--ink); }
 .prod-quality .cost-toggle { color: inherit; }
 .prod-quality .cost-list { color: inherit; }
+
+.prod-diagnose { margin-top: 10px; font-size: 13px; color: rgba(243, 241, 236, .72); }
+.prod-diagnose summary { cursor: pointer; color: rgba(243, 241, 236, .9); }
+.prod-diagnose p { margin: 8px 0 0; line-height: 1.45; }
+.prod-diagnose ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
