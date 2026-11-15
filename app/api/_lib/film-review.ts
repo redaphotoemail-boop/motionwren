@@ -52,14 +52,14 @@ export async function aiReviewOn(env: { DB: D1Database }) {
   return settings.cloudflare || settings.claude;
 }
 
-const QUESTION = `This is a frame from a real-estate promo video that was made from a still photograph by an AI video model. Only the camera should move; the room must stay exactly as photographed. Look for AI video artifacts: straight lines (walls, door frames, rooflines, window frames) that bend or wave, objects that look moved, duplicated, invented or melting, smeared or hazy patches, distorted cars, furniture or faces. Be strict but do not invent problems.`;
+const QUESTION = `This is a frame from a real-estate promo video that was made from a still photograph by an AI video model. Only the camera should move; the room must stay exactly as photographed. Look for AI video artifacts: straight lines (walls, door frames, rooflines, window frames) that bend or wave, objects that look moved, duplicated, invented or melting, smeared or hazy patches, distorted cars, furniture or faces. Pay special attention to cars and other vehicles: a parked car must look parked and in its place. Be strict but do not invent problems.`;
 
 /* Reality check: the source photograph is described first, then each video
    frame is compared with that description. Camera movement, cropping,
    lighting, and sharpness are not problems — only things the video added,
    removed, or changed versus the photograph. */
 const REALITY_DESCRIBE = `Describe this real-estate photograph in one short paragraph: the room and its layout, the furniture, fixtures, finishes, windows and doors, and what is visible outside the windows. List only what is actually visible, under 60 words.`;
-const REALITY_CHECK = (inventory: string) => `This is a frame from a video made from the photograph described below. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Compare the frame with the description and flag it ONLY if something in the frame was added, removed, or changed versus the photograph: furniture, fixtures, finishes, walls, windows, doors, layout, or anything outside the windows. Do not flag camera movement, cropping, lighting, or sharpness. Answer with exactly one line: "OK" if nothing was added, removed, or changed, or "ISSUE: <what changed, under 15 words>". Description: ${inventory}`;
+const REALITY_CHECK = (inventory: string) => `This is a frame from a video made from the photograph described below. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Compare the frame with the description and flag it ONLY if something in the frame was added, removed, or changed versus the photograph: furniture, fixtures, finishes, walls, windows, doors, layout, or anything outside the windows. Pay special attention to cars and other vehicles: if a car or vehicle is not where the photograph has it, or has turned, rolled or moved, flag it and say "car moved". Do not flag camera movement, cropping, lighting, or sharpness. Answer with exactly one line: "OK" if nothing was added, removed, or changed, or "ISSUE: <what changed, under 15 words>". Description: ${inventory}`;
 
 const clean = (text: string) => text.replace(/[^\p{L}\p{N} ,.;:'()%/-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 140);
 

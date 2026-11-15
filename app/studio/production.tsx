@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import QualityTab from "./quality-tab";
 
 /* Studio production, as the owner sees it. Every Studio video is made on the
    server (see /api/studio/production): this file only watches. Jobs are
@@ -266,6 +267,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
         {!active && job.status === "failed" && job.error && <small className="prod-reason prod-raw">Why: {String(job.error).slice(0, 400)}</small>}
+        {(job.scenes || []).some((scene) => scene.flagged) && <div className="prod-quality"><QualityTab id={job.id} job label="Preview what was flagged"/></div>}
       </div>
       {active && onStop && <button type="button" className="prod-stop" onClick={onStop}>Stop</button>}
       {!active && (onResume || onStartOver || onDismiss || onDelete) && <div className="prod-actions">

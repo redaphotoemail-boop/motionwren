@@ -6,7 +6,7 @@ import { useState } from "react";
 
 type Item = { scene: number; issues: string[]; clip: string; round?: number };
 
-export default function QualityTab({ id }: { id: string }) {
+export default function QualityTab({ id, job = false, label = "Quality" }: { id: string; job?: boolean; label?: string }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<{ rounds: number; delivered: Item[]; earlier: Item[] } | null>(null);
   const [error, setError] = useState("");
@@ -15,7 +15,7 @@ export default function QualityTab({ id }: { id: string }) {
     if (!next || data) return;
     setError("");
     try {
-      const response = await fetch(`/api/history/${id}/quality`, { cache: "no-store" });
+      const response = await fetch(job ? `/api/studio/production/${id}/quality` : `/api/history/${id}/quality`, { cache: "no-store" });
       const body = await response.json().catch(() => ({})) as { rounds?: number; delivered?: Item[]; earlier?: Item[]; error?: string };
       if (!response.ok) setError(body.error || "The quality notes could not be loaded."); else setData({ rounds: body.rounds || 0, delivered: body.delivered || [], earlier: body.earlier || [] });
     } catch { setError("The quality notes could not be loaded."); }
@@ -25,7 +25,7 @@ export default function QualityTab({ id }: { id: string }) {
     <div><strong>Scene {item.scene} · {label}</strong>{item.issues.length ? item.issues.map((text) => <small key={text}>{text}</small>) : <small>Flagged by the quality check.</small>}</div>
   </div>;
   return <div className="cost-tab">
-    <button type="button" className="cost-toggle" aria-expanded={open} onClick={toggle}>Quality</button>
+    <button type="button" className="cost-toggle" aria-expanded={open} onClick={toggle}>{label}</button>
     {open && <div className="cost-list">
       {error && <p>{error}</p>}
       {!data && !error && <p>Loading…</p>}

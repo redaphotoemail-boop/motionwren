@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const remakeRounds = manifest?.fix?.history.length || 0;
     const { lines, totalCents } = filmCostLines({
       remakeCents: Math.min(remakeCents, job.costCents), remakeRounds,
-      engineName: engine.name, engineCents: Math.max(0, job.costCents - Math.min(remakeCents, job.costCents)), scenes: manifest?.inputs.length || 1, sceneSeconds: manifest?.sceneSeconds || history.duration, resolution: history.resolution,
+      engineName: studioEngine((manifest?.fix?.firstEngine || history.engine) as never).name, engineCents: Math.max(0, job.costCents - Math.min(remakeCents, job.costCents)), scenes: manifest?.inputs.length || 1, sceneSeconds: manifest?.sceneSeconds || history.duration, resolution: history.resolution,
       upscaled: Boolean(manifest?.upscale), duration: history.duration, edited, music, voiceChars, sfxCount, sfxSeconds: sfxCount * Math.min(manifest?.sceneSeconds || 5, 12), reviewCents: Number(review?.value) || 0,
     });
     return NextResponse.json({ lines, totalCents });

@@ -73,7 +73,7 @@ export type ProductionManifest = {
   fromClips?: { jobId: string; scene: number }[];
   /** History ids of the later versions of this film (each edit saves a new one); the first version keeps the job's own id. */
   versions?: string[];
-  fix?: { round: number; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number }[];
+  fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */
     kept?: { scene: number; round: number; file: string; issues: string[] }[]; flagged?: { scene: number; issues: string[] }[] };
   upscale?: { to: "1080p"; stored?: boolean; predictionId?: string; startedAt?: number; tries?: number; done?: boolean; skipped?: string; lastError?: string };
@@ -309,7 +309,7 @@ export function cleanCards(value: unknown): ListingCards | undefined {
 export const SIDEWAYS_SPEED = 0.7;
 export const isSidewaysMove = (prompt: unknown) => typeof prompt === "string" && /lateral slide|horizontal lateral|orbit|\bpan(s|ning)?\b/i.test(prompt);
 
-export const MAX_FIX_ROUNDS = 2; // the film is made at most three times: the first, and two fixes
+export const MAX_FIX_ROUNDS = 3; // the film is made at most four times: the first, then a re-make on the same engine, one on another engine, and one on Wan 3.0
 
 /* The input the engine receives: the scene's own input, plus (only in a fix) the extra instruction after it. */
 export async function engineInputFor(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {

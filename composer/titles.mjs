@@ -18,8 +18,9 @@ export const TITLE_FONTS = [
 ];
 const FALLBACK = ["/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"];
 const clean = (value, max) => String(value ?? "").replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
-/* Spaced capitals: a hair space between letters (drawtext has no letter-spacing). */
-const tracked = (text) => [...text.toUpperCase()].map((ch) => (ch === " " ? "\u2003" : ch)).join("\u200a");
+/* Spaced capitals: a plain space between letters and a wider gap between words (drawtext has no letter-spacing). Plain spaces exist in
+   every font; the hair and em spaces used before are missing from most, and showed as empty boxes between the letters. */
+const tracked = (text) => [...text.toUpperCase()].map((ch) => (ch === " " ? "   " : ch)).join(" ");
 const fmt = (n) => Number(n).toFixed(3);
 const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/,/g, "\\,");
 const exists = (file) => { try { return fs.existsSync(file); } catch { return false; } };

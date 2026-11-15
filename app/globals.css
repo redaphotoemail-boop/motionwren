@@ -1913,3 +1913,5 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .send-bar strong { display: block; font-size: 14px; }
 .send-bar small { display: block; margin-top: 2px; font-size: 12px; opacity: .75; }
 .send-bar.send-ok { background: var(--surface); color: var(--ink); }
+.prod-quality .cost-toggle { color: inherit; }
+.prod-quality .cost-list { color: inherit; }

@@ -3,12 +3,13 @@ import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 import { HttpError, audit } from "./account";
 import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
-import { engineResolution } from "../../engine-providers";
+import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
 import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } from "./film-review";
 import { soundLayers } from "./film-sound";
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
-import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineCost, engineUpscales, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
+import { fixEngine } from "../../fix-engine";
 import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
 import { recipeSeconds } from "../../wrencut";
@@ -486,7 +487,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const layers = soundLayers(edit.sound, (file) => jobFileLink(origin, row, file), share, crossfade, duration);
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "", ...(edit.music && !edit.music.saved ? { music: { ...edit.music, seconds: duration } } : {}) };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: true } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(9, Math.max(4, (clips as string[]).length)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -630,6 +631,8 @@ const FIX_NOTES: Record<string, string> = {
   jump: "Fix: the previous attempt had a sudden jump. Keep one continuous, smooth camera movement from the first frame to the last, with no cuts.",
   black: "Fix: the previous attempt had black frames. The picture must stay fully lit and visible from the first frame to the last.",
 };
+const VEHICLE_WORDS = /\b(car|cars|vehicle|vehicles|truck|suv|van|automobile)\b/i;
+const VEHICLE_FIX = "Fix: the previous attempt moved a car or vehicle. Every parked car and vehicle in the photo is parked and must stay perfectly still, exactly where it is, with no rolling, turning, driving or reversing and no lights switching on. Only the camera moves.";
 const fixSetting = async (env: { DB: D1Database }) => (await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'auto_fix'").first<{ value?: string }>().catch(() => null))?.value !== "off";
 
 /* Reads the free check and the AI review of the edited film (before it is saved). Returns true when the film was
@@ -674,7 +677,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       if (review.status === "flag") {
         alertText += ` ${review.findings.map((item) => `At ${item.at} s: ${item.issue}.`).join(" ")}`;
         for (const item of review.findings) found(sceneAt(item.at), item.issue);
-        for (const item of review.findings) add(sceneAt(item.at), `Fix: the previous attempt showed this problem: ${item.issue}. Keep every straight line perfectly straight, keep every object exactly where the source photo has it, and add nothing that is not in the photo.`);
+        for (const item of review.findings) add(sceneAt(item.at), VEHICLE_WORDS.test(item.issue) ? `${VEHICLE_FIX} (${item.issue}.)` : `Fix: the previous attempt showed this problem: ${item.issue}. Keep every straight line perfectly straight, keep every object exactly where the source photo has it, and add nothing that is not in the photo.`);
       }
     }
     await saveManifest(env, row.id, manifest);
@@ -721,6 +724,23 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
       } catch { /* a missing preview never blocks the fix */ }
     }
     if (manifest.fix) manifest.fix = { ...manifest.fix, kept, flagged: undefined };
+    // Which engine makes this try: same, then another, then Wan 3.0.
+    const firstEngine = (manifest.fix?.firstEngine as StudioEngineKey | undefined) || manifest.engine;
+    const target = fixEngine(firstEngine, manifest.fix?.round || 1);
+    if (manifest.fix) manifest.fix = { ...manifest.fix, firstEngine };
+    if (target !== manifest.engine) {
+      const resolution = studioEngine(target).resolutions.includes(row.resolution as never) ? row.resolution as never : engineResolution(target);
+      const second = filmSceneDurations(target, resolution).find((option) => option >= manifest.sceneSeconds) || Math.max(...filmSceneDurations(target, resolution));
+      for (const index of scenes) {
+        const link = manifest.photos?.[index]?.link;
+        if (!link) return false;
+        manifest.inputs[index] = buildEngineInput(target, { imageUrl: link, prompt: String(manifest.inputs[index]?.prompt || ""), duration: second, resolution, aspectRatio: row.aspect === "vertical" ? "9:16" : "16:9" });
+        if (manifest.photos?.[index]) manifest.photos[index].file = undefined;
+      }
+      manifest.engine = target; manifest.endpoint = ENGINE_ENDPOINTS[target];
+      if (engineUpscales(target, row.resolution as never)) manifest.upscale = { to: "1080p" }; else delete manifest.upscale;
+    }
+    if (manifest.fix) { const history = [...manifest.fix.history]; const last = history[history.length - 1]; if (last) history[history.length - 1] = { ...last, engine: target }; manifest.fix = { ...manifest.fix, history }; }
     for (const index of scenes) {
       ids[index] = ""; segments[index] = null;
       manifest.states[index] = "queued"; manifest.attempts[index] = 0; manifest.waits[index] = 0; manifest.nextAt[index] = 0; manifest.reasons[index] = "";
@@ -738,7 +758,7 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     if (manifest.fix) { const history = [...manifest.fix.history]; const last = history[history.length - 1]; if (last) history[history.length - 1] = { ...last, cents: extra }; manifest.fix = { ...manifest.fix, history }; }
     await saveManifest(env, row.id, manifest);
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
-    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1}, about $${(extra / 100).toFixed(2)} more).`);
+    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1} on ${studioEngine(manifest.engine).name}, about $${(extra / 100).toFixed(2)} more). Open History, find ${videoRef(row.id)} and tap Quality to preview what was flagged.`);
     return true;
   } finally { await releaseLease(env, `job-lock:${row.id}`, lease); }
 }
