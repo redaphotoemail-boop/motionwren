@@ -53,7 +53,8 @@ export async function POST(request: Request) {
   if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
   // A template film is always real video. A Photo move engine only pans over a still photo, so it cannot be used with a template.
   if (wren && studioEngine(engine).photoMove) return NextResponse.json({ error: "This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos, not video. Choose another engine." }, { status: 400 });
-  const aspect = templated || wren?.recipe.aspect === "vertical" ? "vertical" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
+  // A WrenCut template follows the frame chosen in Studio (it used to force 9:16 whenever the reference was a reel, which cropped landscape photos).
+  const aspect = templated ? "vertical" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
   const scenesIn = Array.isArray(body.scenes) ? body.scenes as SceneBody[] : [];
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
