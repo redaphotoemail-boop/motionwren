@@ -156,7 +156,7 @@ async function compressImage(file: File, high = false): Promise<string> {
   const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser could not prepare this image.");
   ctx.imageSmoothingQuality = "high"; ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
   const limit = high ? 10_400_000 : 1_250_000; // about 7.8 MB of file: the server takes 8 MB
-  let quality = high ? 0.93 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
+  let quality = high ? 0.97 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
   while (result.length > limit && quality > (high ? 0.7 : 0.5)) { quality -= 0.05; result = canvas.toDataURL("image/jpeg", quality); }
   if (result.length > limit * 1.12) throw new Error("This image remains too large. Export a JPEG under 1 MB and try again.");
   return result;
@@ -221,7 +221,7 @@ async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKe
   // Already the right shape and small enough for the server: send it untouched (no crop, no re-encode).
   if (high && Math.abs(original / target - 1) < 0.01 && /^data:image\/(jpeg|png|webp);/.test(source) && source.length <= 10_400_000) return source;
   const { sx, sy, sw, sh } = frameCrop(image.naturalWidth, image.naturalHeight, target);
-  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 3840 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
+  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 6144 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
   const context = canvas.getContext("2d"); if (!context) throw new Error("The selected frame could not be prepared.");
   context.imageSmoothingQuality = "high"; context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   let quality = high ? 0.97 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
@@ -376,7 +376,12 @@ export default function Home() {
      photos are sent one by one, then the server takes over. */
   /* Opening History lands at the top of the page. Generate no longer opens it: the video shows where you are. */
   useEffect(() => { if (mode === "history") window.scrollTo({ top: 0, behavior: "auto" }); }, [mode]);
+  /* One film's photos are sent at a time, at full quality, and the next film waits until the studio confirms it has every photo. */
+  const sendingRef = useRef(false);
+  const [received, setReceived] = useState(false);
   async function launch(tab: ProductionTab, body: Record<string, unknown>, photos: string[], extra?: (job: StudioJob) => void) {
+    if (sendingRef.current) throw new Error("Your photos are still being sent to the studio. Wait for \"Photos received\" before starting another film.");
+    sendingRef.current = true; setReceived(false);
     let created: StudioJob | null = null;
     try {
       const job = await startStudioProduction(body, photos, {
@@ -384,12 +389,13 @@ export default function Home() {
         onProgress: setSending,
       });
       production.track(job);
+      setReceived(true); window.setTimeout(() => setReceived(false), 8000);
     } catch (reason) {
       // Nothing was started: close the half-made job so it does not linger.
       const job = created as StudioJob | null;
       if (job) { await stopStudioJob(job.id); production.track({ ...job, status: "failed", error: reason instanceof Error ? reason.message : "The video could not start." }); }
       throw reason;
-    } finally { setSending(null); }
+    } finally { setSending(null); sendingRef.current = false; }
   }
   /* A video finished (seen while this page is open): refresh History, and
      burn in the listing cards if they were asked for. */
@@ -669,6 +675,8 @@ export default function Home() {
   return <main className="studio-app">
     {connected === false && <section className="connect-bar"><div><strong>Connect Replicate to generate</strong><span>Your token is stored in a secure, private browser cookie and is never displayed again.</span></div><div className="token-form"><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="r8_••••••••••••••••••••" autoComplete="off" /><button onClick={connectReplicate} disabled={savingToken || !token}>{savingToken ? "Connecting…" : "Connect"}</button></div>{tokenError && <p className="token-error">{tokenError}</p>}</section>}
     {connected === true && <div className="connected-bar"><span><i /> Replicate connected</span><button onClick={async () => { await fetch("/api/token", { method: "DELETE" }); setConnected(false); }}>Disconnect</button></div>}
+    {sending && <div className="send-bar" role="status"><span className="spinner"/><div><strong>Sending photos {Math.min(sending.done + 1, sending.total)} of {sending.total}</strong><small>Keep this page open until it says "Photos received". The next film can start after that.</small></div></div>}
+    {!sending && received && <div className="send-bar send-ok" role="status"><div><strong>Photos received ✓</strong><small>Your film is in line at the studio. You can start another.</small></div></div>}
     <section className="studio-head"><p className="eyebrow">Studio · owner only</p><h1>{mode === "single" ? "Create a polished property video." : mode === "series" ? "Create a complete property sequence." : mode === "transition" ? "Move smoothly between your frames." : mode === "extend" ? "Continue your existing scene." : mode === "upscale" ? "Finish your video at a higher resolution." : "Your saved videos."}</h1><p className="subhead">Test the full pipeline on your own photos, see what each run costs, and choose the engine every customer gets.</p>{activeJobs.length > 0 && <button type="button" className="live-pill" onClick={() => selectMode(activeJobs.length > 1 ? "history" : jobMode(activeJobs[0]))}><i />{activeJobs.length === 1 ? "1 video in production" : `${activeJobs.length} videos in production`}</button>}</section>
     <div className="mode-switch"><button className={mode === "single" ? "active" : ""} onClick={() => selectMode("single")}><strong>Single shot</strong><small>One image</small></button><button className={mode === "series" ? "active" : ""} onClick={() => selectMode("series")}><strong>Multi-shot series</strong><small>Several images</small></button><button className={mode === "transition" ? "active" : ""} onClick={() => selectMode("transition")}><strong>Frame transition</strong><small>Exact keyframes</small></button><button className={mode === "extend" ? "active" : ""} onClick={() => selectMode("extend")}><strong>Extend scene</strong><small>Continue a clip</small></button><button className={mode === "upscale" ? "active" : ""} onClick={() => selectMode("upscale")}><strong>Upscale</strong><small>Higher resolution</small></button><button className={mode === "history" ? "active" : ""} onClick={() => { selectMode("history"); loadHistory(); }}><strong>History</strong><small>Saved videos</small></button></div>
     {mode !== "upscale" && mode !== "history" && <section className="default-engine-bar" aria-live="polite"><div><span className="label">Testing with</span><strong>{selectedEngine.name}</strong></div><div><span className="label">Customer default</span><strong>{customerEngine ? studioEngine(customerEngine).name : "Loading…"}</strong></div>{customerEngine && customerEngine !== engine ? <button type="button" onClick={makeCustomerDefault} disabled={savingDefault}>{savingDefault ? "Saving…" : `Make ${selectedEngine.shortName} the default`}</button> : customerEngine ? <span className="default-engine-ok"><i />This is the customer default</span> : null}{defaultMessage && <small>{defaultMessage}</small>}</section>}

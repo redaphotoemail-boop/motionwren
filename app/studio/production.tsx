@@ -139,7 +139,7 @@ export async function startStudioProduction(body: Record<string, unknown>, photo
   const count = Number(data.plan?.count) || photos.length;
   hooks.onCreated(job);
   hooks.onProgress({ id: job.id, done: 0, total: count });
-  // Photos go up two at a time. Each try gives up after two minutes (a stalled connection) and tries again, so one stuck upload can't leave the film waiting.
+  // Photos go up one at a time, at full quality, so the first arrives as soon as possible. Each try gives up after two minutes (a stalled connection) and tries again, so one stuck upload can't leave the film waiting.
   let sentCount = 0, nextIndex = 0;
   async function sendPhoto(index: number) {
     const blob = await (await fetch(photos[index])).blob();
@@ -157,7 +157,7 @@ export async function startStudioProduction(body: Record<string, unknown>, photo
     if (!sent) throw new Error(`Scene ${index + 1}'s photo could not be sent. ${reason} Nothing was made or charged — please try again.`.replace(/\s+/g, " "));
     sentCount += 1; hooks.onProgress({ id: job.id, done: sentCount, total: count });
   }
-  await Promise.all(Array.from({ length: Math.min(2, count) }, async () => { while (nextIndex < count) { const index = nextIndex; nextIndex += 1; await sendPhoto(index); } }));
+  await Promise.all(Array.from({ length: 1 }, async () => { while (nextIndex < count) { const index = nextIndex; nextIndex += 1; await sendPhoto(index); } }));
   const started = await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   const result = await started.json().catch(() => ({}));
   if (!started.ok || !result.job?.id) throw new Error(result.error || "The video could not start. Please try again.");
