@@ -1820,3 +1820,10 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .ttl-preview span { font-size: clamp(20px, 5vw, 30px); letter-spacing: .22em; text-transform: uppercase; }
 .ttl-preview em { font-style: normal; font-size: 13px; color: #d8d0c4; letter-spacing: .04em; }
 .ttl-note { font-size: 12px; opacity: .6; margin: 0; }
+
+.sug-edit { margin: 10px 0 0; }
+.sug-card { margin-top: 8px; padding: 12px 14px; border: 1px solid rgba(128,128,128,.25); border-radius: 12px; font-size: 13px; }
+.sug-card p { margin: 0 0 8px; opacity: .8; }
+.sug-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sug-row button { border: 0; border-radius: 999px; padding: 6px 16px; font-weight: 600; cursor: pointer; }
+.sug-note { margin: 6px 0 0; font-size: 12px; opacity: .7; }

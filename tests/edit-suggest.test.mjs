@@ -1,0 +1,16 @@
+import { moodIn, suggestEdit } from "../app/edit-suggest.ts";
+let pass = 0, fail = 0;
+const check = (name, ok, detail = "") => { if (ok) { pass += 1; console.log(`PASS ${name}${detail ? ` — ${detail}` : ""}`); } else { fail += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`); } };
+const templates = [{ id: "wren:a", name: "MotionWren 2", best: 4, least: 3 }, { id: "wren:b", name: "MotionWren 3", best: 12, least: 6 }];
+check("words become moods", moodIn("Luxurious.") === "luxe" && moodIn("modern") === "modern" && moodIn("Cozy") === "warm" && moodIn("airy") === "bright" && moodIn("banana") === null);
+const five = suggestEdit({ photoCount: 5, moods: ["luxe", "luxe", "modern", null, "luxe"], templates });
+check("5 photos pick the 4-photo template", five.templateId === "wren:a", five.templateId);
+check("most common style wins", five.music === "luxe");
+const ten = suggestEdit({ photoCount: 10, moods: ["warm", "warm"], templates });
+check("10 photos pick the 12-photo template", ten.templateId === "wren:b" && ten.music === "warm");
+const two = suggestEdit({ photoCount: 2, moods: [null, null], templates });
+check("too few photos still suggest the closest", two.templateId === "wren:a" && /at least 3/.test(two.reason));
+check("no votes defaults to modern", two.music === "modern" && /no clear style/.test(two.reason));
+const none = suggestEdit({ photoCount: 6, moods: ["bright"], templates: [] });
+check("no templates still suggests music", none.templateId === null && none.music === "bright");
+console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

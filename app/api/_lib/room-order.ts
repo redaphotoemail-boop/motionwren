@@ -6,7 +6,7 @@ import { ROOM_ORDER, storyOrderIndexes, type Room } from "../../wrencut-fit";
 const QUESTION = "What is the main subject of this real-estate photograph? Answer with exactly one word from this list: exterior, entry, living, dining, kitchen, bedroom, bathroom, outdoor. Use exterior for the front or outside of the house, outdoor for a patio, pool, yard or view.";
 const MAX_BYTES = 1_400_000;
 
-function roomIn(answer: string): Room | null {
+export function roomIn(answer: string): Room | null {
   const text = answer.toLowerCase();
   const alias: [RegExp, Room][] = [[/exterior|facade|front of/, "exterior"], [/entry|foyer|hall/, "entry"], [/living|family room|lounge|great room/, "living"], [/dining/, "dining"], [/kitchen/, "kitchen"], [/bed/, "bedroom"], [/bath|shower|toilet/, "bathroom"], [/outdoor|patio|pool|yard|garden|view|deck|terrace/, "outdoor"]];
   for (const [pattern, room] of alias) if (pattern.test(text)) return room;

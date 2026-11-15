@@ -1,6 +1,7 @@
 "use client";
 
 import SaveVideo from "../components/save-video";
+import SuggestEdit from "./suggest-edit";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, smallPhoto, type FinalSound } from "./final-edit";
 import { defaultMusicId } from "../music-catalog";
 import EditFilm from "./edit-film";
@@ -704,6 +705,10 @@ export default function Home() {
           </>}
         </div>
       <TemplateStrip value={tpl} onChange={setTpl} onEngine={(next) => { setEngine(next); const available = studioEngine(next).resolutions; setResolution((current) => available.includes(current) ? current : available[available.length - 1]); }} engine={engine} resolution={resolution} photoCount={shots.filter((shot) => shot.source).length} disabled={seriesGenerating}/>
+      <SuggestEdit photoCount={shots.length} disabled={seriesGenerating} getImages={() => Promise.all(shots.map((shot) => smallPhoto(shot.source)))} onApply={(template, music) => {
+        if (template) { if (template.engine) { setEngine(template.engine as StudioEngineKey); const available = studioEngine(template.engine as StudioEngineKey).resolutions; setResolution((current) => available.includes(current) ? current : available[available.length - 1]); } setTpl((current) => ({ ...current, on: true, id: template.id, wren: { seconds: template.seconds, photos: template.photos, best: template.guide?.best, hasMusic: template.hasMusic }, texts: [] })); }
+        if (!(template?.hasMusic)) patchSound({ music });
+      }}/>
       <div className="series-setup-bar"><label><span className="label">Shot type</span><select value={category} onChange={(event) => setCategory(event.target.value as keyof typeof qualityPrompts)} disabled={seriesGenerating}><option value="interior">Real estate</option><option value="people">Lifestyle</option></select></label><div className="series-timing-readout"><span className="label">Scene timing</span><strong>{shots.length < 2 ? "Add two or more scenes" : `${plan.sceneSeconds} seconds per scene`}</strong><small>Set by the film length you choose</small></div><div className="stability-badge"><span>✓</span><div><strong>Stability lock on</strong><small>Smooth camera motion, fixed geometry and no unwanted object movement.</small></div></div>{seriesAudioRequested && <div className="stability-badge"><span>♫</span><div><strong>One master soundtrack</strong><small>Music is carried across the complete edit instead of changing per scene.</small></div></div>}</div>
       <div className="panel series-finish-panel">
         <Heading number="02" title="Finish your film" note="Listing cards, music, voiceover and sound effects — all added at the final edit"/>
