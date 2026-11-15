@@ -313,7 +313,18 @@ export function cleanCards(value: unknown): ListingCards | undefined {
 export const SIDEWAYS_SPEED = 0.7;
 export const isSidewaysMove = (prompt: unknown) => typeof prompt === "string" && /lateral slide|horizontal lateral|orbit|\bpan(s|ning)?\b/i.test(prompt);
 
-export const MAX_FIX_ROUNDS = 3; // the film is made at most four times: the first, then a re-make on the same engine, one on another engine, and one on Wan 3.0
+export const MAX_FIX_ROUNDS = 2; // at most three attempts: the first, then two re-makes that each carry a fix for what the check found
+
+/* Where a film stands after the quality check, for History: "flagged" = still has a problem after the last attempt (needs the owner),
+   "fixed" = had a problem, was re-made and the re-check passed, "approved" = passed first time, "unchecked" = no check ran. */
+export type QualityState = { state: "flagged" | "fixed" | "approved" | "unchecked"; attempts: number; issues: number };
+export function qualityState(manifest: ProductionManifest | null | undefined): QualityState {
+  const attempts = (manifest?.fix?.round || 0) + 1;
+  const issues = manifest?.fix?.flagged?.length || 0;
+  if (issues) return { state: "flagged", attempts, issues };
+  if (!manifest?.qc && !manifest?.aiReview) return { state: "unchecked", attempts, issues: 0 };
+  return { state: attempts > 1 ? "fixed" : "approved", attempts, issues: 0 };
+}
 
 /* The input the engine receives: the scene's own input, plus (only in a fix) the extra instruction after it. */
 export async function engineInputFor(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {

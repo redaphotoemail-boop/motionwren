@@ -703,8 +703,13 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       await saveManifest(env, row.id, manifest);
     }
     if (alertText.trim()) {
-      const left = round >= MAX_FIX_ROUNDS ? ` It was made ${round + 1} times and still has this.` : "";
-      await alertManagers(env, "A film has a quality problem", `${videoRef(row.id)}: ${alertText.trim()}${left} Order ${row.id}. The film was delivered; open History, find ${videoRef(row.id)} and tap Quality to preview the flagged scenes and decide whether to re-make it.`);
+      if (round >= MAX_FIX_ROUNDS) {
+        await alertManagers(env, `Quality problem not fixed · ${videoRef(row.id)}`, `${videoRef(row.id)}: still has a problem after ${round + 1} attempts. ${alertText.trim()} Order ${row.id}. It is marked red in History: open it, tap Quality to see the flagged scenes full screen, and decide whether to deliver it or re-make it yourself.`);
+      } else {
+        await alertManagers(env, "A film has a quality problem", `${videoRef(row.id)}: ${alertText.trim()} Order ${row.id}. The film was delivered; open History, find ${videoRef(row.id)} and tap Quality to preview the flagged scenes and decide whether to re-make it.`);
+      }
+    } else if (round > 0) {
+      await alertManagers(env, `Film fixed, ready to deliver · ${videoRef(row.id)}`, `${videoRef(row.id)}: the quality check found a problem, it was fixed on attempt ${round + 1} and the re-check passed. It is ready to deliver.`);
     }
   } catch { /* the check is a bonus: never lose a film over it */ }
   return false;
