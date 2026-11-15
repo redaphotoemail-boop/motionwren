@@ -42,7 +42,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const engine = studioEngine(manifest.engine as never);
     const share = edit.shareSeconds || manifest.sceneSeconds;
     return NextResponse.json({
-      status: row.status, kind: row.kind, engine: manifest.engine, resolution: row.resolution, aspect: row.aspect, duration: row.duration,
+      status: row.status, kind: row.kind, engine: manifest.engine, resolution: row.resolution, aspect: row.aspect, frameRatio: manifest.frame?.ratio || null, cut: edit.reframe || null, duration: row.duration,
       count: manifest.inputs.length, sceneSeconds: share, photoEngine: Boolean(manifest.photoMoves?.some(Boolean)),
       remakeCostCents: Math.round(engineCost(manifest.engine as never, row.resolution as never, manifest.sceneSeconds) * 100), engineName: engine?.name || manifest.engine,
       cards: manifest.cards ? { opening: manifest.cards.opening || null, closing: manifest.cards.closing ? { ...manifest.cards.closing, logo: manifest.cards.closing.logo ? "yes" : "" } : null } : null,
@@ -66,6 +66,8 @@ type Body = {
   useScenes?: unknown;
   /** Cinematic titles: an object to set them, null to remove them. */
   titles?: unknown;
+  /** Cut the finished film to 16:9 or vertical ("made" goes back to the frame it was made at). Nothing is made again. */
+  frame?: unknown;
 };
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -105,6 +107,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (recipe.audio?.sfx?.length) {
         try { const cutfx = await makeCutEffects(env, id, recipe.audio, joinTimes(recipe)); if (cutfx) sound.cutfx = cutfx; else delete sound.cutfx; } catch { delete sound.cutfx; }
       } else delete sound.cutfx;
+    }
+
+    // Cut to another frame: the stored clips are re-framed at the final edit, so nothing is made again and nothing is charged.
+    if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "made") {
+      if (body.frame === "made" || body.frame === row.aspect) delete edit.reframe; else edit.reframe = body.frame;
     }
 
     if (body.titles !== undefined) { const titles = body.titles === null ? undefined : cleanFilmTitles(body.titles); if (titles) edit.titles = titles; else delete edit.titles; }

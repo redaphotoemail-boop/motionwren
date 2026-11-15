@@ -6,6 +6,7 @@ import { PHOTO_MOVE_KEYS } from "../engine-catalog";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, type FinalSound } from "./final-edit";
 import type { StudioJob } from "./production";
 import { prepareFrameFile } from "./prepare-frame";
+import { shapeLabel } from "../original-shape";
 
 /* Edit a finished film from History: its listing cards, music, voiceover,
    sound effects, and the camera movement of any single scene. Everything that
@@ -13,7 +14,7 @@ import { prepareFrameFile } from "./prepare-frame";
    shown before anything starts. */
 
 type Data = {
-  status: string; kind: string; engine: string; engineName: string; resolution: string; aspect: string; duration: number; count: number; sceneSeconds: number;
+  status: string; kind: string; engine: string; engineName: string; resolution: string; aspect: string; frameRatio?: number | null; cut?: "horizontal" | "vertical" | null; duration: number; count: number; sceneSeconds: number;
   photoEngine: boolean; remakeCostCents: number;
   cards: { opening: { title: string; detail: string; message: string } | null; closing: { name: string; contact: string; logo: string } | null } | null;
   music: string; voice: { mode: "scene" | "film"; voiceId: string; lines: string[] } | null; sfx: { prompts: string[] } | null;
@@ -44,6 +45,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const [recreate, setRecreate] = useState<Record<number, boolean>>({});
   const [newPhotos, setNewPhotos] = useState<Record<number, string>>({});
   const [skipped, setSkipped] = useState<number[]>([]);
+  const [frame, setFrame] = useState<"made" | "horizontal" | "vertical">("made");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ message: string; fix?: string } | null>(null);
 
@@ -54,7 +56,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
       const body = await response.json().catch(() => ({})) as Data & { error?: string };
       if (cancelled) return;
       if (!response.ok) { setLoadError(body.error || "This film can't be edited."); return; }
-      setData(body); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
+      setData(body); setFrame(body.cut || "made"); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
       const next: FinalSound = { music: body.music === "auto" ? "keep" : body.music, voiceMode: body.voice?.mode || "off", voiceId: body.voice?.voiceId || "", lines: body.voice?.lines || [], film: body.voice?.mode === "film" ? (body.voice.lines.find(Boolean) || "") : "", sfxOn: Boolean(body.sfx), sfx: body.sfx?.prompts || [] };
       setSoundState(next); setInitial(JSON.stringify(next));
       setOpeningOn(Boolean(body.cards?.opening)); setClosingOn(Boolean(body.cards?.closing));
@@ -74,7 +76,8 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const remakeCents = data && !data.photoEngine ? changedScenes.length * data.remakeCostCents : 0;
   const titlesChanged = Boolean(data) && JSON.stringify(titles) !== titlesStart;
   const usedClips = data ? data.scenes.map((scene) => scene.index).filter((index) => !skipped.includes(index)) : [];
-  const anything = cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0 || Boolean(wrenId) || titlesChanged;
+  const frameChanged = Boolean(data) && frame !== (data?.cut || "made");
+  const anything = frameChanged || cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0 || Boolean(wrenId) || titlesChanged;
 
   const branding = { listingTitle: title, listingBeds: "", listingBaths: "", listingSquareFeet: "", listingPrice: detail, listingMessage: message, agentName: agent, agentEmail: "", agentPhone: contact, agentLogo: logo.startsWith("data:") ? logo : "" } as never;
 
@@ -91,6 +94,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     if (cardsChanged) body.cards = (openingOn && (title.trim() || detail.trim() || message.trim())) || (closingOn && (agent.trim() || contact.trim() || logo !== "none"))
       ? { opening: openingOn ? { title, detail, message } : null, closing: closingOn ? { name: agent, contact, logo: logo === "none" ? "" : logo } : null } : null;
     if (wrenId) { if (usedClips.length < 2) { setBusy(false); setProblem({ message: "Choose at least two clips." }); return; } body.template = wrenId; if (usedClips.length < data.count) body.useScenes = usedClips; }
+    if (frameChanged) body.frame = frame;
     if (titlesChanged) body.titles = hasTitles(titles) ? titlesPayload(titles) : null;
     if (musicChanged) body.music = sound.music;
     if (voiceChanged) {
@@ -119,6 +123,12 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           {templates.length ? <label className="fin-fields"><span className="label">Edit again with a template</span><select value={wrenId} onChange={(event) => setWrenId(event.target.value)} aria-label="Template"><option value="">Keep the current edit</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
         </FinalSection>}
 
+        {data.aspect !== "vertical" && <FinalSection title="Frame" note={`Cut the finished film to another shape. Nothing is made again, so it costs nothing. The floor stays in the picture; a vertical keeps the middle.`}>
+          <div className="segmented-control frame-control"><div>
+            {([["made", data.aspect === "original" && data.frameRatio ? shapeLabel(data.frameRatio) : "16:9", "As made"], ...(data.aspect === "original" ? [["horizontal", "16:9", "Horizontal"]] : []), ["vertical", "9:16", "Vertical"]] as [typeof frame, string, string][]).map(([key, ratio, note]) => <button type="button" key={key} className={frame === key ? "active" : ""} onClick={() => setFrame(key)} disabled={busy}><strong>{ratio}</strong><small>{note}</small></button>)}
+          </div></div>
+        </FinalSection>}
+
         <FinalSection title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Turn on Recreate for the scenes you want made again, with the same movement or a new one, and optionally a new photo — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}. Scenes you leave off are kept.`}>
           <div className="fin-scenes">{data.scenes.map((scene) => { const on = Boolean(recreate[scene.index]) || Boolean(moves[scene.index]); return <div className={on && !data.photoEngine ? "fin-scene fin-scene-open" : "fin-scene"} key={scene.index}><img src={newPhotos[scene.index] || scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
             {data.photoEngine
@@ -126,7 +136,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
               : <div className="fin-recreate"><span>Recreate</span><button type="button" className={on ? "fin-switch on" : "fin-switch"} role="switch" aria-checked={on} aria-label={`Recreate scene ${scene.index + 1}`} onClick={() => { if (on) { setRecreate((current) => ({ ...current, [scene.index]: false })); setMoves((current) => ({ ...current, [scene.index]: "" })); setNewPhotos((current) => { const next = { ...current }; delete next[scene.index]; return next; }); } else setRecreate((current) => ({ ...current, [scene.index]: true })); }}><i/></button></div>}
             {on && !data.photoEngine && <div className="fin-scene-more">
               <select value={moves[scene.index] || ""} onChange={(event) => setMoves((current) => ({ ...current, [scene.index]: event.target.value }))} aria-label={`Movement for scene ${scene.index + 1}`}><option value="">Same movement</option>{motions.filter((item) => item.key !== "custom" && item.key !== "mixed").map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>
-              <label className="fin-photo-pick"><input type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; try { const prepared = await prepareFrameFile(file, data.aspect); setNewPhotos((current) => ({ ...current, [scene.index]: prepared })); } catch (error) { setProblem({ message: error instanceof Error ? error.message : "That photo could not be used." }); } }}/><span>{newPhotos[scene.index] ? "Photo replaced · choose another" : "Use a new photo"}</span></label>
+              <label className="fin-photo-pick"><input type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; try { const prepared = await prepareFrameFile(file, data.aspect, data.frameRatio); setNewPhotos((current) => ({ ...current, [scene.index]: prepared })); } catch (error) { setProblem({ message: error instanceof Error ? error.message : "That photo could not be used." }); } }}/><span>{newPhotos[scene.index] ? "Photo replaced · choose another" : "Use a new photo"}</span></label>
             </div>}
           </div>; })}</div>
         </FinalSection>

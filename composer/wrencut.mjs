@@ -203,6 +203,12 @@ export function validRecipe(recipe) {
    blends toward steady (1 = as read). Fast slices are blurred by blending neighbouring frames; slow ones are
    smoothed by making in-between frames, so slow motion does not stutter. */
 const SLICES = 8;
+/* The crop that fills a frame after the picture was scaled to cover it. Centred unless the picture is cut to another shape
+   (anchorY 0 keeps the top, 1 the bottom): a 3:2 film cut to 16:9 keeps the floor. Without an anchor it is the plain centred crop. */
+export function coverCrop(w, h, anchorY) {
+  const a = Number.isFinite(anchorY) ? Math.min(1, Math.max(0, anchorY)) : 0.5;
+  return a === 0.5 ? `crop=${w}:${h}` : `crop=${w}:${h}:(in_w-${w})/2:(in_h-${h})*${a.toFixed(3)}`;
+}
 export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
   const total = d + 0.2;
   const at = (u) => {
@@ -236,16 +242,16 @@ export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
 /* One shot made on its own: re-timed (speed ramp, blur), moved, sized, written as a short near-lossless file of the shot's
    length plus its overlap. Doing the shots one at a time, then joining the files, keeps the editor's memory flat however
    long the film is (one big graph held every shot's frames at once and ran the editor out of memory on long films). */
-export function shotArgs({ recipe, index, input, output, width, height, fps, start, strength }) {
+export function shotArgs({ recipe, index, input, output, width, height, fps, start, strength, anchorY }) {
   const slot = recipe.slots[index];
   const one = { ...recipe, slots: [slot], joins: [], grade: undefined };
-  const built = recipeChain({ recipe: one, width, height, fps, starts: [start || 0], strength });
+  const built = recipeChain({ recipe: one, width, height, fps, starts: [start || 0], strength, anchorY });
   return ["-y", "-i", input, "-filter_complex", built.filters.join(";"), "-map", `[${built.last}]`, "-t", (slot.dur + 0.2).toFixed(3), "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", String(fps), output];
 }
 
 /* The filter graph for a recipe: clip i (input i) becomes shot i, moved as the recipe says, then all joined.
    `starts[i]` is where in clip i the shot begins. Returns the graph lines and the label of the joined picture. */
-export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1, prepared = false }) {
+export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1, prepared = false, anchorY }) {
   const filters = [];
   const n = recipe.slots.length;
   const SS = 2; // drawn at double size so slow moves do not shimmer
@@ -263,7 +269,7 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
     const ramp = slot.speed ? rampHead({ index: i, speed: slot.speed, d, start: Math.max(0, starts[i] || 0), fps, strength: 1 }) : null;
     if (ramp) filters.push(...ramp.lines);
     const head = ramp ? `[${ramp.label}]` : `[${i}:v]trim=start=${Math.max(0, starts[i] || 0).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=3,trim=duration=${(d + 0.2).toFixed(3)},`;
-    filters.push(`${head}fps=${fps},scale=${w2}:${h2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${w2}:${h2},`
+    filters.push(`${head}fps=${fps},scale=${w2}:${h2}:force_original_aspect_ratio=increase:flags=lanczos,${coverCrop(w2, h2, anchorY)},`
       + `scale=w='${w2}*${z}':h='${h2}*${z}':eval=frame:flags=bilinear,`
       + `crop=${w2}:${h2}:x='min(max((in_w-${w2})/2+${(px * w2).toFixed(2)}*(${u}-0.5)*-1,0),in_w-${w2})':y='min(max((in_h-${h2})/2+${(py * h2).toFixed(2)}*(${u}-0.5)*-1,0),in_h-${h2})',`
       + `scale=${width}:${height}:flags=lanczos,setsar=1,format=yuv420p[s${i}]`);

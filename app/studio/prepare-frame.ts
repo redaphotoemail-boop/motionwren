@@ -1,9 +1,9 @@
 import { frameCrop } from "../frame-crop";
 
-/* A photo shaped to the film's frame (16:9, 9:16 or 2.39:1) in the browser, trimming the same way a new film does:
+/* A photo shaped to the film's frame (16:9, 9:16, 2.39:1 or the photos' own shape) in the browser, trimming the same way a new film does:
    sideways trims are centred; height comes off the top so the floor stays. Returns a JPEG data URL under the server's limit. */
-export async function prepareFrameFile(file: File, aspect: string): Promise<string> {
-  const target = aspect === "vertical" ? 9 / 16 : aspect === "cinematic" ? 2.39 : 16 / 9;
+export async function prepareFrameFile(file: File, aspect: string, shape?: number | null): Promise<string> {
+  const target = aspect === "original" && shape ? shape : aspect === "vertical" ? 9 / 16 : aspect === "cinematic" ? 2.39 : 16 / 9;
   const source = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("That photo could not be read.")); reader.readAsDataURL(file); });
   const image = new Image(); image.src = source;
   await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("That photo could not be opened.")); });

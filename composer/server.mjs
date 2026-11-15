@@ -213,7 +213,7 @@ async function getMusic(spec, dir, job) {
 }
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
-import { analyzeVideo, assignClips, recipeChain, shotArgs, recipeDuration, validRecipe } from "./wrencut.mjs";
+import { analyzeVideo, assignClips, coverCrop, recipeChain, shotArgs, recipeDuration, validRecipe } from "./wrencut.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { planTitles, titleGraph } from "./titles.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
@@ -400,7 +400,7 @@ export function layerArgs({ inputs, duration, output }) {
   return args;
 }
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, titles, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength, prepared }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, titles, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength, prepared, anchorY }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -408,7 +408,7 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
   let last = "v0";
   if (recipe) {
     // A WrenCut template: each clip is a shot moved and joined as the recipe says.
-    const built = recipeChain({ recipe, width, height, fps, starts, strength: Number.isFinite(strength) ? strength : 1, prepared: prepared === true });
+    const built = recipeChain({ recipe, width, height, fps, starts, strength: Number.isFinite(strength) ? strength : 1, prepared: prepared === true, anchorY });
     filters.push(...built.filters);
     last = built.last;
   } else {
@@ -417,7 +417,7 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     // A slower scene (orbits and pans): the camera covers less of the scene, so less is made up.
     const speed = Array.isArray(speeds) && speeds[i] >= 0.5 && speeds[i] < 1 ? speeds[i] : 1;
     const slow = speed < 1 ? `setpts=PTS/${speed.toFixed(3)},minterpolate=fps=${fps}:mi_mode=blend,` : "";
-    filters.push(`[${i}:v]${slow}tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},setsar=1,format=yuv420p[v${i}]`);
+    filters.push(`[${i}:v]${slow}tpad=stop_mode=clone:stop_duration=2,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,${coverCrop(width, height, anchorY)},setsar=1,format=yuv420p[v${i}]`);
   });
   if (X === 0 && count > 1) {
     // Hard cuts (a library template): a zero-duration xfade is invalid,
@@ -523,6 +523,7 @@ function validSpec(spec) {
   const clips = Array.isArray(spec.clips) ? spec.clips : [];
   if (clips.length < 1 || clips.length > 20 || clips.some((url) => typeof url !== "string" || !/^https?:\/\//.test(url))) return "Between 1 and 20 scene links are needed.";
   if (![spec.width, spec.height].every((value) => Number.isInteger(value) && value >= 240 && value <= 4096 && value % 2 === 0)) return "Width and height must be even numbers.";
+  if (spec.anchorY !== undefined && !(typeof spec.anchorY === "number" && spec.anchorY >= 0 && spec.anchorY <= 1)) return "anchorY must be between 0 and 1.";
   if (spec.speeds !== undefined && !(Array.isArray(spec.speeds) && spec.speeds.length === clips.length && spec.speeds.every((value) => typeof value === "number" && value >= 0.5 && value <= 1))) return "Scene speeds must match the scenes (0.5 to 1).";
   if (spec.refs !== undefined && !(Array.isArray(spec.refs) && spec.refs.length === clips.length && spec.refs.every((value) => value === null || (typeof value === "string" && /^https?:\/\//.test(value))))) return "Reference clips must match the scenes.";
   if (spec.hybrid !== undefined && typeof spec.hybrid !== "boolean") return "Hybrid must be true or false.";
@@ -643,7 +644,7 @@ async function compose(key, spec) {
           const i = nextShot; nextShot += 1;
           job.stage = `shot ${i + 1}/${picks.length}`;
           shotFiles[i] = path.join(dir, `shot-${String(i + 1).padStart(2, "0")}.mp4`);
-          try { await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...shotArgs({ recipe: spec.recipe, index: i, input: editFiles[i], output: shotFiles[i], width: spec.width, height: spec.height, fps, start: picks[i].start, strength: Number.isFinite(spec.recipeStrength) ? spec.recipeStrength : 1 })]); }
+          try { await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...shotArgs({ recipe: spec.recipe, index: i, input: editFiles[i], output: shotFiles[i], width: spec.width, height: spec.height, fps, start: picks[i].start, strength: Number.isFinite(spec.recipeStrength) ? spec.recipeStrength : 1, anchorY: spec.anchorY })]); }
           catch (error) { throw new Error(`Shot ${i + 1} could not be made: ${String(error?.message || error).slice(0, 300)}`); }
         }
       }));
@@ -716,7 +717,7 @@ async function compose(key, spec) {
         if (plan) { for (const file of plan.files) await fs.writeFile(path.join(dir, file.name), file.text); titles = { plan, dir }; job.titles = true; }
       } catch (error) { job.titlesError = String(error?.message || error).slice(0, 300); console.warn(`titles: skipped; ${job.titlesError}`); titles = null; }
     }
-    const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => (infos[files.indexOf(file)]?.audioStreams || 0) > 0), speeds: spec.speeds, grade: spec.grade };
+    const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => (infos[files.indexOf(file)]?.audioStreams || 0) > 0), speeds: spec.speeds, grade: spec.grade, anchorY: spec.anchorY };
     try { await run("ffmpeg", editArgs({ ...editInput, cards, titles }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.
