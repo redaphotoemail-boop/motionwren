@@ -1842,3 +1842,7 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .cost-note { display: block; opacity: .55; font-size: 11px; margin-top: 6px; }
 
 .video-ref { display: inline-block; margin-left: 8px; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; opacity: .55; }
+
+.qual-item { display: grid; grid-template-columns: 110px 1fr; gap: 10px; margin: 8px 0; align-items: start; }
+.qual-item video { width: 100%; border-radius: 8px; background: #000; }
+.qual-item small { display: block; opacity: .65; font-size: 12px; margin-top: 2px; }

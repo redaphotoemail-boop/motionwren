@@ -10,6 +10,7 @@ import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./musi
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, engineCost, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { motionLabel } from "../../motion-label";
+import { videoRef } from "../../video-ref";
 import { recipeSeconds } from "../../wrencut";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
@@ -639,11 +640,14 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     const sceneAt = (at: number) => Math.min(count - 1, Math.max(0, Math.floor(at / step)));
     const reasons = new Map<number, string[]>();
     const add = (scene: number, note: string) => reasons.set(scene, [...(reasons.get(scene) || []), note]);
+    const issues = new Map<number, string[]>(); // what was found, in plain words, per scene (for the Quality tab)
+    const found = (scene: number, text: string) => issues.set(scene, [...new Set([...(issues.get(scene) || []), text.slice(0, 240)])]);
     const qc = state.qc;
     let alertText = "";
     if (qc && qc.status !== "error") {
       manifest.qc = qc;
       for (const flag of qc.flags) if (flag.level === "fail" && flag.at !== undefined && FIX_NOTES[flag.code]) add(sceneAt(flag.at), FIX_NOTES[flag.code]);
+      for (const flag of qc.flags) if (flag.at !== undefined) found(sceneAt(flag.at), flag.message);
       if (qc.status !== "pass") alertText += qc.flags.map((flag) => flag.message).join(" ");
     }
     const use = await reviewSettings(env);
@@ -667,6 +671,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       if (review.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${row.id}`, String(review.costCents), Date.now()).run().catch(() => undefined);
       if (review.status === "flag") {
         alertText += ` ${review.findings.map((item) => `At ${item.at} s: ${item.issue}.`).join(" ")}`;
+        for (const item of review.findings) found(sceneAt(item.at), item.issue);
         for (const item of review.findings) add(sceneAt(item.at), `Fix: the previous attempt showed this problem: ${item.issue}. Keep every straight line perfectly straight, keep every object exactly where the source photo has it, and add nothing that is not in the photo.`);
       }
     }
@@ -677,18 +682,23 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       const notes = [...(manifest.fix?.notes || Array(count).fill(""))];
       for (const scene of scenes) notes[scene] = [...new Set(reasons.get(scene))].join(" ").slice(0, 700);
       manifest.fix = { round: round + 1, notes, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400) }] };
-      if (await remakeScenes(env, row, manifest, scenes)) return true;
+      if (await remakeScenes(env, row, manifest, scenes, issues)) return true;
+    }
+    // Delivered as it is: remember which scenes still have a flag, so they can be previewed in History → Quality.
+    if (issues.size) {
+      manifest.fix = { round, notes: manifest.fix?.notes || Array(count).fill(""), history: manifest.fix?.history || [], kept: manifest.fix?.kept, flagged: [...issues.entries()].map(([scene, list]) => ({ scene, issues: list })) };
+      await saveManifest(env, row.id, manifest);
     }
     if (alertText.trim()) {
       const left = round >= MAX_FIX_ROUNDS ? ` It was made ${round + 1} times and still has this.` : "";
-      await alertManagers(env, "A film has a quality problem", `${alertText.trim()}${left} Order ${row.id}. The film was delivered; open it and decide whether to re-make it.`);
+      await alertManagers(env, "A film has a quality problem", `${videoRef(row.id)}: ${alertText.trim()}${left} Order ${row.id}. The film was delivered; open History, find ${videoRef(row.id)} and tap Quality to preview the flagged scenes and decide whether to re-make it.`);
     }
   } catch { /* the check is a bonus: never lose a film over it */ }
   return false;
 }
 
 /* Sends the chosen scenes back to the engine (the job goes back to "generating"); the other scenes are kept. */
-async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, scenes: number[]) {
+async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, scenes: number[], issues: Map<number, string[]> = new Map()) {
   const lease = await acquireLease(env, `job-lock:${row.id}`, 60 * 1000);
   if (!lease) return false;
   try {
@@ -696,6 +706,19 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     if (!fresh) return false;
     const count = manifest.inputs.length;
     const { ids, segments } = alignedScenes(fresh, count);
+    // Keep a copy of each flagged clip before it is replaced, so the owner can preview exactly what was flagged.
+    const kept = [...(manifest.fix?.kept || [])];
+    for (const index of scenes) {
+      try {
+        const source = await env.BUCKET.get(`render-jobs/${row.id}/out-${String(index + 1).padStart(2, "0")}.mp4`);
+        if (source?.body) {
+          const file = `flag-${String(index + 1).padStart(2, "0")}-r${manifest.fix?.round || 1}.mp4`;
+          await env.BUCKET.put(`render-jobs/${row.id}/${file}`, source.body, { httpMetadata: { contentType: "video/mp4" } });
+          kept.push({ scene: index, round: manifest.fix?.round || 1, file, issues: issues.get(index) || [] });
+        }
+      } catch { /* a missing preview never blocks the fix */ }
+    }
+    if (manifest.fix) manifest.fix = { ...manifest.fix, kept, flagged: undefined };
     for (const index of scenes) {
       ids[index] = ""; segments[index] = null;
       manifest.states[index] = "queued"; manifest.attempts[index] = 0; manifest.waits[index] = 0; manifest.nextAt[index] = 0; manifest.reasons[index] = "";
@@ -708,7 +731,7 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     const extra = Math.round(engineCost(manifest.engine, engineResolution(manifest.engine), seconds) * scenes.length * 100);
     await saveManifest(env, row.id, manifest);
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
-    await alertManagers(env, "A film is being fixed", `The quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1}, about $${(extra / 100).toFixed(2)} more).`);
+    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1}, about $${(extra / 100).toFixed(2)} more).`);
     return true;
   } finally { await releaseLease(env, `job-lock:${row.id}`, lease); }
 }
