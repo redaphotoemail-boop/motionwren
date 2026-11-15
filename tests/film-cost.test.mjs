@@ -1,0 +1,12 @@
+import { filmCostLines } from "../app/cost-model.ts";
+let fail = 0;
+const check = (n, ok, d = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? ` — ${d}` : ""}`); if (!ok) fail += 1; };
+const base = { engineName: "Wan 3.0", engineCents: 215, scenes: 5, sceneSeconds: 5, resolution: "1080p", upscaled: true, duration: 23, edited: true, music: "generated", voiceChars: 0, sfxCount: 0, sfxSeconds: 0, reviewCents: 0 };
+const a = filmCostLines(base);
+check("engine, edit and music lines", a.lines.map((l) => l.label).join() === "Video scenes,Final edit,Music", a.lines.map((l) => l.label).join());
+check("total is the sum", a.totalCents === a.lines.reduce((s, l) => s + l.cents, 0));
+check("library music is free", filmCostLines({ ...base, music: "library" }).lines.find((l) => l.label === "Music").cents === 0);
+const b = filmCostLines({ ...base, voiceChars: 1000, sfxCount: 4, sfxSeconds: 20, reviewCents: 3.5 });
+check("voice, sound effects and review add lines", ["Voiceover", "Sound effects", "Quality check"].every((x) => b.lines.some((l) => l.label === x)));
+check("unedited has only the engine", filmCostLines({ ...base, edited: false, music: "none" }).lines.length === 1);
+process.exit(fail ? 1 : 0);

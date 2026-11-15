@@ -1832,3 +1832,11 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .length-auto strong { display: block; font-size: 14px; }
 .length-auto small { display: block; font-size: 12px; opacity: .65; }
 .length-picker.is-auto { opacity: .45; }
+
+.cost-tab { margin: 8px 0 0; }
+.cost-toggle { background: none; border: 0; padding: 0; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cost-list { margin-top: 8px; font-size: 13px; }
+.cost-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.cost-row small { display: block; opacity: .6; font-size: 12px; }
+.cost-total { border-top: 1px solid rgba(128,128,128,.25); margin-top: 4px; }
+.cost-note { display: block; opacity: .55; font-size: 11px; margin-top: 6px; }

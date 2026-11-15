@@ -57,3 +57,32 @@ export function aggregateCosts(a: CostAggregate): CostLines & { videos: number; 
   const lines = totalOf(Math.round(a.videoCents), musicCentsForSeconds(a.musicSeconds), Math.round(a.edited * COST_RATES.editPerFilm * 100), Math.round(a.reviewCents || 0));
   return { ...lines, videos: a.videos, finished: a.finished, perFinishedCents: a.finished ? Math.round(lines.totalCents / a.finished) : 0, priceCents: Math.round(a.priceCents), musicSeconds: Math.round(a.musicSeconds) };
 }
+
+/* ---------- one film's cost, line by line (the Cost tab in History) ---------- */
+export const BREAKDOWN_RATES = {
+  /** ElevenLabs voiceover, dollars per 1,000 characters (Starter plan list price: 1 credit a character). */
+  voicePerThousandChars: 0.17,
+  /** ElevenLabs sound effects, dollars per second of effect (20 credits a second at Starter list price). */
+  sfxPerSecond: 0.0033,
+};
+
+export type FilmCostInput = {
+  engineName: string; engineCents: number; scenes: number; sceneSeconds: number; resolution: string; upscaled: boolean;
+  duration: number; edited: boolean;
+  music: "library" | "generated" | "none"; voiceChars: number; sfxCount: number; sfxSeconds: number; reviewCents: number;
+};
+export type CostLine = { label: string; detail: string; cents: number; estimate: boolean };
+
+export function filmCostLines(input: FilmCostInput): { lines: CostLine[]; totalCents: number } {
+  const lines: CostLine[] = [];
+  lines.push({ label: "Video scenes", detail: `${input.engineName} · ${input.scenes} scene${input.scenes === 1 ? "" : "s"} × ${input.sceneSeconds} s${input.upscaled ? " · upscaled to 1080p (included)" : ""}${input.resolution ? ` · ${input.resolution}` : ""}`, cents: Math.max(0, Math.round(input.engineCents || 0)), estimate: false });
+  if (input.edited) {
+    lines.push({ label: "Final edit", detail: "Joining, transitions, titles and finishing on our server", cents: Math.round(COST_RATES.editPerFilm * 100), estimate: true });
+    if (input.music === "generated") lines.push({ label: "Music", detail: "Made for this film", cents: musicCentsForSeconds(input.duration + COST_RATES.musicExtraSeconds), estimate: true });
+    else if (input.music === "library") lines.push({ label: "Music", detail: "From your music library (already paid for)", cents: 0, estimate: false });
+  }
+  if (input.voiceChars > 0) lines.push({ label: "Voiceover", detail: `${input.voiceChars.toLocaleString("en-US")} characters`, cents: Math.round(input.voiceChars / 1000 * BREAKDOWN_RATES.voicePerThousandChars * 100), estimate: true });
+  if (input.sfxCount > 0) lines.push({ label: "Sound effects", detail: `${input.sfxCount} effect${input.sfxCount === 1 ? "" : "s"}`, cents: Math.round(input.sfxSeconds * BREAKDOWN_RATES.sfxPerSecond * 100), estimate: true });
+  if (input.reviewCents > 0) lines.push({ label: "Quality check", detail: "AI review of the finished film", cents: Math.round(input.reviewCents), estimate: true });
+  return { lines, totalCents: lines.reduce((sum, line) => sum + line.cents, 0) };
+}
