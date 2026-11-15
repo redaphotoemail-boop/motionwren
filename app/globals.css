@@ -1840,3 +1840,5 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .cost-row small { display: block; opacity: .6; font-size: 12px; }
 .cost-total { border-top: 1px solid rgba(128,128,128,.25); margin-top: 4px; }
 .cost-note { display: block; opacity: .55; font-size: 11px; margin-top: 6px; }
+
+.video-ref { display: inline-block; margin-left: 8px; font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; opacity: .55; }

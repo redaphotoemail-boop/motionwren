@@ -1,5 +1,7 @@
 "use client";
 
+import { videoRef } from "../../video-ref";
+
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { PageHead, cents } from "../ui";
@@ -196,7 +198,7 @@ export default function ProductionPage() {
         return <details className="prodm-row" key={job.id}>
           <summary>
             <i className={`dot ${dot(job)}`} />
-            <span className="prodm-row-title">{job.category.replace(/^Studio · /, "") || "Video"}{job.owner ? <small> · {job.owner}</small> : null}</span>
+            <span className="prodm-row-title"><b className="video-ref">{videoRef(job.id)}</b> {job.category.replace(/^Studio · /, "") || "Video"}{job.owner ? <small> · {job.owner}</small> : null}</span>
             <span className="prodm-row-meta">{summary(job)}</span>
             <span className="prodm-row-cost">{cents(job.costCents)}</span>
             <span className="prodm-row-time">{ago(job.createdAt, now || job.createdAt)}</span>

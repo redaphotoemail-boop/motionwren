@@ -222,6 +222,7 @@ export function sceneLabel(scene: SceneInfo, now: number) {
   return "In line";
 }
 
+import { videoRef } from "../video-ref";
 export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOver, onDismiss, onDelete, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onStartOver?: () => void; onDismiss?: () => void; onDelete?: () => void; offline?: boolean; sending?: Sending | null }) {
   const [now, setNow] = useState(() => job.updatedAt || job.createdAt);
   const [broken, setBroken] = useState<number[]>([]);
@@ -254,7 +255,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
     <header className="prod-head">
       <div>
         <span className="prod-eyebrow">{active ? <><i className="prod-dot" />In production</> : job.status === "succeeded" ? "Ready" : "Stopped"}</span>
-        <strong>{title}</strong>
+        <strong>{title}</strong><small className="video-ref">{videoRef(job.id)}</small>
         {job.motion && <small className="prod-motion">Movement: {job.motion}</small>}
         {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
