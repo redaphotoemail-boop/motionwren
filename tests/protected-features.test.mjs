@@ -57,3 +57,4 @@ assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").
 console.log("protected features: all present");
 assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("Requirements:") && readFileSync("app/studio/variants.tsx", "utf8").includes("upscale: false"), "Template requirements or native-quality versions lost");
 assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("export async function upscaleFinal") && readFileSync("app/studio/page.tsx", "utf8").includes("Upscale to 1080p"), "Upscale last-touch lost");
+assert.ok(readFileSync("composer/wrencut.mjs", "utf8").includes("shotout") && readFileSync("composer/wrencut.mjs", "utf8").includes("lookahead"), "Template shot length guard lost");

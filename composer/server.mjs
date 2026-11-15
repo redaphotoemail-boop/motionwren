@@ -644,7 +644,7 @@ async function compose(key, spec) {
           const i = nextShot; nextShot += 1;
           job.stage = `shot ${i + 1}/${picks.length}`;
           shotFiles[i] = path.join(dir, `shot-${String(i + 1).padStart(2, "0")}.mp4`);
-          try { await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...shotArgs({ recipe: spec.recipe, index: i, input: editFiles[i], output: shotFiles[i], width: spec.width, height: spec.height, fps, start: picks[i].start, strength: Number.isFinite(spec.recipeStrength) ? spec.recipeStrength : 1, anchorY: spec.anchorY })]); }
+          try { await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...shotArgs({ recipe: spec.recipe, index: i, input: editFiles[i], output: shotFiles[i], width: spec.width, height: spec.height, fps, start: picks[i].start, available: infos[picks[i].clip].duration - picks[i].start, strength: Number.isFinite(spec.recipeStrength) ? spec.recipeStrength : 1, anchorY: spec.anchorY })]); }
           catch (error) { throw new Error(`Shot ${i + 1} could not be made: ${String(error?.message || error).slice(0, 300)}`); }
         }
       }));

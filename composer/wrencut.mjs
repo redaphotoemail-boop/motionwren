@@ -209,7 +209,7 @@ export function coverCrop(w, h, anchorY) {
   const a = Number.isFinite(anchorY) ? Math.min(1, Math.max(0, anchorY)) : 0.5;
   return a === 0.5 ? `crop=${w}:${h}` : `crop=${w}:${h}:(in_w-${w})/2:(in_h-${h})*${a.toFixed(3)}`;
 }
-export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
+export function rampHead({ index, speed, d, start, fps, strength = 1, avail }) {
   const total = d + 0.2;
   const at = (u) => {
     const pts = speed;
@@ -227,12 +227,25 @@ export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
     parts.push({ s, from: source, to: source + sliceLen * s });
     source += sliceLen * s;
   }
+  // The clip is only so long: when the shot would use more footage than there is, the whole ramp is played slower instead of
+  // running out (a held last frame reads as the film freezing).
+  if (Number.isFinite(avail) && avail > 0.5 && source > avail * 0.97) {
+    const f = (avail * 0.97) / source;
+    let from = 0;
+    parts.forEach((part) => { part.s = Math.max(0.12, part.s * f); part.from = from; part.to = from + sliceLen * part.s; from = part.to; });
+    source = from;
+  }
   const pre = `[${index}:v]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${Math.ceil(source + 1)},split=${SLICES}${parts.map((_, k) => `[rp${index}_${k}]`).join("")}`;
   lines.push(pre);
   parts.forEach((part, k) => {
     const blur = part.s > 1.12 ? `,tmix=frames=${Math.min(8, Math.max(3, Math.round(part.s * 2.4)))}` : ""; // motion blur: fast parts smear across neighbouring frames
     const smooth = part.s < 0.75 ? `,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1:scd=none` : "";
-    lines.push(`[rp${index}_${k}]trim=start=${part.from.toFixed(4)}:end=${part.to.toFixed(4)},setpts=PTS-STARTPTS${blur},setpts=PTS/${part.s.toFixed(4)}${smooth},fps=${fps}[rq${index}_${k}]`);
+    // A slow slice is only a couple of source frames: the interpolator returns fewer frames than asked for when it has nothing after
+    // the last one, so the shot came out short (and everything after it was lost at the join). Give it one frame more to look
+    // ahead and cut it to the exact length it must fill.
+    const outLen = (part.to - part.from) / part.s;
+    const lookahead = part.s < 0.75 ? 0.12 : 0;
+    lines.push(`[rp${index}_${k}]trim=start=${part.from.toFixed(4)}:end=${(part.to + lookahead).toFixed(4)},setpts=PTS-STARTPTS${blur},setpts=PTS/${part.s.toFixed(4)}${smooth},fps=${fps},tpad=stop_mode=clone:stop_duration=1,trim=duration=${outLen.toFixed(4)},setpts=PTS-STARTPTS[rq${index}_${k}]`);
     labels.push(`[rq${index}_${k}]`);
   });
   lines.push(`${labels.join("")}concat=n=${SLICES}:v=1:a=0,trim=duration=${total.toFixed(3)},setpts=PTS-STARTPTS[rr${index}]`);
@@ -242,16 +255,19 @@ export function rampHead({ index, speed, d, start, fps, strength = 1 }) {
 /* One shot made on its own: re-timed (speed ramp, blur), moved, sized, written as a short near-lossless file of the shot's
    length plus its overlap. Doing the shots one at a time, then joining the files, keeps the editor's memory flat however
    long the film is (one big graph held every shot's frames at once and ran the editor out of memory on long films). */
-export function shotArgs({ recipe, index, input, output, width, height, fps, start, strength, anchorY }) {
+export function shotArgs({ recipe, index, input, output, width, height, fps, start, strength, anchorY, available }) {
   const slot = recipe.slots[index];
   const one = { ...recipe, slots: [slot], joins: [], grade: undefined };
-  const built = recipeChain({ recipe: one, width, height, fps, starts: [start || 0], strength, anchorY });
+  const built = recipeChain({ recipe: one, width, height, fps, starts: [start || 0], strength, anchorY, available: [available] });
+  // Whatever happens upstream, a shot is exactly as long as the template says: the join places every cut by these lengths.
+  built.filters.push(`[${built.last}]tpad=stop_mode=clone:stop_duration=3,trim=duration=${(slot.dur + 0.2).toFixed(3)},setpts=PTS-STARTPTS[shotout]`);
+  built.last = "shotout";
   return ["-y", "-i", input, "-filter_complex", built.filters.join(";"), "-map", `[${built.last}]`, "-t", (slot.dur + 0.2).toFixed(3), "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", String(fps), output];
 }
 
 /* The filter graph for a recipe: clip i (input i) becomes shot i, moved as the recipe says, then all joined.
    `starts[i]` is where in clip i the shot begins. Returns the graph lines and the label of the joined picture. */
-export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1, prepared = false, anchorY }) {
+export function recipeChain({ recipe, width, height, fps, starts = [], strength = 1, prepared = false, anchorY, available = [] }) {
   const filters = [];
   const n = recipe.slots.length;
   const SS = 2; // drawn at double size so slow moves do not shimmer
@@ -266,9 +282,10 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
     const z = `(${z0.toFixed(4)}+(${(z1 - z0).toFixed(4)})*${u})`;
     // A speed ramp re-times the shot through a few short slices (each at its own speed), blurred where it speeds up
     // and smoothed where it slows down; a shot without one is untouched.
-    const ramp = slot.speed ? rampHead({ index: i, speed: slot.speed, d, start: Math.max(0, starts[i] || 0), fps, strength: 1 }) : null;
+    const ramp = slot.speed ? rampHead({ index: i, speed: slot.speed, d, start: Math.max(0, starts[i] || 0), fps, strength: 1, avail: available[i] }) : null;
     if (ramp) filters.push(...ramp.lines);
-    const head = ramp ? `[${ramp.label}]` : `[${i}:v]trim=start=${Math.max(0, starts[i] || 0).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=3,trim=duration=${(d + 0.2).toFixed(3)},`;
+    const stretch = !ramp && Number.isFinite(available[i]) && available[i] > 0.5 && d + 0.2 > available[i] * 0.97 ? (d + 0.2) / (available[i] * 0.97) : 1;
+    const head = ramp ? `[${ramp.label}]` : `[${i}:v]trim=start=${Math.max(0, starts[i] || 0).toFixed(3)},setpts=PTS-STARTPTS${stretch > 1.001 ? `,setpts=PTS*${stretch.toFixed(4)}` : ""},tpad=stop_mode=clone:stop_duration=3,trim=duration=${(d + 0.2).toFixed(3)},`;
     filters.push(`${head}fps=${fps},scale=${w2}:${h2}:force_original_aspect_ratio=increase:flags=lanczos,${coverCrop(w2, h2, anchorY)},`
       + `scale=w='${w2}*${z}':h='${h2}*${z}':eval=frame:flags=bilinear,`
       + `crop=${w2}:${h2}:x='min(max((in_w-${w2})/2+${(px * w2).toFixed(2)}*(${u}-0.5)*-1,0),in_w-${w2})':y='min(max((in_h-${h2})/2+${(py * h2).toFixed(2)}*(${u}-0.5)*-1,0),in_h-${h2})',`
