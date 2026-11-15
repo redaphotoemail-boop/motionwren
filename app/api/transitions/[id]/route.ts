@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { advanceRenderJob, cancelProviderJob, getRenderJob, jobCardsNote, jobScenes, providerNote, publicJob } from "../../_lib/render-jobs";
+import { advanceRenderJob, cancelAndConfirm, getRenderJob, jobCardsNote, jobScenes, providerNote, publicJob } from "../../_lib/render-jobs";
 import { jsonError, requireAdmin } from "../../_lib/account";
 
 function validId(id: string) { return /^[0-9a-f-]{36}$/i.test(id); }
@@ -54,7 +54,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   }
   if (token) {
     const ids = [...JSON.parse(row.predictionIds || "[]") as string[], ...(row.stitchPredictionId ? [row.stitchPredictionId] : [])];
-    await Promise.allSettled(ids.map((predictionId) => cancelProviderJob(token, predictionId)));
+    await Promise.allSettled(ids.filter(Boolean).map((predictionId) => cancelAndConfirm(token, predictionId)));
   }
   const now = Date.now();
   await env.DB.batch([

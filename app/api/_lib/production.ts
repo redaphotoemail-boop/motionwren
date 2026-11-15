@@ -11,7 +11,13 @@ import { providerUrl } from "./provider";
    scene-queue.ts. */
 
 export const MAX_ATTEMPTS = 3; // tries per scene (a provider "slow down" is a wait, not a try)
-export const STALE_SCENE_MS = 20 * 60 * 1000; // a scene running this long is cancelled and tried again
+export const STALE_SCENE_MS = 20 * 60 * 1000; // the longest a scene may run before it is cancelled and tried again (the real limit is shorter, see staleAfterMs)
+/* How long a scene may sit with the engine before it is cancelled and sent again. A scene the engine has not even started
+   ("starting": queued or booting) gets 6 minutes; one it is running gets 4 minutes plus one per second of video (a 5-second
+   scene: 9 minutes), never more than 18. Scenes normally take 1–5 minutes, so waiting 20 minutes on a silent engine was the problem. */
+export const staleAfterMs = (status: string, sceneSeconds: number) => status === "starting" ? 6 * 60 * 1000 : Math.min(18, 4 + Math.max(3, sceneSeconds)) * 60 * 1000;
+/* A scene counts as "taking longer than usual" (and shows its Send again button) after this long with the engine. */
+export const SLOW_SCENE_MS = 5 * 60 * 1000;
 
 /* queued: waiting its turn · submitting: being sent · creating: with the
    engine · retry: will be sent again at nextAt · ready · failed: tries used
@@ -69,6 +75,8 @@ export type ProductionManifest = {
   aiReview?: import("./film-review").AiReview;
   /** How many frames of each scene the AI review looked at in the last check (so a clean scene still shows that it was checked). */
   checkedFrames?: number[];
+  /** What the engine last reported for each scene and since when ("starting" = queued or booting, "processing" = running). */
+  engineSeen?: { status: string; since: number }[];
   /* The fix loop: a flagged scene is made again with an ADDED instruction (notes[scene]);
      the scene's own prompt in `inputs` is never edited. round counts re-makes (at most MAX_FIX_ROUNDS). */
   /** A film made from clips of earlier films (Studio "Use saved clips"): no engine was used, so the quality check never re-makes anything. */

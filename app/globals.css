@@ -2013,3 +2013,6 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .clip-more { width: 100%; padding: 10px 0; border: 0; border-radius: 10px; background: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; }
 .tpl-rail[hidden] { display: none; }
 .tpl-hint { color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+.prod-slow { margin-top: 10px; padding: 12px; border-radius: 12px; background: #fff4e5; color: #7a4a00; font-size: 13px; line-height: 1.45; }
+.prod-slow p { margin: 0 0 8px; }

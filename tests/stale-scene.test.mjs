@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const src = readFileSync("app/api/_lib/production.ts", "utf8");
+assert.ok(/staleAfterMs = \(status: string, sceneSeconds: number\) => status === "starting" \? 6 \* 60 \* 1000 : Math\.min\(18, 4 \+ Math\.max\(3, sceneSeconds\)\) \* 60 \* 1000/.test(src), "the stall limits changed");
+const limit = (status, seconds) => status === "starting" ? 6 * 60000 : Math.min(18, 4 + Math.max(3, seconds)) * 60000;
+assert.equal(limit("starting", 5), 360000, "an engine that has not started a scene gets 6 minutes");
+assert.equal(limit("processing", 5), 9 * 60000, "a running 5-second scene gets 9 minutes, not 20");
+assert.equal(limit("processing", 15), 18 * 60000, "never more than 18 minutes");
+const queue = readFileSync("app/api/_lib/scene-queue.ts", "utf8");
+assert.ok(queue.includes("stalled && manifest.attempts[index] >= 2"), "an engine that stalls twice must stop the scene instead of a third wait");
+assert.ok(queue.includes("restart-scene"), "Send again now is gone");
+const stop = readFileSync("app/api/transitions/[id]/route.ts", "utf8");
+assert.ok(stop.includes("cancelAndConfirm"), "Stop no longer confirms the engine job was cancelled");
+console.log("stale scene rules: ok");

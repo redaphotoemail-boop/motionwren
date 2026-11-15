@@ -98,6 +98,17 @@ export async function replicatePrediction(token: string, id: string): Promise<Re
   return data;
 }
 
+/* Stops an engine job and checks that it really stopped (a cancel that is accepted but ignored kept a stopped film running, and paid for, at the engine). */
+export async function cancelAndConfirm(token: string, id: string) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await cancelProviderJob(token, id).catch(() => undefined);
+    const state = await replicatePrediction(token, id).catch(() => null);
+    if (!state || ["canceled", "failed", "succeeded"].includes(String(state.status))) return true;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return false;
+}
+
 export async function cancelProviderJob(token: string, id: string) {
   if (id.startsWith("compositor:")) {
     const baseUrl = process.env.COMPOSITOR_API_URL;
@@ -1003,6 +1014,9 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
     reason: finishing ? "" : manifest.reasons[index] || "",
     nextAt: manifest.nextAt[index] || 0,
     error: manifest.lastErrors[index] || "",
+    engine: finishing ? "" : manifest.engineSeen?.[index]?.status || "",
+    engineSince: finishing ? 0 : manifest.engineSeen?.[index]?.since || 0,
+    startedAt: finishing ? 0 : manifest.startedAt[index] || 0,
     predictionId: ids[index] && !ids[index].startsWith("pending-") && !ids[index].startsWith("resume-") ? ids[index] : "",
     saved: Boolean(manifest.saved[index]),
     motion: motionLabel(String(manifest.inputs[index]?.prompt || "")),
@@ -1078,6 +1092,11 @@ export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }
    re-join). The queue does the work, with its usual protections; this only
    marks what to make and gives the queue a first step. */
 export async function runJobAction(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, action: JobAction, scene: number | null, token: string, webhookUrl?: string) {
+  if (action === "restart-scene" && scene !== null) {
+    // Stop the engine's copy first (so it is not paid for twice), then send the scene again.
+    const { ids } = alignedScenes(row, (await loadManifest(env, row.id))?.inputs.length || 0);
+    if (ids[scene]) await cancelProviderJob(token, ids[scene]).catch(() => undefined);
+  }
   const result = await applyJobAction(env, row, action, scene);
   if ("error" in result) return result;
   const fresh = await getRenderJob(env, row.id);

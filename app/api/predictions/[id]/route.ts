@@ -17,7 +17,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const response = await fetch(`https://api.replicate.com/v1/predictions/${id}`, { headers: { Authorization: `Bearer ${token}` } });
   const data = await response.json() as Record<string, unknown>;
   if (!response.ok) return NextResponse.json({ error: (data.detail as string) || "Unable to retrieve this generation." }, { status: response.status });
-  return NextResponse.json({ id: data.id, status: data.status, output: data.output, error: data.error });
+  const logs = typeof data.logs === "string" ? data.logs.split("\n").slice(-6).join("\n").slice(-600) : "";
+  return NextResponse.json({ id: data.id, status: data.status, output: data.output, error: data.error, model: data.model, version: typeof data.version === "string" ? data.version.slice(0, 12) : undefined, createdAt: data.created_at, startedAt: data.started_at, completedAt: data.completed_at, metrics: data.metrics, logs });
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {

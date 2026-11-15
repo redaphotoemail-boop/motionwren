@@ -1,4 +1,4 @@
-import { MAX_ATTEMPTS, STALE_SCENE_MS, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
+import { MAX_ATTEMPTS, staleAfterMs, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
 import { engineCost, engineUpscales, filmSceneDurations, type StudioEngineKey } from "../../engine-catalog";
 import { ProviderError, acquireLease, backoff, createPrediction, maxActive, readProviderState, releaseLease, writeProviderState } from "./provider";
@@ -101,10 +101,11 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
     const now = Date.now();
 
     // 1. Scenes with the engine.
-    const failScene = (index: number, message: string) => {
+    const failScene = (index: number, message: string, stalled = false) => {
       ids[index] = "";
       manifest.lastErrors[index] = message.slice(0, 300);
-      if (manifest.attempts[index] >= MAX_ATTEMPTS) { manifest.states[index] = "failed"; manifest.reasons[index] = ""; return; }
+      // An engine that stalled twice on the same scene is not answering: stop here instead of waiting through a third try.
+      if (manifest.attempts[index] >= MAX_ATTEMPTS || (stalled && manifest.attempts[index] >= 2)) { manifest.states[index] = "failed"; manifest.reasons[index] = ""; return; }
       manifest.states[index] = "retry";
       manifest.reasons[index] = "retry";
       manifest.nextAt[index] = now + backoff(manifest.attempts[index], 15 * 1000, 2 * 60 * 1000);
@@ -127,9 +128,16 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
         return;
       }
       const failed = status === "failed" || status === "canceled";
-      const stale = !failed && manifest.startedAt[index] > 0 && now - manifest.startedAt[index] > STALE_SCENE_MS;
-      if (stale) await hooks.cancel(token, id).catch(() => undefined);
-      if (failed || stale) failScene(index, failed ? String(result.error || "The scene did not finish.") : "The scene took too long and was started again.");
+      // What the engine says, and since when: "starting" = not running yet, "processing" = running.
+      const seen = manifest.engineSeen || (manifest.engineSeen = []);
+      if (seen[index]?.status !== status) seen[index] = { status, since: now };
+      const limit = staleAfterMs(status, manifest.sceneSeconds || 5);
+      const stale = !failed && manifest.startedAt[index] > 0 && now - manifest.startedAt[index] > limit;
+      if (stale) {
+        await hooks.cancel(token, id).catch(() => undefined);
+        await alertManagers(env, `Video engine slow · scene ${index + 1} · ${jobId.slice(0, 8)}`, `The video engine reported "${status}" for ${Math.round((now - manifest.startedAt[index]) / 60000)} minutes on scene ${index + 1} (attempt ${manifest.attempts[index]}), so it was stopped and is being sent again. This is the engine being slow, not your photo.`).catch(() => undefined);
+      }
+      if (failed || stale) { seen[index] = { status: "", since: now }; failScene(index, failed ? String(result.error || "The scene did not finish.") : `The engine did not finish the scene within ${Math.round(limit / 60000)} minutes (it said "${status}"), so it was stopped and sent again.`, stale && !failed); }
     }));
 
     // Photo-move scenes need no engine: the photo itself is the scene and the editor makes the move.
@@ -262,7 +270,7 @@ export function stitchSources(manifest: ProductionManifest, segments: string[], 
 
 /* ---------- manager actions (same queue, same protections) ---------- */
 
-export type JobAction = "resume" | "retry-scene" | "regenerate-scene" | "reassemble";
+export type JobAction = "resume" | "retry-scene" | "regenerate-scene" | "reassemble" | "restart-scene";
 
 /* Changes which scenes the queue will (re)make, under the job's lease, then
    hands the job back to the queue. Never calls the engine itself, so a
@@ -302,6 +310,11 @@ export async function applyJobAction(env: QueueEnv, row: QueueRow, action: JobAc
       if (["generating", "starting"].includes(row.status) && manifest.states[scene] === "creating") return { error: "That scene is being made right now." };
       redoScene(scene); redo = 1;
       for (let index = 0; index < count; index += 1) if (index !== scene && !usable(index) && !(ids[index] && manifest.states[index] === "creating")) { redoScene(index); redo += 1; }
+    } else if (action === "restart-scene") {
+      // A scene that has been with the engine too long: the caller already cancelled it there; send just this scene again now.
+      if (scene === null || scene < 0 || scene >= count) return { error: "Choose a scene." };
+      if (row.status !== "generating" || segments[scene]) return { error: "That scene is not waiting on the engine." };
+      redoScene(scene); redo = 1;
     } else if (action === "reassemble") {
       if (!segments.every((value, index) => value && usable(index))) return { error: "Every scene must be made before the film can be joined again." };
     }
