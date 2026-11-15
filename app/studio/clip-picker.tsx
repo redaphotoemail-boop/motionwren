@@ -16,6 +16,7 @@ export default function ClipPicker({ disabled, starting, onMake }: { disabled?: 
   const [films, setFilms] = useState<Film[] | null>(null);
   const [chosen, setChosen] = useState<ChosenClip[]>([]);
   const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<{ src: string; poster: string; title: string } | null>(null);
   async function toggle() {
     const next = !open; setOpen(next);
     if (!next || films) return;
@@ -46,14 +47,23 @@ export default function ClipPicker({ disabled, starting, onMake }: { disabled?: 
         <div className="clip-grid">{film.scenes.map((scene) => {
           const at = position(film.id, scene.index);
           const blocked = Boolean(lockedShape && film.aspect !== lockedShape);
-          return <button type="button" key={scene.index} className={at >= 0 ? "clip-item on" : blocked ? "clip-item blocked" : "clip-item"} onClick={() => pick(film, scene)} aria-pressed={at >= 0} title={scene.move}>
-            <img src={scene.photo} alt={`Scene ${scene.index + 1}`} loading="lazy"/>
-            {at >= 0 && <b>{at + 1}</b>}
-            <small>Scene {scene.index + 1}</small>
-          </button>;
+          return <div className="clip-cell" key={scene.index}>
+            <button type="button" className={at >= 0 ? "clip-item on" : blocked ? "clip-item blocked" : "clip-item"} onClick={() => pick(film, scene)} aria-pressed={at >= 0} title={scene.move}>
+              <img src={scene.photo} alt={`Scene ${scene.index + 1}`} loading="lazy"/>
+              {at >= 0 && <b>{at + 1}</b>}
+              <small>Scene {scene.index + 1}</small>
+            </button>
+            <button type="button" className="clip-play" aria-label={`Preview scene ${scene.index + 1} of ${videoRef(film.id)}`} onClick={() => setPreview({ src: scene.clip, poster: scene.photo, title: `${videoRef(film.id)} · Scene ${scene.index + 1}` })}>▶</button>
+          </div>;
         })}</div>
       </section>)}
       {note && <p className="clip-note">{note}</p>}
+      {preview && <div className="clip-preview" role="dialog" aria-modal="true" aria-label="Clip preview" onClick={() => setPreview(null)}>
+        <div onClick={(event) => event.stopPropagation()}>
+          <video src={preview.src} poster={preview.poster} controls autoPlay muted loop playsInline/>
+          <div><span>{preview.title}</span><button type="button" onClick={() => setPreview(null)}>Close</button></div>
+        </div>
+      </div>}
       <div className="clip-bar">
         <span>{chosen.length ? `${chosen.length} clip${chosen.length === 1 ? "" : "s"} chosen` : "Tap clips to choose them"}</span>
         <button type="button" onClick={() => onMake(chosen, setNote)} disabled={disabled || starting || chosen.length < 2}>{starting ? "Starting…" : "Make a film from these"}</button>
