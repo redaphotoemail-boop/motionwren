@@ -86,9 +86,8 @@ export async function analyzeAudio(file, { duration, joins }) {
     const peak = Math.max(...window(join.at - 0.05, join.at + 0.25)), around = median(window(join.at - 1.5, join.at + 1.5));
     const built = before > earlier * 1.8 && before > around * 1.2;
     const struck = peak > around * 2.2;
-    if (join.type === "flash" && (built || struck)) sfx.push({ join: index, kind: "flash", lead: 0.2 });
-    else if (built) sfx.push({ join: index, kind: "whoosh", lead: 0.3 });
-    else if (struck) sfx.push({ join: index, kind: "hit", lead: 0 });
+    // Only whooshes: an impact or "hit" sound reads as metal clanging on a real-estate film.
+    if (built || (join.type === "flash" && struck)) sfx.push({ join: index, kind: "whoosh", lead: join.type === "flash" ? 0.2 : 0.3 });
   });
   const bpm = tempo(rms);
   // A music bed: steady loudness between the accents, with a beat or at least sustained energy.
