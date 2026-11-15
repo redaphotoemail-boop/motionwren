@@ -82,6 +82,9 @@ export function parseRecipe(value: unknown): WrenRecipe | null {
     const recipe = (typeof value === "string" ? JSON.parse(value) : value) as WrenRecipe;
     if (!recipe || recipe.version !== 1 || !Array.isArray(recipe.slots) || !Array.isArray(recipe.joins) || recipe.joins.length !== recipe.slots.length - 1 || !recipe.slots.length) return null;
     delete (recipe as { texts?: unknown }).texts; // templates never carry text
+    // The footage already moves by itself: no added zoom or sliding, and only whoosh sounds (never impacts).
+    recipe.slots = recipe.slots.map((slot) => ({ ...slot, zoom: [1, 1], pan: [0, 0] }));
+    if (recipe.audio?.sfx) recipe.audio = { ...recipe.audio, sfx: recipe.audio.sfx.filter((item) => item.kind === "whoosh") };
     return recipe;
   } catch { return null; }
 }

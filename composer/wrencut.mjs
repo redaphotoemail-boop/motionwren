@@ -135,7 +135,8 @@ async function speedCurve(file, start, end) {
   return points.map(([u, v]) => [u, round(clamp(v / mean, 0.3, 3))]);
 }
 
-const moveToSlot = (move) => ({ zoom: move.z >= 1 ? [1, round(move.z)] : [round(1 / move.z), 1], pan: [round(move.dx), round(move.dy)] });
+/* The footage already moves on its own, so the template adds no zoom or sliding of its own. */
+const moveToSlot = () => ({ zoom: [1, 1], pan: [0, 0] });
 
 export async function analyzeVideo(file, { duration, fps, width, height, workDir, onStage = () => {} }) {
   onStage("reading");
