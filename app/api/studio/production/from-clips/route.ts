@@ -10,6 +10,7 @@ import { musicPrompt } from "../../../_lib/composer";
 import { makeCutEffects } from "../../../_lib/film-sound";
 import { musicTemplate } from "../../../../music-catalog";
 import { getRecipe, recipeFor } from "../../../_lib/wrencut";
+import { socialSpec } from "../../../../social-templates";
 import { isWrenId, joinTimes, recipeSeconds } from "../../../../wrencut";
 
 /* Owner only (Studio): a NEW film made from clips that were already generated for earlier films. Nothing is sent to a video
@@ -82,6 +83,9 @@ export async function POST(request: Request) {
     const picked = musicTemplate(body.music);
     manifest.edit = { shareSeconds: sceneSeconds, crossfade: wren ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : recipe?.audio?.music?.prompt || musicPrompt({ aspect, duration }) } };
     if (recipe) { manifest.edit.recipe = recipe; manifest.edit.templateName = wren?.name; }
+    // A social template has its own canvas: a 16:9 film becomes vertical (or the reverse) with a cut, never a stretch (nothing is made again).
+    const canvas = wren?.social ? socialSpec(wren.social)?.frame : undefined;
+    if ((canvas === "vertical" || canvas === "horizontal") && (aspect === "vertical" || aspect === "horizontal") && canvas !== aspect) manifest.edit.reframe = canvas;
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
     const titles = cleanFilmTitles(body.titles);
     if (titles) manifest.edit.titles = titles;

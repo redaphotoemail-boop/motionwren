@@ -52,4 +52,6 @@ assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("Quality 
 assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("qualityState"), "History stopped reporting each film's quality status");
 for (const text of ["Fix this scene", "attempts · see what was changed", "frames looked at"]) assert.ok(qualityTab.includes(text), `The Quality tab lost: ${text}`);
 assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("fixSceneByHand") && readFileSync("app/api/studio/production/[id]/route.ts", "utf8").includes("fix-scene"), "The Fix this scene action is gone");
+assert.ok(readFileSync("app/studio/variants.tsx", "utf8").includes("Make versions") && readFileSync("app/studio/edit-film.tsx", "utf8").includes("<Variants"), "Edit film lost Make versions");
+assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").includes("manifest.edit.reframe = canvas"), "Saved-clip films lost the social canvas cut");
 console.log("protected features: all present");
