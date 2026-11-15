@@ -1,4 +1,3 @@
-import { smoothRecipe } from "../../../wrencut-fit";
 import { cleanShape } from "../../../original-shape";
 import { engineKeepsPhotoShape } from "../../../engine-catalog";
 import { storyOrder } from "../../_lib/room-order";
@@ -13,7 +12,9 @@ import { studioToken } from "../../_lib/studio-token";
 import { musicPrompt } from "../../_lib/composer";
 import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "../../_lib/film-sound";
 import { musicTemplate } from "../../../music-catalog";
-import { getRecipe } from "../../_lib/wrencut";
+import { getRecipe, recipeFor } from "../../_lib/wrencut";
+import { socialOrder } from "../../_lib/social-read";
+import { socialPlan, socialSpec } from "../../../social-templates";
 import { isWrenId, joinTimes, recipeSeconds, wrenPlan } from "../../../wrencut";
 import { LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, emptyRestaurantInteriorFields, libraryTemplateOverlayLines, libraryTemplatePlan } from "../../../library-templates";
 
@@ -57,20 +58,25 @@ export async function POST(request: Request) {
   if (wren && studioEngine(engine).photoMove) return NextResponse.json({ error: "This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos, not video. Choose another engine." }, { status: 400 });
   // A WrenCut template follows the frame chosen in Studio (it used to force 9:16 whenever the reference was a reel, which cropped landscape photos).
   // "Original photo shape": the film keeps the shape of the photos (the browser sends it), so nothing is cut off before the engine.
-  const ownShape = !templated && body.aspect === "original" ? cleanShape(body.frameRatio) : null;
-  if (!templated && body.aspect === "original") {
+  // A social template has its own canvas (vertical, widescreen or ultra-wide), whatever frame was left selected.
+  const socialFrame = wren?.social ? socialSpec(wren.social)?.frame : undefined;
+  const ownShape = !templated && !socialFrame && body.aspect === "original" ? cleanShape(body.frameRatio) : null;
+  if (!templated && !socialFrame && body.aspect === "original") {
     if (!ownShape) return NextResponse.json({ error: "The photos' shape could not be read. Choose another frame size." }, { status: 400 });
     if (!engineKeepsPhotoShape(engine)) return NextResponse.json({ error: `${studioEngine(engine).name} only makes 16:9 or vertical films, so it can't keep the photo's own shape. Choose another engine or frame size.` }, { status: 400 });
   }
-  const aspect = templated ? "vertical" : ownShape ? "original" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
+  const aspect = templated ? "vertical" : socialFrame ? socialFrame : ownShape ? "original" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
   const scenesIn = Array.isArray(body.scenes) ? body.scenes as SceneBody[] : [];
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
   if (valid.length !== scenesIn.length || !valid.length || valid.length > 12) return NextResponse.json({ error: "Every scene needs a clear prompt (and at most 12 scenes)." }, { status: 400 });
   if (mode === "series" && valid.length < 2) return NextResponse.json({ error: "Add at least two scenes." }, { status: 400 });
   // A template film walks through the home in story order, and the template is tailored to the number of photos given.
-  const ordered = wren && (body.template as { storyOrder?: unknown }).storyOrder !== false ? (await storyOrder(env, valid)).scenes : valid;
-  const recipe = wren ? smoothRecipe(wren.recipe, ordered.length) : null;
+  // A social template has its own story: each shot names its photo, so the photos are matched to it (and trimmed to the ones it has room for).
+  const social = wren?.social ? socialSpec(wren.social) : null;
+  const wantsOrder = !wren || (body.template as { storyOrder?: unknown }).storyOrder !== false;
+  const ordered = social ? (wantsOrder ? (await socialOrder(env, social, valid)).scenes : valid.slice(0, social.acts.length)) : wren && wantsOrder ? (await storyOrder(env, valid)).scenes : valid;
+  const recipe = wren ? recipeFor(wren, ordered.length) : null;
 
   // How many scenes and how long each, so the film lands on the chosen length.
   let count = 1, sceneSeconds: number, duration: number, shareSeconds = 0;
@@ -80,7 +86,7 @@ export async function POST(request: Request) {
   } else {
     const length = VIDEO_LENGTHS.includes(Number(body.length) as (typeof VIDEO_LENGTHS)[number]) ? Number(body.length) : 30;
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
-    const plan = wren ? wrenPlan(engine, resolution, valid.length, recipeSeconds(recipe!)) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : (body.autoTime === true ? scenePlan(engine, resolution, autoFilmSeconds(valid.length), valid.length, AUTO_SECONDS_PER_PHOTO) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value)));
+    const plan = wren ? (social ? (() => { const sp = socialPlan(social, ordered.length); return wrenPlan(engine, resolution, sp.count, recipeSeconds(recipe!), sp.minScene); })() : wrenPlan(engine, resolution, valid.length, recipeSeconds(recipe!))) : templated ? libraryTemplatePlan(engine, resolution, valid.length) : (body.autoTime === true ? scenePlan(engine, resolution, autoFilmSeconds(valid.length), valid.length, AUTO_SECONDS_PER_PHOTO) : scenePlan(engine, resolution, length, valid.length, sceneTimingSetting(timingRow?.value)));
     count = plan.count; sceneSeconds = plan.sceneSeconds; duration = plan.totalSeconds; shareSeconds = plan.shareSeconds;
   }
   const lengths: number[] = mode === "single" ? engineDurationOptions(engine, resolution) : filmSceneDurations(engine, resolution);

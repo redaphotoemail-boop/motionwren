@@ -1922,3 +1922,40 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .prod-diagnose ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .send-bar .send-close { margin-left: auto; border: 0; background: none; color: inherit; font-size: 20px; line-height: 1; padding: 4px 8px; cursor: pointer; opacity: .6; }
 .send-bar .send-action { margin-left: auto; border: 0; border-radius: 999px; padding: 8px 14px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* Social templates: guidelines and the photo check in Studio. */
+.sg { display: grid; gap: 14px; margin-top: 4px; }
+.sg-lead { margin: 0; font-size: 15px; line-height: 1.5; color: var(--ink); }
+.sg-meta { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.sg-h { margin: 6px 0 0; font-size: 13px; font-weight: 600; letter-spacing: .02em; color: var(--ink-2); }
+.sg-acts, .sg-plan { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.sg-act { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; }
+.sg-n { width: 28px; height: 28px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.sg-body { display: grid; gap: 3px; min-width: 0; }
+.sg-body strong { font-size: 14px; font-weight: 600; color: var(--ink); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sg-body small { font-size: 13px; line-height: 1.45; color: var(--muted); }
+.sg-move { color: var(--ink-2); }
+.sg-tag { font-style: normal; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--ink); color: #fff; }
+.sg-tag.soft { background: var(--surface); color: var(--muted); }
+.sg-tag.light { background: var(--surface); color: var(--ink-2); }
+.sg-more { font-size: 13px; color: var(--ink-2); }
+.sg-more summary { cursor: pointer; font-weight: 600; }
+.sg-more ul { margin: 8px 0 12px; padding-left: 18px; display: grid; gap: 4px; line-height: 1.45; }
+.sg-check { display: grid; gap: 10px; padding: 16px; border-radius: 16px; background: var(--surface); }
+.sg-check-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sg-run { border: 0; border-radius: 999px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 600; background: var(--ink); color: #fff; cursor: pointer; }
+.sg-run:disabled { opacity: .45; cursor: default; }
+.sg-note { margin: 0; font-size: 13px; color: var(--muted); }
+.sg-note.bad { color: var(--bad); }
+.sg-verdict { margin: 0; font-size: 15px; font-weight: 600; }
+.sg-verdict.ready, .sg-verdict.good { color: #1F6B43; }
+.sg-verdict.fix { color: var(--bad); }
+.sg-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.sg-list.fix { color: var(--bad); }
+.sg-plan li { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; }
+.sg-plan img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; background: var(--surface); }
+.sg-plan span { display: grid; gap: 2px; font-size: 13px; }
+.sg-plan small { color: var(--muted); }
+.tpl-section { display: grid; gap: 4px; margin-top: 8px; }
+.tpl-section strong { font-size: 15px; font-weight: 600; color: var(--ink); }
+.tpl-section small { font-size: 13px; color: var(--muted); line-height: 1.45; }

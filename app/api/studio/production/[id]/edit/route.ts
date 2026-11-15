@@ -3,9 +3,8 @@ import { jsonError, requireAdmin } from "../../../../_lib/account";
 import { PHOTO_MOVE_KEYS, engineCost, studioEngine } from "../../../../../engine-catalog";
 import { MUSIC_TEMPLATES, musicTemplate } from "../../../../../music-catalog";
 import { cleanFilmTitles } from "../../../../../titles";
-import { smoothRecipe } from "../../../../../wrencut-fit";
 import { isWrenId, joinTimes } from "../../../../../wrencut";
-import { getRecipe } from "../../../../_lib/wrencut";
+import { getRecipe, recipeFor } from "../../../../_lib/wrencut";
 import { makeCutEffects } from "../../../../_lib/film-sound";
 import { motionLabel } from "../../../../../motion-label";
 import { ElevenLabsMissingKey, makeSfx, makeVoice } from "../../../../_lib/film-sound";
@@ -101,7 +100,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const used = chosen.length ? chosen : Array.from({ length: count }, (_, index) => index);
       if (used.length < 2) return NextResponse.json({ error: "Choose at least two clips." }, { status: 400 });
       if (used.length < count && (sound.voice || sound.sfx)) return NextResponse.json({ error: "This film has a voice or scene sounds, which belong to all of its scenes. Edit it with every clip, or turn them off first." }, { status: 400 });
-      const recipe = smoothRecipe(wren.recipe, used.length);
+      const recipe = recipeFor(wren, used.length);
       edit.recipe = recipe; edit.crossfade = 0; edit.useScenes = used.length < count ? used : undefined;
       delete edit.grade; delete edit.subtitles;
       if (recipe.audio?.sfx?.length) {

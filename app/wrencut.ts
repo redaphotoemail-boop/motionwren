@@ -13,7 +13,7 @@ export type WrenRecipe = {
   fps: number;
   aspect: string;
   /** speed: a speed ramp, [position 0..1 along the shot, speed relative to its average][]; blurred where it speeds up. */
-  slots: { dur: number; zoom: [number, number]; pan: [number, number]; speed?: [number, number][] }[];
+  slots: { dur: number; zoom: [number, number]; pan: [number, number]; speed?: [number, number][]; /** Social templates: which photo fills this shot (by position). */ photo?: number }[];
   joins: { type: "cut" | "dissolve" | "flash"; dur: number }[];
   grade?: { warmth: number; saturation: number };
   /** Titles on the reference: where, how big, when and how they come in. Never their words. */
@@ -39,6 +39,8 @@ export type WrenTemplate = {
   effects?: { label: string; on: boolean }[];
   /** Photos that give the best film, and the fewest that still work. */
   guide?: { best: number; least: number };
+  /** A social-media template (its key in app/social-templates.ts): it comes with photo guidelines and a photo check. */
+  social?: { key: string; frame: "vertical" | "horizontal" | "cinematic"; canvas: string; summary: string };
   previewUrl?: string;
   active: boolean;
   createdAt: number;
@@ -92,11 +94,12 @@ export function parseRecipe(value: unknown): WrenRecipe | null {
 /* The film's shape for a WrenCut template: always the recipe's own length. The
    photos become scenes (at most 12), each made at the shortest engine length that
    covers its share; the editor spreads the scenes over the recipe's shots. */
-export function wrenPlan(engine: StudioEngineKey, resolution: StudioResolution, photoCount: number, seconds: number) {
+export function wrenPlan(engine: StudioEngineKey, resolution: StudioResolution, photoCount: number, seconds: number, minScene = 0) {
   const count = Math.max(1, Math.min(12, Math.floor(photoCount) || 1));
   const share = seconds / count;
   const allowed = filmSceneDurations(engine, resolution);
-  const sceneSeconds = allowed.find((option) => option >= share - 1e-9) || allowed[allowed.length - 1];
+  // minScene: a template whose shots name their own photo needs clips at least as long as its longest shot.
+  const sceneSeconds = allowed.find((option) => option >= Math.max(share, minScene) - 1e-9) || allowed[allowed.length - 1];
   return { count, sceneSeconds, shareSeconds: Math.min(sceneSeconds, Math.round(share * 1000) / 1000), totalSeconds: seconds, resolution };
 }
 

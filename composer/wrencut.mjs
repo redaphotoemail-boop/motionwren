@@ -296,7 +296,9 @@ export function recipeChain({ recipe, width, height, fps, starts = [], strength 
    A clip that serves several shots gives each a different moment of its footage, so a room is never scattered through the film. */
 export function assignClips(recipe, clipDurations) {
   const count = clipDurations.length, slots = recipe.slots.length;
-  const clipOf = recipe.slots.map((_, index) => Math.min(count - 1, Math.floor(index * count / slots)));
+  // A template that names the photo of every shot (social templates) plays exactly that; otherwise the photos share the shots in order.
+  const named = recipe.slots.every((slot) => Number.isInteger(slot.photo) && slot.photo >= 0);
+  const clipOf = recipe.slots.map((slot, index) => Math.min(count - 1, named ? slot.photo : Math.floor(index * count / slots)));
   const total = clipDurations.map((_, clip) => clipOf.filter((value) => value === clip).length);
   const uses = clipDurations.map(() => 0);
   return recipe.slots.map((slot, index) => {
