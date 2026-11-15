@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "../_lib/account";
-import { loadManifest } from "../_lib/production";
+import { loadManifest, qualityState, type QualityState } from "../_lib/production";
 import { HISTORY_COOKIE as COOKIE, historyOwnerIds, uploadBody } from "../_lib/history-owners";
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
@@ -29,12 +29,12 @@ export async function GET() {
   };
   const made = await Promise.all(result.results.map(async (item) => {
     const jobId = (item as { jobId?: string | null }).jobId;
-    if (!jobId) return { template: null as string | null, fromClips: false };
+    if (!jobId) return { template: null as string | null, fromClips: false, quality: null as QualityState | null };
     try {
       const manifest = await loadManifest(env, jobId);
       const template = manifest?.edit?.templateName || (manifest?.edit?.recipe ? nameOf(manifest.edit.recipe as { audio?: { music?: { prompt?: string } } }) : manifest?.edit?.grade === "warm" ? "Library template" : null);
-      return { template, fromClips: Boolean(manifest?.fromClips) };
-    } catch { return { template: null, fromClips: false }; }
+      return { template, fromClips: Boolean(manifest?.fromClips), quality: manifest && !manifest.fromClips ? qualityState(manifest) : null };
+    } catch { return { template: null, fromClips: false, quality: null }; }
   }));
   // Versions of one film: the first (its history id is the job's id) is the original; each edit saved a later one.
   type Row = Record<string, unknown> & { id: string; createdAt: number; jobId?: string | null; originJobId?: string | null };
@@ -59,7 +59,7 @@ export async function GET() {
       else if (listed && listed.includes(item.id)) version = listed.indexOf(item.id) + 1;
       else version = siblings.filter((other) => other.id !== film && other.createdAt <= item.createdAt).length;
     }
-    return { ...item, filmId: film, version, template: made[index].template, fromClips: made[index].fromClips, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` };
+    return { ...item, filmId: film, version, template: made[index].template, fromClips: made[index].fromClips, quality: made[index].quality, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` };
   });
   // Keep every film's versions together: the original first, then its edits in order, placed where the film's newest version is.
   const placed = new Set<string>(); const sorted: typeof items = [];
