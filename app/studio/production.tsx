@@ -16,6 +16,7 @@ export type SceneInfo = {
   predictionId?: string;
   saved?: boolean;
   expired?: boolean; // a stopped video's scene that Resume will make again
+  motion?: string; // the camera movement this scene was asked for
 };
 export type ProviderNote = { waitingUntil: number; paused: boolean; lowCredit: boolean };
 export type StudioJob = {
@@ -138,20 +139,25 @@ export async function startStudioProduction(body: Record<string, unknown>, photo
   const count = Number(data.plan?.count) || photos.length;
   hooks.onCreated(job);
   hooks.onProgress({ id: job.id, done: 0, total: count });
-  for (let index = 0; index < count; index += 1) {
+  // Photos go up two at a time. Each try gives up after two minutes (a stalled connection) and tries again, so one stuck upload can't leave the film waiting.
+  let sentCount = 0, nextIndex = 0;
+  async function sendPhoto(index: number) {
     const blob = await (await fetch(photos[index])).blob();
     let sent = false, reason = "";
-    for (let attempt = 0; attempt < 3 && !sent; attempt += 1) {
+    for (let attempt = 0; attempt < 4 && !sent; attempt += 1) {
       if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 1200 * attempt));
+      const controller = new AbortController(); const timer = window.setTimeout(() => controller.abort(), 120_000);
       try {
-        const response = await fetch(`/api/studio/production/${job.id}?scene=${index + 1}`, { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
+        const response = await fetch(`/api/studio/production/${job.id}?scene=${index + 1}`, { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob, signal: controller.signal });
         if (response.ok) sent = true;
         else { reason = ((await response.json().catch(() => ({}))) as { error?: string }).error || ""; if (response.status < 500 && response.status !== 429) break; }
-      } catch { reason = "The connection dropped."; }
+      } catch { reason = "The connection dropped or stalled."; }
+      finally { window.clearTimeout(timer); }
     }
     if (!sent) throw new Error(`Scene ${index + 1}'s photo could not be sent. ${reason} Nothing was made or charged — please try again.`.replace(/\s+/g, " "));
-    hooks.onProgress({ id: job.id, done: index + 1, total: count });
+    sentCount += 1; hooks.onProgress({ id: job.id, done: sentCount, total: count });
   }
+  await Promise.all(Array.from({ length: Math.min(2, count) }, async () => { while (nextIndex < count) { const index = nextIndex; nextIndex += 1; await sendPhoto(index); } }));
   const started = await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   const result = await started.json().catch(() => ({}));
   if (!started.ok || !result.job?.id) throw new Error(result.error || "The video could not start. Please try again.");
@@ -256,7 +262,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
       <div>
         <span className="prod-eyebrow">{active ? <><i className="prod-dot" />In production</> : job.status === "succeeded" ? "Ready" : "Stopped"}</span>
         <strong>{title}</strong><small className="video-ref">{videoRef(job.id)}</small>
-        {job.motion && <small className="prod-motion">Movement: {job.motion}</small>}
+        {(() => { const moves = [...new Set((job.scenes || []).map((scene) => scene.motion).filter(Boolean))]; const label = moves.length > 1 ? `Mixed — ${moves.join(", ")}` : moves[0] || job.motion; return label ? <small className="prod-motion">Movement: {label}</small> : null; })()}
         {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
         {!active && job.status === "failed" && job.error && <small className="prod-reason prod-raw">Why: {String(job.error).slice(0, 400)}</small>}

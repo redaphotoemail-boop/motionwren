@@ -156,7 +156,7 @@ async function compressImage(file: File, high = false): Promise<string> {
   const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Your browser could not prepare this image.");
   ctx.imageSmoothingQuality = "high"; ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
   const limit = high ? 10_400_000 : 1_250_000; // about 7.8 MB of file: the server takes 8 MB
-  let quality = high ? 0.97 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
+  let quality = high ? 0.93 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);
   while (result.length > limit && quality > (high ? 0.7 : 0.5)) { quality -= 0.05; result = canvas.toDataURL("image/jpeg", quality); }
   if (result.length > limit * 1.12) throw new Error("This image remains too large. Export a JPEG under 1 MB and try again.");
   return result;
@@ -221,7 +221,7 @@ async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKe
   // Already the right shape and small enough for the server: send it untouched (no crop, no re-encode).
   if (high && Math.abs(original / target - 1) < 0.01 && /^data:image\/(jpeg|png|webp);/.test(source) && source.length <= 10_400_000) return source;
   const { sx, sy, sw, sh } = frameCrop(image.naturalWidth, image.naturalHeight, target);
-  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 6144 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
+  const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 3840 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
   const context = canvas.getContext("2d"); if (!context) throw new Error("The selected frame could not be prepared.");
   context.imageSmoothingQuality = "high"; context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   let quality = high ? 0.97 : 0.9; let result = canvas.toDataURL("image/jpeg", quality);

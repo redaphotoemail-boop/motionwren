@@ -779,6 +779,11 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
 export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
   if (["succeeded", "failed"].includes(row.status)) return row;
   try {
+    // The photos are still on their way (a phone on a slow connection can take minutes for the first one): wait 5 minutes, not 90 seconds, for photos that have not arrived. Every photo that arrives restarts the wait.
+    if (row.status === "starting" && Date.now() - row.updatedAt > 90 * 1000 && Date.now() - row.updatedAt <= 5 * 60 * 1000 && row.kind.startsWith("studio-")) {
+      const waiting = await loadManifest(env, row.id);
+      if (waiting && (await framesPresent(env, row.id, waiting.inputs.length)).some((value) => !value)) return row;
+    }
     if (row.status === "starting" && Date.now() - row.updatedAt > 90 * 1000) {
       // The start was cut off (a refresh or dropped connection while the
       // photos were sent): carry on from where it was.
@@ -787,7 +792,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
         if (Date.now() - row.updatedAt > 10 * 60 * 1000) throw new Error("The video could not start. Please try again.");
       } else {
         const present = row.kind.startsWith("studio-") ? await framesPresent(env, row.id, manifest.inputs.length) : [];
-        if (present.some((value) => !value)) throw new Error("The photos did not finish sending, so nothing was made. Please start again.");
+        if (present.some((value) => !value)) throw new Error("The photos did not finish sending (the connection dropped, or the phone went to sleep during the upload), so nothing was made. Please start again.");
         if (await beginQueue(env, row.id)) {
           const fresh = await getRenderJob(env, row.id);
           if (fresh) await stepSceneQueue(env, row.id, token, webhookUrl, queueHooks(env, fresh, token, webhookUrl), () => getRenderJob(env, row.id));
@@ -919,6 +924,7 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
     error: manifest.lastErrors[index] || "",
     predictionId: ids[index] && !ids[index].startsWith("pending-") && !ids[index].startsWith("resume-") ? ids[index] : "",
     saved: Boolean(manifest.saved[index]),
+    motion: motionLabel(String(manifest.inputs[index]?.prompt || "")),
     // A stopped video's finished scene whose engine copy has expired and was never kept: Resume makes it again.
     expired: row.status === "failed" && (finishing ? false : state === "ready") && !manifest.saved[index] && Date.now() - (manifest.readyAt[index] || 0) > 45 * 60 * 1000,
   }));
