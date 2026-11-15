@@ -15,7 +15,7 @@ type Data = {
   photoEngine: boolean; remakeCostCents: number;
   cards: { opening: { title: string; detail: string; message: string } | null; closing: { name: string; contact: string; logo: string } | null } | null;
   music: string; voice: { mode: "scene" | "film"; voiceId: string; lines: string[] } | null; sfx: { prompts: string[] } | null;
-  scenes: { index: number; motion: string; photo: string }[];
+  scenes: { index: number; motion: string; photo: string; clip?: string }[];
 };
 type Props = {
   jobId: string; onClose: () => void; onStarted: (job: StudioJob | null, message: string) => void;
@@ -34,9 +34,13 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const [title, setTitle] = useState(""); const [detail, setDetail] = useState(""); const [message, setMessage] = useState("");
   const [agent, setAgent] = useState(""); const [contact, setContact] = useState(""); const [logo, setLogo] = useState<"keep" | "none" | string>("none"); const [hadLogo, setHadLogo] = useState(false);
   const [moves, setMoves] = useState<Record<number, string>>({});
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [wrenId, setWrenId] = useState("");
+  const [skipped, setSkipped] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ message: string; fix?: string } | null>(null);
 
+  useEffect(() => { fetch("/api/admin/wrencut", { cache: "no-store" }).then((response) => response.json()).then((body: { templates?: { id: string; name: string; active?: boolean }[] }) => setTemplates((body.templates || []).filter((item) => item.active !== false).map((item) => ({ id: item.id, name: item.name })))).catch(() => undefined); }, []);
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/studio/production/${jobId}/edit`, { cache: "no-store" }).then(async (response) => {
@@ -61,7 +65,8 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const changedScenes = Object.entries(moves).filter(([, value]) => value).map(([index]) => Number(index));
   const cardsChanged = Boolean(data) && (openingOn !== Boolean(data?.cards?.opening) || closingOn !== Boolean(data?.cards?.closing) || title !== (data?.cards?.opening?.title || "") || detail !== (data?.cards?.opening?.detail || "") || message !== (data?.cards?.opening?.message || "") || agent !== (data?.cards?.closing?.name || "") || contact !== (data?.cards?.closing?.contact || "") || (logo !== (hadLogo ? "keep" : "none")));
   const remakeCents = data && !data.photoEngine ? changedScenes.length * data.remakeCostCents : 0;
-  const anything = cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0;
+  const usedClips = data ? data.scenes.map((scene) => scene.index).filter((index) => !skipped.includes(index)) : [];
+  const anything = cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0 || Boolean(wrenId);
 
   const branding = { listingTitle: title, listingBeds: "", listingBaths: "", listingSquareFeet: "", listingPrice: detail, listingMessage: message, agentName: agent, agentEmail: "", agentPhone: contact, agentLogo: logo.startsWith("data:") ? logo : "" } as never;
 
@@ -77,6 +82,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     const body: Record<string, unknown> = {};
     if (cardsChanged) body.cards = (openingOn && (title.trim() || detail.trim() || message.trim())) || (closingOn && (agent.trim() || contact.trim() || logo !== "none"))
       ? { opening: openingOn ? { title, detail, message } : null, closing: closingOn ? { name: agent, contact, logo: logo === "none" ? "" : logo } : null } : null;
+    if (wrenId) { if (usedClips.length < 2) { setBusy(false); setProblem({ message: "Choose at least two clips." }); return; } body.template = wrenId; if (usedClips.length < data.count) body.useScenes = usedClips; }
     if (musicChanged) body.music = sound.music;
     if (voiceChanged) {
       if (sound.voiceMode !== "off" && !sound.voiceId) { setBusy(false); setProblem({ message: "Choose a voice, or turn the voiceover off." }); return; }
@@ -98,6 +104,12 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     <div className="fin-sheet">
       <header className="fin-sheet-head"><div><span className="label">EDIT FILM</span><h2>Change your finished film</h2><p>Scenes you leave alone are kept as they are and cost nothing again.</p></div><button type="button" className="fin-close" onClick={onClose} disabled={busy} aria-label="Close">×</button></header>
       {loadError ? <div className="fin-problem">{loadError}</div> : !data ? <p className="fin-quiet">Opening your film…</p> : <div className="fin-sheet-body">
+        {data.count > 1 && !data.photoEngine && <FinalSection title="Your clips" note="Each scene as the engine made it. Edit them again with a template at no engine cost; untick a clip to leave it out.">
+          <div className="fin-scenes">{data.scenes.map((scene) => <div className="fin-scene" key={`clip-${scene.index}`}>{scene.clip ? <video src={scene.clip} poster={scene.photo} controls muted playsInline preload="none" aria-label={`Clip ${scene.index + 1}`}/> : <img src={scene.photo} alt={`Scene ${scene.index + 1}`}/>}<div><strong>Clip {scene.index + 1}</strong><small>{scene.clip ? "Saved" : "Not saved"}</small></div>
+            {wrenId ? <label className="fin-use"><input type="checkbox" checked={!skipped.includes(scene.index)} onChange={(event) => setSkipped((current) => event.target.checked ? current.filter((value) => value !== scene.index) : [...current, scene.index])}/> Use</label> : null}</div>)}</div>
+          {templates.length ? <label className="fin-fields"><span className="label">Edit again with a template</span><select value={wrenId} onChange={(event) => setWrenId(event.target.value)} aria-label="Template"><option value="">Keep the current edit</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
+        </FinalSection>}
+
         <FinalSection title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Choose a new movement for a scene to make it again — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}.`}>
           <div className="fin-scenes">{data.scenes.map((scene) => <div className="fin-scene" key={scene.index}><img src={scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
             <select value={moves[scene.index] || ""} onChange={(event) => setMoves((current) => ({ ...current, [scene.index]: event.target.value }))} aria-label={`New movement for scene ${scene.index + 1}`}><option value="">Keep as is</option>{data.photoEngine ? PHOTO_MOVE_KEYS.map((key) => <option key={key} value={key}>{prettyMove(key)}</option>) : motions.filter((item) => item.key !== "custom" && item.key !== "mixed").map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></div>)}</div>

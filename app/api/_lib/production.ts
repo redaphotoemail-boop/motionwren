@@ -82,6 +82,8 @@ export type ProductionManifest = {
     grade?: "warm";
     /** A WrenCut template applied to this film: the recipe of shots, joins, zoom and colour. It decides the film's length. */
     recipe?: import("../../wrencut").WrenRecipe;
+    /** With a recipe: edit from only these scenes (by index), in this order. */
+    useScenes?: number[];
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over

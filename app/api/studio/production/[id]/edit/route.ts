@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../../_lib/account";
 import { PHOTO_MOVE_KEYS, engineCost, studioEngine } from "../../../../../engine-catalog";
 import { MUSIC_TEMPLATES, musicTemplate } from "../../../../../music-catalog";
+import { fitRecipe, pairWhooshRamps } from "../../../../../wrencut-fit";
+import { isWrenId, joinTimes } from "../../../../../wrencut";
+import { getRecipe } from "../../../../_lib/wrencut";
+import { makeCutEffects } from "../../../../_lib/film-sound";
 import { motionLabel } from "../../../../../motion-label";
 import { ElevenLabsMissingKey, makeSfx, makeVoice } from "../../../../_lib/film-sound";
 import { cleanCards, loadManifest, outputKey, saveManifest } from "../../../../_lib/production";
@@ -43,7 +47,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       cards: manifest.cards ? { opening: manifest.cards.opening || null, closing: manifest.cards.closing ? { ...manifest.cards.closing, logo: manifest.cards.closing.logo ? "yes" : "" } : null } : null,
       music: musicId, voice: edit.sound?.voice ? { mode: edit.sound.voice.mode, voiceId: edit.sound.voice.voiceId, lines: edit.sound.voice.lines } : null,
       sfx: edit.sound?.sfx ? { prompts: edit.sound.sfx.prompts } : null,
-      scenes: manifest.inputs.map((input, index) => ({ index, motion: manifest.photoMoves?.[index] || motionLabel(String(input.prompt || "")) || "", photo: `/api/job-frames/${id}/scene-${String(index + 1).padStart(2, "0")}.jpg` })),
+      scenes: manifest.inputs.map((input, index) => ({ index, motion: manifest.photoMoves?.[index] || motionLabel(String(input.prompt || "")) || "", photo: `/api/job-frames/${id}/scene-${String(index + 1).padStart(2, "0")}.jpg`, clip: manifest.saved[index] ? `/api/job-frames/${id}/out-${String(index + 1).padStart(2, "0")}.mp4` : "" })),
+      template: edit.recipe ? { on: true, used: edit.useScenes || null } : null,
     });
   } catch (error) { return jsonError(error); }
 }
@@ -54,6 +59,9 @@ type Body = {
   voice?: { mode?: unknown; voiceId?: unknown; lines?: unknown; film?: unknown } | null;
   sfx?: { on?: unknown; prompts?: unknown } | null;
   scenes?: { scene?: unknown; prompt?: unknown; photoMove?: unknown }[];
+  /** Edit the same scenes with a MotionWren template ("wren:…"), from the scenes listed in useScenes (all when left out). */
+  template?: unknown;
+  useScenes?: unknown;
 };
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -76,6 +84,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     for (let index = 0; index < count; index += 1) {
       if (redo.has(index) || manifest.photoMoves?.[index]) continue;
       if (!await env.BUCKET.head(outputKey(id, index))) return NextResponse.json({ error: "This film's scenes are no longer stored, so it can't be edited. Make it again from its photos." }, { status: 409 });
+    }
+
+    // A MotionWren template applied to the kept scenes (nothing is made again, so nothing is charged).
+    if (typeof body.template === "string" && body.template) {
+      if (!isWrenId(body.template)) return NextResponse.json({ error: "Unknown template." }, { status: 400 });
+      const wren = await getRecipe(env, body.template);
+      if (!wren) return NextResponse.json({ error: "That template is no longer available." }, { status: 400 });
+      const chosen = Array.isArray(body.useScenes) ? [...new Set((body.useScenes as unknown[]).map(Number))].filter((index) => Number.isInteger(index) && index >= 0 && index < count && !manifest.photoMoves?.[index]) : [];
+      const used = chosen.length ? chosen : Array.from({ length: count }, (_, index) => index);
+      if (used.length < 2) return NextResponse.json({ error: "Choose at least two clips." }, { status: 400 });
+      if (used.length < count && (sound.voice || sound.sfx)) return NextResponse.json({ error: "This film has a voice or scene sounds, which belong to all of its scenes. Edit it with every clip, or turn them off first." }, { status: 400 });
+      const recipe = pairWhooshRamps(fitRecipe(wren.recipe, used.length));
+      edit.recipe = recipe; edit.crossfade = 0; edit.useScenes = used.length < count ? used : undefined;
+      delete edit.grade; delete edit.subtitles;
+      if (recipe.audio?.sfx?.length) {
+        try { const cutfx = await makeCutEffects(env, id, recipe.audio, joinTimes(recipe)); if (cutfx) sound.cutfx = cutfx; else delete sound.cutfx; } catch { delete sound.cutfx; }
+      } else delete sound.cutfx;
     }
 
     // Sound first: if a voice or effect can't be made, nothing else changes.
