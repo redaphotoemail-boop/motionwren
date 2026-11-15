@@ -4,6 +4,7 @@ import SaveVideo from "../components/save-video";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, smallPhoto, type FinalSound } from "./final-edit";
 import { defaultMusicId } from "../music-catalog";
 import EditFilm from "./edit-film";
+import TitlesPanel, { emptyTitles, titlesPayload, type TitlesInput } from "./titles-panel";
 import TemplateStrip, { emptyTemplatePick, type TemplatePick } from "./template-strip";
 import { libraryTemplatePlan } from "../library-templates";
 import { wrenPlan } from "../wrencut";
@@ -291,6 +292,7 @@ export default function Home() {
   // Every Studio video is made on the server; these point at each tab's latest one.
   const [seriesLength, setSeriesLength] = useState<VideoLength>(30);
   const [tpl, setTpl] = useState<TemplatePick>(emptyTemplatePick());
+  const [titles, setTitles] = useState<TitlesInput>(emptyTitles());
   const [finalSound, setFinalSound] = useState<FinalSound>(emptySound(""));
   const [editingJob, setEditingJob] = useState("");
   const patchSound = (patch: Partial<FinalSound>) => setFinalSound((current) => ({ ...current, ...patch }));
@@ -570,7 +572,7 @@ export default function Home() {
         return { prompt: buildPrompt(shot.motion, direction, category, continuity, speed, aspect, sceneAudio ? audioPrompt : "", true), audio: sceneAudio };
       });
       const photos = await Promise.all(used.map((shot) => prepareFrame(shot.source, aspect, engine, true)));
-      await launch("series", { mode: "series", scenes, engine, resolution, aspect, length: seriesLength, seed: seed ? Number(seed) : null, label: `${seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "", cards: cardsPayload(), ...(tpl.on && tpl.id.startsWith("wren:") ? { template: { wren: tpl.id, texts: tpl.texts || [] } } : tpl.on && tpl.id !== "none" ? { template: { libraryTemplate: tpl.id, ...tpl.fields } } : {}), music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : tpl.on && tpl.id !== "none" ? "luxe" : defaultMusicId({ aspect, duration: seriesLength })), sound: finalSound.voiceMode !== "off" || finalSound.sfxOn ? { voice: finalSound.voiceMode !== "off" ? { mode: finalSound.voiceMode, voiceId: finalSound.voiceId, lines: finalSound.lines.slice(0, used.length), film: finalSound.film } : null, sfx: { on: finalSound.sfxOn, prompts: finalSound.sfx.slice(0, used.length) } } : undefined }, photos, (job) => {
+      await launch("series", { mode: "series", scenes, engine, resolution, aspect, length: seriesLength, seed: seed ? Number(seed) : null, label: `${seriesLength}-second film`, audioMode: seriesAudioRequested ? "single_master" : "silent", audioDirection: soundEnabled ? soundDirection : "", voiceoverScript: voiceoverEnabled ? voiceoverText : "", cards: cardsPayload(), titles: titlesPayload(titles), ...(tpl.on && tpl.id.startsWith("wren:") ? { template: { wren: tpl.id, texts: tpl.texts || [] } } : tpl.on && tpl.id !== "none" ? { template: { libraryTemplate: tpl.id, ...tpl.fields } } : {}), music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : tpl.on && tpl.id !== "none" ? "luxe" : defaultMusicId({ aspect, duration: seriesLength })), sound: finalSound.voiceMode !== "off" || finalSound.sfxOn ? { voice: finalSound.voiceMode !== "off" ? { mode: finalSound.voiceMode, voiceId: finalSound.voiceId, lines: finalSound.lines.slice(0, used.length), film: finalSound.film } : null, sfx: { on: finalSound.sfxOn, prompts: finalSound.sfx.slice(0, used.length) } } : undefined }, photos, (job) => {
         setLocalThumbs((current) => ({ ...current, [job.id]: used.map((shot) => shot.source) }));
       });
     } catch (err) { setError(err instanceof Error ? err.message : "The film could not start."); }
@@ -706,6 +708,7 @@ export default function Home() {
       <div className="panel series-finish-panel">
         <Heading number="02" title="Finish your film" note="Listing cards, music, voiceover and sound effects — all added at the final edit"/>
         {category === "interior" ? <FinalSection title="Listing cards" note="An opening card with the property and a closing card with the agent. Preview them below."><RealEstateBrandingPanel {...brandingProps}/><CardsPreview photo={shots.find((shot) => shot.source)?.source} branding={branding} opening={listingEnabled && Boolean(listingTitle.trim() || listingPrice.trim() || listingBeds || listingBaths || listingSquareFeet || listingMessage.trim())} closing={agentEnabled && Boolean(agentName.trim() || agentPhone.trim() || agentEmail.trim() || agentLogo)} vertical={aspect === "vertical"}/></FinalSection> : <FinalSection title="Listing cards" note="Cards are made for Real estate films. Switch Shot type to Real estate to add them."><span/></FinalSection>}
+        <FinalSection title="Titles" note="Optional. A few words at the start or the end, in a cinematic font."><TitlesPanel value={titles} onChange={setTitles}/></FinalSection>
         <FinalSection title="Sound" note="Chosen here, made at the final edit, so the same choices work on every engine.">
           <FinalSoundPanel sound={{ ...finalSound, music: finalSound.music || (tpl.on && tpl.wren?.hasMusic ? "" : tpl.on && tpl.id !== "none" ? "luxe" : defaultMusicId({ aspect, duration: seriesLength })) }} setSound={patchSound} count={Math.max(2, planScenes)} sceneSeconds={plan.sceneSeconds} totalSeconds={stitchedDuration} sceneThumbs={shots.slice(0, planScenes).map((shot) => shot.source || "")} getImages={() => Promise.all(shots.slice(0, planScenes).map((shot) => smallPhoto(shot.source)))} disabled={seriesGenerating}/>
         </FinalSection>

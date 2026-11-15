@@ -215,6 +215,7 @@ async function getMusic(spec, dir, job) {
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
 import { analyzeVideo, assignClips, recipeChain, shotArgs, recipeDuration, validRecipe } from "./wrencut.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
+import { planTitles, titleGraph } from "./titles.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 
 /* The depth of a photo, as true distances in metres, from Depth Anything 3 Metric-Large (Apache-2.0, so it may be used commercially).
@@ -399,7 +400,7 @@ export function layerArgs({ inputs, duration, output }) {
   return args;
 }
 
-export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength, prepared }) {
+export function editArgs({ clips, music, width, height, fps, crossfade, duration, sceneSeconds, output, cards, titles, keepAudio, speeds, subtitles, voiceover, hasAudio, musicVolume, grade, recipe, starts, strength, prepared }) {
   const count = clips.length;
   const X = count > 1 ? crossfade : 0;
   const d = sceneSeconds;
@@ -450,8 +451,11 @@ export function editArgs({ clips, music, width, height, fps, crossfade, duration
     if (cards.logo) { extra.logo = base + cardInputs.length; cardInputs.push(["-i", cards.logo]); }
     filters.push(...cardGraph(cards.plan, graded, "carded", extra, cards.dir));
   } else filters.push(`[${graded}]null[carded]`);
+  // Cinematic titles (the words typed in the Studio) go on after the cards and before the final fade, so an ending title leaves with the film.
+  let afterTitles = "carded";
+  if (titles) { filters.push(...titleGraph(titles.plan, "carded", "titled", titles.dir)); afterTitles = "titled"; }
   // Films end by fading to black; a single clip just ends.
-  filters.push(count > 1 ? `[carded]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]` : "[carded]fade=t=in:st=0:d=0.35[vout]");
+  filters.push(count > 1 ? `[${afterTitles}]fade=t=in:st=0:d=0.35,fade=t=out:st=${(duration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}[vout]` : `[${afterTitles}]fade=t=in:st=0:d=0.35[vout]`);
   // Subtitles burn in last, over the finished picture (cards and fades included).
   let videoOut = "vout";
   if (subtitles) {
@@ -704,12 +708,20 @@ async function compose(key, spec) {
         }
       } catch (error) { job.cardsError = String(error?.message || error).slice(0, 300); console.warn(`cards: skipped; ${job.cardsError}`); cards = null; }
     }
+    // Cinematic titles at the start and/or end, when asked for. They never cost the film: if they cannot be drawn, it is made without.
+    let titles = null;
+    if (spec.titles) {
+      try {
+        const plan = planTitles(spec.titles, { width: spec.width, height: spec.height, duration: spec.duration, fps });
+        if (plan) { for (const file of plan.files) await fs.writeFile(path.join(dir, file.name), file.text); titles = { plan, dir }; job.titles = true; }
+      } catch (error) { job.titlesError = String(error?.message || error).slice(0, 300); console.warn(`titles: skipped; ${job.titlesError}`); titles = null; }
+    }
     const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => (infos[files.indexOf(file)]?.audioStreams || 0) > 0), speeds: spec.speeds, grade: spec.grade };
-    try { await run("ffmpeg", editArgs({ ...editInput, cards }), { timeoutMs: 20 * 60 * 1000 }); }
+    try { await run("ffmpeg", editArgs({ ...editInput, cards, titles }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.
-      if (!cards) throw error;
-      job.cardsError = String(error?.message || error).slice(0, 300); job.cards = false; console.warn(`cards: edit retried without them; ${job.cardsError}`);
+      if (!cards && !titles) throw error;
+      job.cardsError = String(error?.message || error).slice(0, 300); job.cards = false; job.titles = false; console.warn(`cards/titles: edit retried without them; ${job.cardsError}`);
       await run("ffmpeg", editArgs(editInput), { timeoutMs: 20 * 60 * 1000 });
     }
 

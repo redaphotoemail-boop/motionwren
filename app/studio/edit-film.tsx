@@ -1,5 +1,6 @@
 "use client";
 
+import TitlesPanel, { emptyTitles, hasTitles, titlesFrom, titlesPayload, type TitlesInput } from "./titles-panel";
 import { useEffect, useMemo, useState } from "react";
 import { PHOTO_MOVE_KEYS } from "../engine-catalog";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, type FinalSound } from "./final-edit";
@@ -16,6 +17,7 @@ type Data = {
   cards: { opening: { title: string; detail: string; message: string } | null; closing: { name: string; contact: string; logo: string } | null } | null;
   music: string; voice: { mode: "scene" | "film"; voiceId: string; lines: string[] } | null; sfx: { prompts: string[] } | null;
   scenes: { index: number; motion: string; photo: string; clip?: string }[];
+  titles?: import("../titles").FilmTitles | null;
 };
 type Props = {
   jobId: string; onClose: () => void; onStarted: (job: StudioJob | null, message: string) => void;
@@ -36,6 +38,8 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const [moves, setMoves] = useState<Record<number, string>>({});
   const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
   const [wrenId, setWrenId] = useState("");
+  const [titles, setTitles] = useState<TitlesInput>(emptyTitles());
+  const [titlesStart, setTitlesStart] = useState("");
   const [skipped, setSkipped] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ message: string; fix?: string } | null>(null);
@@ -47,7 +51,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
       const body = await response.json().catch(() => ({})) as Data & { error?: string };
       if (cancelled) return;
       if (!response.ok) { setLoadError(body.error || "This film can't be edited."); return; }
-      setData(body);
+      setData(body); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
       const next: FinalSound = { music: body.music === "auto" ? "keep" : body.music, voiceMode: body.voice?.mode || "off", voiceId: body.voice?.voiceId || "", lines: body.voice?.lines || [], film: body.voice?.mode === "film" ? (body.voice.lines.find(Boolean) || "") : "", sfxOn: Boolean(body.sfx), sfx: body.sfx?.prompts || [] };
       setSoundState(next); setInitial(JSON.stringify(next));
       setOpeningOn(Boolean(body.cards?.opening)); setClosingOn(Boolean(body.cards?.closing));
@@ -65,8 +69,9 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const changedScenes = Object.entries(moves).filter(([, value]) => value).map(([index]) => Number(index));
   const cardsChanged = Boolean(data) && (openingOn !== Boolean(data?.cards?.opening) || closingOn !== Boolean(data?.cards?.closing) || title !== (data?.cards?.opening?.title || "") || detail !== (data?.cards?.opening?.detail || "") || message !== (data?.cards?.opening?.message || "") || agent !== (data?.cards?.closing?.name || "") || contact !== (data?.cards?.closing?.contact || "") || (logo !== (hadLogo ? "keep" : "none")));
   const remakeCents = data && !data.photoEngine ? changedScenes.length * data.remakeCostCents : 0;
+  const titlesChanged = Boolean(data) && JSON.stringify(titles) !== titlesStart;
   const usedClips = data ? data.scenes.map((scene) => scene.index).filter((index) => !skipped.includes(index)) : [];
-  const anything = cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0 || Boolean(wrenId);
+  const anything = cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0 || Boolean(wrenId) || titlesChanged;
 
   const branding = { listingTitle: title, listingBeds: "", listingBaths: "", listingSquareFeet: "", listingPrice: detail, listingMessage: message, agentName: agent, agentEmail: "", agentPhone: contact, agentLogo: logo.startsWith("data:") ? logo : "" } as never;
 
@@ -83,6 +88,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     if (cardsChanged) body.cards = (openingOn && (title.trim() || detail.trim() || message.trim())) || (closingOn && (agent.trim() || contact.trim() || logo !== "none"))
       ? { opening: openingOn ? { title, detail, message } : null, closing: closingOn ? { name: agent, contact, logo: logo === "none" ? "" : logo } : null } : null;
     if (wrenId) { if (usedClips.length < 2) { setBusy(false); setProblem({ message: "Choose at least two clips." }); return; } body.template = wrenId; if (usedClips.length < data.count) body.useScenes = usedClips; }
+    if (titlesChanged) body.titles = hasTitles(titles) ? titlesPayload(titles) : null;
     if (musicChanged) body.music = sound.music;
     if (voiceChanged) {
       if (sound.voiceMode !== "off" && !sound.voiceId) { setBusy(false); setProblem({ message: "Choose a voice, or turn the voiceover off." }); return; }
@@ -124,6 +130,8 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
             <CardsPreview photo={data.scenes[0]?.photo} branding={branding} opening={openingOn && Boolean(title.trim() || detail.trim() || message.trim())} closing={closingOn && Boolean(agent.trim() || contact.trim() || logo !== "none")} vertical={vertical}/>
           </div>
         </FinalSection>
+
+        <FinalSection title="Titles" note="Add, change or remove the words at the start and the end."><TitlesPanel value={titles} onChange={setTitles} disabled={busy}/></FinalSection>
 
         <FinalSection title="Sound" note="Music, voiceover and sound effects are mixed again under your film.">
           <FinalSoundPanel sound={sound} setSound={setSound} count={data.count} sceneSeconds={data.sceneSeconds} totalSeconds={data.duration} jobId={jobId} sceneThumbs={data.scenes.map((scene) => scene.photo)} showMusic={data.count > 1} allowKeepMusic musicNote="Pick a different style to replace the current music, or keep it." disabled={busy}/>

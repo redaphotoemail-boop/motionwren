@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../../_lib/account";
 import { PHOTO_MOVE_KEYS, engineCost, studioEngine } from "../../../../../engine-catalog";
 import { MUSIC_TEMPLATES, musicTemplate } from "../../../../../music-catalog";
+import { cleanFilmTitles } from "../../../../../titles";
 import { fitRecipe, pairWhooshRamps } from "../../../../../wrencut-fit";
 import { isWrenId, joinTimes } from "../../../../../wrencut";
 import { getRecipe } from "../../../../_lib/wrencut";
@@ -48,6 +49,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       music: musicId, voice: edit.sound?.voice ? { mode: edit.sound.voice.mode, voiceId: edit.sound.voice.voiceId, lines: edit.sound.voice.lines } : null,
       sfx: edit.sound?.sfx ? { prompts: edit.sound.sfx.prompts } : null,
       scenes: manifest.inputs.map((input, index) => ({ index, motion: manifest.photoMoves?.[index] || motionLabel(String(input.prompt || "")) || "", photo: `/api/job-frames/${id}/scene-${String(index + 1).padStart(2, "0")}.jpg`, clip: manifest.saved[index] ? `/api/job-frames/${id}/out-${String(index + 1).padStart(2, "0")}.mp4` : "" })),
+      titles: edit.titles || null,
       template: edit.recipe ? { on: true, used: edit.useScenes || null } : null,
     });
   } catch (error) { return jsonError(error); }
@@ -62,6 +64,8 @@ type Body = {
   /** Edit the same scenes with a MotionWren template ("wren:…"), from the scenes listed in useScenes (all when left out). */
   template?: unknown;
   useScenes?: unknown;
+  /** Cinematic titles: an object to set them, null to remove them. */
+  titles?: unknown;
 };
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -102,6 +106,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         try { const cutfx = await makeCutEffects(env, id, recipe.audio, joinTimes(recipe)); if (cutfx) sound.cutfx = cutfx; else delete sound.cutfx; } catch { delete sound.cutfx; }
       } else delete sound.cutfx;
     }
+
+    if (body.titles !== undefined) { const titles = body.titles === null ? undefined : cleanFilmTitles(body.titles); if (titles) edit.titles = titles; else delete edit.titles; }
 
     // Sound first: if a voice or effect can't be made, nothing else changes.
     try {
