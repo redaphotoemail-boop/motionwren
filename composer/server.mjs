@@ -732,7 +732,7 @@ async function compose(key, spec) {
     if ((music || voiceover) && check.audioStreams !== 1) throw new Error("The edit is missing its sound.");
     // The free quality check: it only reports, it never fails or changes the film.
     if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards) }); }
-    if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }
+    if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: Number.isInteger(spec.stills) ? Math.max(4, Math.min(9, spec.stills)) : 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }
     const stat = await fs.stat(output);
     Object.assign(job, { status: "done", stage: "done", finishedAt: Date.now(), outputBytes: stat.size, duration: round(check.duration, 3), width: check.width, height: check.height, fps, music: Boolean(music) });
     if (music) job.musicBytes = (await fs.stat(music)).size;

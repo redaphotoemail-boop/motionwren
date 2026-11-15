@@ -1906,3 +1906,6 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .clip-preview video { display: block; width: 100%; max-height: 70vh; background: #000; }
 .clip-preview > div > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; font-size: 13px; }
 .clip-preview button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+.prod-quality .cost-toggle { color: inherit; }
+.prod-quality .cost-list { color: inherit; }
