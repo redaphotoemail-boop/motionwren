@@ -142,6 +142,14 @@ export async function checkMusic(env: unknown): Promise<{ ok: boolean; error?: s
   return { ok: Boolean(data.ok), ...(data.error ? { error: data.error } : {}), ...(data.duration ? { duration: data.duration } : {}) };
 }
 
+/* Which editor code a brand-new container runs (read-only; no film is made). */
+export async function editorBuild(env: unknown): Promise<{ build: string; ffmpeg: string }> {
+  const response = await stub(env, `build-check-${Date.now()}`).fetch("http://composer/health");
+  const data = await response.json().catch(() => null) as { build?: string; ffmpeg?: string } | null;
+  if (!response.ok || !data) throw new Error(`The editing service did not answer (HTTP ${response.status}).`);
+  return { build: data.build || "older than the build marker", ffmpeg: data.ffmpeg || "" };
+}
+
 /* A customer-facing sample of a music template (an MP3 Response), made in
    its own fresh container instance. ElevenLabs only: no backup. */
 export async function makeMusicSample(env: unknown, id: string, prompt: string): Promise<Response> {

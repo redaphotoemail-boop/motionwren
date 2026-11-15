@@ -846,7 +846,7 @@ export function createServer() {
       const url = new URL(req.url || "/", "http://composer");
       if (url.pathname === "/health" || url.pathname === "/ping") {
         const { stdout } = await run("ffmpeg", ["-hide_banner", "-version"], { timeoutMs: 10_000 }).catch(() => ({ stdout: "" }));
-        return send(res, 200, { ok: true, ffmpeg: stdout.split("\n")[0] || "missing", jobs: jobs.size });
+        return send(res, 200, { ok: true, build: EDITOR_BUILD, ffmpeg: stdout.split("\n")[0] || "missing", jobs: jobs.size });
       }
       if (url.pathname === "/music-check" && req.method === "POST") return send(res, 200, await musicCheck());
       if (url.pathname === "/music-sample" && req.method === "POST") {
