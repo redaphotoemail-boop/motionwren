@@ -1091,6 +1091,30 @@ export async function advanceStaleJobs(env: { DB: D1Database; BUCKET: R2Bucket }
 /* Manager/owner actions on a video (resume, retry or regenerate a scene,
    re-join). The queue does the work, with its usual protections; this only
    marks what to make and gives the queue a first step. */
+/* "Upscale to 1080p": the last touch on a version that was approved at 720p. The film is joined again with the upscale on (its scenes, music and
+   edit are kept), so a new 1080p version lands in History and the 720p one stays. Costs the upscale only (UPSCALE_PER_SECOND × seconds). */
+export async function upscaleFinal(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string): Promise<{ ok: true; cents: number } | { error: string }> {
+  if (row.status !== "succeeded") return { error: "Wait until this film is finished." };
+  const loaded = await loadManifest(env, row.id);
+  if (!loaded) return { error: "This film cannot be upscaled." };
+  const manifest = normalizeManifest(loaded);
+  if (!engineUpscales(manifest.engine, "1080p")) return { error: "This film's engine already makes its own resolution." };
+  if (row.resolution === "1080p" || manifest.upscale) return { error: "This film is already 1080p." };
+  const cents = Math.round(UPSCALE_PER_SECOND * row.duration * 100);
+  manifest.upscale = { to: "1080p" };
+  await saveManifest(env, row.id, manifest);
+  await env.DB.prepare(`UPDATE render_jobs SET resolution = '1080p', cost_cents = cost_cents + ?, updated_at = ? WHERE id = ?`).bind(cents, Date.now(), row.id).run();
+  const fresh = await getRenderJob(env, row.id);
+  if (!fresh) return { error: "Film not found." };
+  const result = await runJobAction(env, fresh, "reassemble", null, token, webhookUrl);
+  if ("error" in result) {
+    delete manifest.upscale; await saveManifest(env, row.id, manifest);
+    await env.DB.prepare(`UPDATE render_jobs SET resolution = ?, cost_cents = cost_cents - ?, updated_at = ? WHERE id = ?`).bind(row.resolution, cents, Date.now(), row.id).run();
+    return result;
+  }
+  return { ok: true, cents };
+}
+
 export async function runJobAction(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, action: JobAction, scene: number | null, token: string, webhookUrl?: string) {
   if (action === "restart-scene" && scene !== null) {
     // Stop the engine's copy first (so it is not paid for twice), then send the scene again.

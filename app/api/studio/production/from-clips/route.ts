@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
 import { cleanFilmTitles } from "../../../../titles";
-import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineUpscales, studioEngine, type StudioResolution } from "../../../../engine-catalog";
+import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineUpscales, nativeResolution, studioEngine, type StudioResolution } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS } from "../../../../engine-providers";
 import { advanceRenderJob, getRenderJob, publicJob } from "../../../_lib/render-jobs";
 import { frameKey, loadManifest, newManifest, outputKey, saveManifest } from "../../../_lib/production";
@@ -55,7 +55,10 @@ export async function POST(request: Request) {
     if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
     const recipe = wren ? recipeFor(wren, count) : null;
     const duration = recipe ? recipeSeconds(recipe) : Math.round((count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS) * 1000) / 1000;
-    const upscales = engineUpscales(engine, resolution);
+    // A version made to be looked at first: kept at the engine's own 720p (no upscale yet). The upscale is the last touch, once it is approved ("Upscale to 1080p" in History).
+    const keepNative = body.upscale === false && engineUpscales(engine, resolution);
+    const upscales = !keepNative && engineUpscales(engine, resolution);
+    const rowResolution = keepNative ? nativeResolution(engine, resolution) : resolution;
     const costCents = upscales ? Math.round(UPSCALE_PER_SECOND * duration * 100) : 0; // only the 1080p upscale of the new film, if any
 
     const id = crypto.randomUUID();
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
     await saveManifest(env, id, manifest);
     const label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 60) : `${Math.round(duration)}-second film from saved clips`;
     await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'studio-series', 'generating', ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`)
-      .bind(id, ownerId, JSON.stringify(sources.map((_, index) => `clip-${index + 1}`)), JSON.stringify(sources.map((_, index) => link(index))), String(sources[0].prompt.prompt || "Film from saved clips").slice(0, 6000), `Studio · ${label}`, resolution, aspect, duration, costCents, webhookToken, now, now).run();
+      .bind(id, ownerId, JSON.stringify(sources.map((_, index) => `clip-${index + 1}`)), JSON.stringify(sources.map((_, index) => link(index))), String(sources[0].prompt.prompt || "Film from saved clips").slice(0, 6000), `Studio · ${label}`, rowResolution, aspect, duration, costCents, webhookToken, now, now).run();
     const token = (await studioToken()) || "";
     const row = await getRenderJob(env, id);
     if (row) await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${id}?token=${webhookToken}`);

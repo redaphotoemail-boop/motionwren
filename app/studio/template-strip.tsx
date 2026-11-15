@@ -17,7 +17,7 @@ import { PreviewPlayer } from "../wrencut-player";
 import { engineCost, studioEngine, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 /* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
-export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; hasMusic?: boolean; social?: string }; texts?: string[] };
+export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; least?: number; hasMusic?: boolean; social?: string }; texts?: string[] };
 export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
 
 type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void; photos?: SocialPhoto[]; onFrame?: (frame: "vertical" | "horizontal" | "cinematic") => void; onArrange?: (order: number[]) => void };
@@ -53,7 +53,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   const chosenSocial = chosenWren?.social ? socialSpec(chosenWren.social.key) : null;
   const wrenCost = chosenWren && photoCount >= 2 ? (() => { const sp = chosenSocial ? socialPlan(chosenSocial, photoCount) : null; const wp = sp ? wrenPlan(engine, resolution, sp.count, sp.seconds, sp.minScene) : wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
   const cost = plan ? engineCost(engine, plan.resolution, plan.sceneSeconds * plan.count) : null;
-  const wrenOf = (item: WrenTemplate) => ({ seconds: item.seconds, photos: item.photos, best: item.guide?.best, hasMusic: item.hasMusic, ...(item.social ? { social: item.social.key } : {}) });
+  const wrenOf = (item: WrenTemplate) => ({ seconds: item.seconds, photos: item.photos, best: item.guide?.best, least: item.guide?.least, hasMusic: item.hasMusic, ...(item.social ? { social: item.social.key } : {}) });
   const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); if (item.social && onFrame) onFrame(item.social.frame); onChange({ ...value, id: item.id, wren: wrenOf(item), texts: [] }); };
   const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined });
   const toggle = () => {
@@ -86,6 +86,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
         {studioEngine(engine).photoMove ? <p className="notice">This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos. Choose another engine above.</p> : null}
+        {(() => { const best = chosenWren.guide?.best ?? chosenWren.photos, least = chosenWren.guide?.least ?? 2, ok = photoCount >= least; return <p className={ok ? "tpl-need ok" : "tpl-need"}><strong>Requirements: {best} photos for the best result{least < best ? ` (at least ${least})` : ""}.</strong> {ok ? `You have ${photoCount}${photoCount >= best ? " — complete." : ` — ${best - photoCount} more makes it complete.`}` : `You have ${photoCount} — add ${least - photoCount} more before you can make this film.`}</p>; })()}
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
         {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
         {chosenSocial ? <SocialGuide spec={chosenSocial} photos={photos} engine={engine} resolution={resolution} onArrange={onArrange} disabled={disabled} /> : null}
