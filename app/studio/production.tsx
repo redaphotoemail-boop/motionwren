@@ -20,6 +20,8 @@ export type SceneInfo = {
   predictionId?: string;
   saved?: boolean;
   expired?: boolean; // a stopped video's scene that Resume will make again
+  engine?: string; // what the video engine last said about this scene: "starting" (not running yet) or "processing" (running)
+  startedAt?: number; // when this scene was sent to the engine
   motion?: string; // the camera movement this scene was asked for
 };
 export type ProviderNote = { waitingUntil: number; paused: boolean; lowCredit: boolean };
@@ -291,7 +293,7 @@ export function sceneLabel(scene: SceneInfo, now: number) {
   if (scene.state === "ready") return "Ready";
   if (scene.state === "failed") return "Failed";
   if (scene.state === "submitting") return "Sending";
-  if (scene.state === "creating") return scene.attempt > 1 ? `Making · try ${scene.attempt}` : "Making";
+  if (scene.state === "creating") { const mins = scene.startedAt && now > scene.startedAt ? Math.floor((now - scene.startedAt) / 60000) : 0; return `${scene.attempt > 1 ? `Making · try ${scene.attempt}` : "Making"}${mins >= 1 ? ` · ${mins} min` : ""}`; }
   if (scene.reason === "credit") return "Paused";
   if (scene.reason === "throttle") return `Engine busy${wait}`;
   if (scene.state === "retry" || scene.state === "retrying") return `Try ${Math.min(3, scene.attempt + 1)} soon${wait}`;
@@ -302,6 +304,7 @@ import { videoRef } from "../video-ref";
 export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOver, onDismiss, onDelete, offline, sending }: { job: StudioJob; title: string; thumbs?: string[]; onStop?: () => void; onResume?: () => void; onStartOver?: () => void; onDismiss?: () => void; onDelete?: () => void; offline?: boolean; sending?: Sending | null }) {
   const [now, setNow] = useState(() => job.updatedAt || job.createdAt);
   const [broken, setBroken] = useState<number[]>([]);
+  const [restarting, setRestarting] = useState(false);
   const active = isActive(job);
   useEffect(() => {
     if (!active) return;
@@ -338,6 +341,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
         {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>
         {!active && job.status === "failed" && job.error && <small className="prod-reason prod-raw">Why: {String(job.error).slice(0, 400)}</small>}
+        {active && (() => { const slow = scenes.map((scene, index) => ({ scene, index })).filter(({ scene }) => scene.state === "creating" && scene.startedAt && now - scene.startedAt > 5 * 60 * 1000); if (!slow.length) return null; const first = slow[0]; const mins = Math.floor((now - (first.scene.startedAt || now)) / 60000); return <div className="prod-slow"><p><strong>The video engine is taking longer than usual.</strong> Scene {first.index + 1} has been with it for {mins} minutes (normally 1–5). It says: {first.scene.engine === "starting" ? "not started yet" : first.scene.engine === "processing" ? "still running" : "no answer"}. Nothing is wrong with your photo. It is stopped and sent again automatically after {first.scene.engine === "starting" ? 6 : 9} minutes.</p><button type="button" className="prod-stop" disabled={restarting} onClick={async () => { setRestarting(true); try { await fetch(`/api/studio/production/${job.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restart-scene", scene: first.index }) }); } finally { setRestarting(false); } }}>{restarting ? "Sending again…" : "Send again now"}</button></div>; })()}
         {uploadFailed && (() => { const why = explainSend(loadSendLog(job.id), Number(got?.[2]) || scenes.length); return <details className="prod-diagnose"><summary>What happened</summary><p>{why.verdict}</p>{why.facts.length > 0 && <ul>{why.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>}<p>{why.advice}</p></details>; })()}
         {(job.scenes || []).some((scene) => scene.flagged) && <div className="prod-quality"><QualityTab id={job.id} job label="Preview what was flagged"/></div>}
       </div>

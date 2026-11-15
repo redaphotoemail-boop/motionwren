@@ -87,7 +87,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const fresh = await getRenderJob(env, id);
       return NextResponse.json({ instruction: result.text, cents: result.cents, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
     }
-    if (["resume", "retry-scene", "regenerate-scene", "reassemble"].includes(String(body.action))) {
+    if (["resume", "retry-scene", "regenerate-scene", "reassemble", "restart-scene"].includes(String(body.action))) {
       const scene = Number.isInteger(body.scene) ? Number(body.scene) : null;
       const result = await runJobAction(env, row, body.action as JobAction, scene, token, webhook);
       if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
