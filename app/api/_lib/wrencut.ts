@@ -6,6 +6,8 @@
 
 import { composerBinding } from "./composer";
 import { parseRecipe, recipeEffects, recipePhotoGuide, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
+import { SOCIAL_SPECS, buildSocialRecipe, keptActs, socialGuide, socialSpec } from "../../social-templates";
+import { smoothRecipe } from "../../wrencut-fit";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
@@ -25,6 +27,7 @@ async function ensure(env: Env) {
   // Older tables had no engine column.
   await env.DB.prepare(`ALTER TABLE wrencut_templates ADD COLUMN engine TEXT`).run().catch(() => undefined);
   await env.DB.prepare(`ALTER TABLE wrencut_reads ADD COLUMN target TEXT`).run().catch(() => undefined);
+  await env.DB.prepare(`ALTER TABLE wrencut_templates ADD COLUMN social_key TEXT`).run().catch(() => undefined);
   ready = true;
 }
 
@@ -32,21 +35,59 @@ const rowToTemplate = (row: Record<string, unknown>): WrenTemplate | null => {
   const recipe = parseRecipe(row.recipe);
   if (!recipe) return null;
   const preview = Boolean(row.preview);
-  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ramps: recipe.slots.filter((slot) => slot.speed).length, effects: recipeEffects(recipe), guide: recipePhotoGuide(recipe), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
+  const spec = socialSpec(row.social_key);
+  return { id: `wren:${row.id}`, name: String(row.name), ...(row.engine ? { engine: String(row.engine) } : {}), seconds: recipeSeconds(recipe), photos: spec ? spec.acts.length : recipePhotos(recipe), hasPreview: preview, hasMusic: Boolean(recipe.audio?.music), hasEffects: Boolean(recipe.audio?.sfx?.length), ramps: recipe.slots.filter((slot) => slot.speed).length, effects: recipeEffects(recipe), guide: spec ? socialGuide(spec) : recipePhotoGuide(recipe), ...(spec ? { social: { key: spec.key, frame: spec.frame, canvas: spec.canvas, summary: spec.summary } } : {}), ...(preview ? { previewUrl: `/api/wrencut/${row.id}/preview` } : {}), active: Boolean(row.active), createdAt: Number(row.created_at) };
 };
 
 export async function listTemplates(env: Env, onlyActive = false): Promise<WrenTemplate[]> {
   await ensure(env);
+  await installSocialOnce(env);
   const { results } = await env.DB.prepare(`SELECT * FROM wrencut_templates ${onlyActive ? "WHERE active = 1" : ""} ORDER BY number DESC`).all<Record<string, unknown>>();
   return (results || []).map(rowToTemplate).filter((item): item is WrenTemplate => Boolean(item));
 }
 
-export async function getRecipe(env: Env, wrenId: string): Promise<{ recipe: WrenRecipe; name: string } | null> {
+export async function getRecipe(env: Env, wrenId: string): Promise<{ recipe: WrenRecipe; name: string; social: string | null } | null> {
   await ensure(env);
   const id = wrenId.replace(/^wren:/, "");
-  const row = await env.DB.prepare(`SELECT recipe, name FROM wrencut_templates WHERE id = ? AND active = 1`).bind(id).first<{ recipe: string; name: string }>();
+  const row = await env.DB.prepare(`SELECT recipe, name, social_key AS social FROM wrencut_templates WHERE id = ? AND active = 1`).bind(id).first<{ recipe: string; name: string; social: string | null }>();
   const recipe = row ? parseRecipe(row.recipe) : null;
-  return row && recipe ? { recipe, name: row.name } : null;
+  return row && recipe ? { recipe, name: row.name, social: row.social && socialSpec(row.social) ? row.social : null } : null;
+}
+
+/* The recipe a film is edited with: a social template names the photo of every shot (so the story order and the photos
+   it keeps are exact); any other template is spread over the photos as a smooth film. */
+export function recipeFor(wren: { recipe: WrenRecipe; social: string | null }, count: number): WrenRecipe {
+  const spec = wren.social ? socialSpec(wren.social) : null;
+  return spec ? buildSocialRecipe(spec, keptActs(spec, count)) : smoothRecipe(wren.recipe, count);
+}
+
+/* The social-media templates (app/social-templates.ts) are kept as ordinary templates with a social key. Installing adds
+   any that are missing and refreshes the recipe of the others (their name, engine and on/off stay). */
+export async function installSocial(env: Env): Promise<{ added: number; updated: number }> {
+  await ensure(env);
+  const existing = await env.DB.prepare(`SELECT id, social_key AS key, recipe FROM wrencut_templates WHERE social_key IS NOT NULL`).all<{ id: string; key: string; recipe: string }>();
+  const have = new Map((existing.results || []).map((row) => [row.key, row]));
+  let added = 0, updated = 0;
+  for (const spec of SOCIAL_SPECS) {
+    const recipe = JSON.stringify(buildSocialRecipe(spec));
+    const row = have.get(spec.key);
+    if (row) {
+      if (row.recipe !== recipe) { await env.DB.prepare(`UPDATE wrencut_templates SET recipe = ?, preview = 0 WHERE id = ?`).bind(recipe, row.id).run(); await env.BUCKET.delete(previewKey(row.id)).catch(() => undefined); updated += 1; }
+      continue;
+    }
+    const last = await env.DB.prepare(`SELECT MAX(number) AS n FROM wrencut_templates`).first<{ n: number | null }>();
+    await env.DB.prepare(`INSERT INTO wrencut_templates (id, number, name, recipe, preview, active, created_at, social_key) VALUES (?, ?, ?, ?, 0, 1, ?, ?)`).bind(crypto.randomUUID(), (last?.n || 0) + 1, spec.name, recipe, Date.now(), spec.key).run();
+    added += 1;
+  }
+  await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES ('social_templates_installed', '1', ?) ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`).bind(Date.now()).run().catch(() => undefined);
+  return { added, updated };
+}
+
+/* The first time the templates are listed, the social ones are added. After that only the owner's "Update" does it, so a
+   template the owner deleted does not come back by itself. */
+async function installSocialOnce(env: Env) {
+  const done = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'social_templates_installed'`).first<{ value?: string }>().catch(() => null);
+  if (!done) await installSocial(env).catch(() => undefined);
 }
 
 /* Stores a recipe as the next "MotionWren N". Nothing about its source is kept. */

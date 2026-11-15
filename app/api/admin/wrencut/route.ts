@@ -2,7 +2,7 @@
 import { isEngineKey } from "../../../engine-providers";
 import { studioEngine } from "../../../engine-catalog";
 import { jsonError, requireAdmin } from "../../_lib/account";
-import { deleteTemplate, listTemplates, readState, renameTemplate, setActive, setEngine } from "../../_lib/wrencut";
+import { deleteTemplate, installSocial, listTemplates, readState, renameTemplate, setActive, setEngine } from "../../_lib/wrencut";
 
 export async function GET(request: Request) {
   try {
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     await requireAdmin(env);
     const body = await request.json().catch(() => ({})) as { action?: unknown; id?: unknown; active?: unknown; name?: unknown; engine?: unknown };
+    if (body.action === "installSocial") { const result = await installSocial(env); return Response.json({ ...result, templates: await listTemplates(env) }); }
     const id = typeof body.id === "string" ? body.id.replace(/^wren:/, "") : "";
     if (!/^[0-9a-f-]{36}$/.test(id)) return Response.json({ error: "Unknown template." }, { status: 400 });
     if (body.action === "active" && typeof body.active === "boolean") await setActive(env, id, body.active);

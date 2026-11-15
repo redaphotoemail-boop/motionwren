@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
-import { smoothRecipe } from "../../../../wrencut-fit";
 import { cleanFilmTitles } from "../../../../titles";
 import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineUpscales, studioEngine, type StudioResolution } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS } from "../../../../engine-providers";
@@ -10,7 +9,7 @@ import { studioToken } from "../../../_lib/studio-token";
 import { musicPrompt } from "../../../_lib/composer";
 import { makeCutEffects } from "../../../_lib/film-sound";
 import { musicTemplate } from "../../../../music-catalog";
-import { getRecipe } from "../../../_lib/wrencut";
+import { getRecipe, recipeFor } from "../../../_lib/wrencut";
 import { isWrenId, joinTimes, recipeSeconds } from "../../../../wrencut";
 
 /* Owner only (Studio): a NEW film made from clips that were already generated for earlier films. Nothing is sent to a video
@@ -53,7 +52,7 @@ export async function POST(request: Request) {
     const wrenAsked = typeof body.template === "object" && body.template !== null ? (body.template as { wren?: unknown }).wren : undefined;
     const wren = isWrenId(wrenAsked) ? await getRecipe(env, wrenAsked) : null;
     if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
-    const recipe = wren ? smoothRecipe(wren.recipe, count) : null;
+    const recipe = wren ? recipeFor(wren, count) : null;
     const duration = recipe ? recipeSeconds(recipe) : Math.round((count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS) * 1000) / 1000;
     const upscales = engineUpscales(engine, resolution);
     const costCents = upscales ? Math.round(UPSCALE_PER_SECOND * duration * 100) : 0; // only the 1080p upscale of the new film, if any

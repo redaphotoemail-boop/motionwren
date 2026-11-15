@@ -11,16 +11,18 @@ import { useEffect, useState } from "react";
 import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplatePlan, parseLibraryEnabled, type LibraryTemplateFields, type LibraryTemplateId } from "../library-templates";
 import type { WrenTemplate } from "../wrencut";
 import { wrenPlan } from "../wrencut";
+import { socialPlan, socialSpec } from "../social-templates";
+import SocialGuide, { type SocialPhoto } from "./social-guide";
 import { PreviewPlayer } from "../wrencut-player";
 import { engineCost, studioEngine, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 /* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
-export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; hasMusic?: boolean }; texts?: string[] };
+export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; hasMusic?: boolean; social?: string }; texts?: string[] };
 export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
 
-type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void };
+type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void; photos?: SocialPhoto[]; onFrame?: (frame: "vertical" | "horizontal" | "cinematic") => void; onArrange?: (order: number[]) => void };
 
-export default function TemplateStrip({ value, onChange, engine, resolution, photoCount, disabled, onEngine }: Props) {
+export default function TemplateStrip({ value, onChange, engine, resolution, photoCount, disabled, onEngine, photos = [], onFrame, onArrange }: Props) {
   const [enabled, setEnabled] = useState<Record<string, boolean> | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -45,15 +47,25 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
   const chosenWren = wrens.find((item) => item.id === value.id);
   const chosen = templates.find((item) => item.id === value.id);
   const plan = chosen && photoCount >= 2 ? libraryTemplatePlan(engine, resolution, photoCount) : null;
-  const wrenCost = chosenWren && photoCount >= 2 ? (() => { const wp = wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
+  const chosenSocial = chosenWren?.social ? socialSpec(chosenWren.social.key) : null;
+  const wrenCost = chosenWren && photoCount >= 2 ? (() => { const sp = chosenSocial ? socialPlan(chosenSocial, photoCount) : null; const wp = sp ? wrenPlan(engine, resolution, sp.count, sp.seconds, sp.minScene) : wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
   const cost = plan ? engineCost(engine, plan.resolution, plan.sceneSeconds * plan.count) : null;
-  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); onChange({ ...value, id: item.id, wren: { seconds: item.seconds, photos: item.photos, best: item.guide?.best, hasMusic: item.hasMusic }, texts: [] }); };
+  const wrenOf = (item: WrenTemplate) => ({ seconds: item.seconds, photos: item.photos, best: item.guide?.best, hasMusic: item.hasMusic, ...(item.social ? { social: item.social.key } : {}) });
+  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); if (item.social && onFrame) onFrame(item.social.frame); onChange({ ...value, id: item.id, wren: wrenOf(item), texts: [] }); };
   const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined });
   const toggle = () => {
     const on = !value.on;
-    if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else { if (wrens[0].engine && onEngine) onEngine(wrens[0].engine as StudioEngineKey); onChange({ ...value, on, id: wrens[0].id, wren: { seconds: wrens[0].seconds, photos: wrens[0].photos, hasMusic: wrens[0].hasMusic } }); } return; }
+    if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else { const first = wrens.find((item) => !item.social) || wrens[0]; if (first.engine && onEngine) onEngine(first.engine as StudioEngineKey); if (first.social && onFrame) onFrame(first.social.frame); onChange({ ...value, on, id: first.id, wren: { seconds: first.seconds, photos: first.photos, hasMusic: first.hasMusic, ...(first.social ? { social: first.social.key } : {}) } }); } return; }
     onChange({ ...value, on });
   };
+  const renderWren = (item: WrenTemplate) => (
+    <button type="button" role="radio" aria-checked={value.id === item.id} key={item.id} className={value.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => pickWren(item)} disabled={disabled}>
+        <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{Math.round(item.seconds)}<small>s</small></b>}</span>
+        <strong>{item.name}</strong>
+        <small>{item.guide ? `Best with ${item.guide.best} photos · at least ${item.guide.least}` : `${item.photos} photos`}</small>
+        <FxChips items={item.effects} />
+      </button>
+  );
   return <section className="tpl-strip" aria-label="Template">
     <div className="tpl-top">
       <div className="tpl-head"><strong>Use a template</strong><small>Your film is made, then edited into the template. Off by default.</small></div>
@@ -64,17 +76,14 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
         <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{item.durationSeconds}<small>s</small></b>}</span>
         <strong>{item.name}</strong>
         <small>{item.photoSlots} photos · vertical</small>
-      </button>)}{wrens.map((item) => <button type="button" role="radio" aria-checked={value.id === item.id} key={item.id} className={value.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => pickWren(item)} disabled={disabled}>
-        <span className="tpl-poster" aria-hidden>{item.previewUrl ? <video src={item.previewUrl} muted loop playsInline autoPlay preload="metadata"/> : <b>{Math.round(item.seconds)}<small>s</small></b>}</span>
-        <strong>{item.name}</strong>
-        <small>{item.guide ? `Best with ${item.guide.best} photos · at least ${item.guide.least}` : `${item.photos} photos`}</small>
-        <FxChips items={item.effects} />
-      </button>)}</div>
+      </button>)}{wrens.filter((item) => !item.social).map(renderWren)}</div>
+      {wrens.some((item) => item.social) ? <><div className="tpl-section"><strong>Social media</strong><small>Short, on-the-beat edits for Reels, TikTok, Shorts and YouTube. Each tells you what photos it needs, then checks yours.</small></div><div className="tpl-grid" role="radiogroup" aria-label="Social media templates">{wrens.filter((item) => item.social).map(renderWren)}</div></> : null}
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
         {studioEngine(engine).photoMove ? <p className="notice">This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos. Choose another engine above.</p> : null}
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
         {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
+        {chosenSocial ? <SocialGuide spec={chosenSocial} photos={photos} engine={engine} resolution={resolution} onArrange={onArrange} disabled={disabled} /> : null}
       </div>}
       {chosen && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosen.name}</strong> · {chosen.durationSeconds} s vertical · hard cuts · up to {chosen.photoSlots} photos{plan ? ` · uses ${plan.count} of your photos` : ""}{cost !== null ? ` · engine cost about $${cost.toFixed(2)}` : ""}</p>
