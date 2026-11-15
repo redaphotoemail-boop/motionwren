@@ -18,7 +18,7 @@ export async function GET() {
   const ownerIds = await historyOwnerIds(env);
   if (!ownerIds.length) return NextResponse.json({ items: [] });
   const placeholders = ownerIds.map(() => "?").join(",");
-  const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt, (SELECT id FROM render_jobs WHERE history_id = generation_history.id AND kind LIKE 'studio%' LIMIT 1) AS jobId FROM generation_history WHERE owner_id IN (${placeholders}) AND engine != 'delivered' AND id NOT IN (SELECT history_id FROM render_jobs WHERE history_id IS NOT NULL AND kind NOT LIKE 'studio%') ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
+  const result = await env.DB.prepare(`SELECT id, prompt, engine, category, resolution, aspect, duration, cost_cents AS costCents, created_at AS createdAt, (SELECT id FROM render_jobs WHERE history_id = generation_history.id AND kind LIKE 'studio%' LIMIT 1) AS jobId, (SELECT id FROM render_jobs WHERE id = generation_history.id AND kind LIKE 'studio%') AS originJobId, (SELECT created_at FROM render_jobs WHERE (history_id = generation_history.id OR id = generation_history.id) AND kind LIKE 'studio%' LIMIT 1) AS submittedAt FROM generation_history WHERE owner_id IN (${placeholders}) AND engine != 'delivered' AND id NOT IN (SELECT history_id FROM render_jobs WHERE history_id IS NOT NULL AND kind NOT LIKE 'studio%') ORDER BY created_at DESC LIMIT 50`).bind(...ownerIds).all();
   // Which films were made with a template (or from saved clips), so History can say so.
   // Films made before template names were recorded: find the template by its music style (the one thing every film keeps); with a single template, that is it.
   const known = await env.DB.prepare(`SELECT name, recipe FROM wrencut_templates`).all<{ name: string; recipe: string }>().then((r) => (r.results || []).map((row) => { let music = ""; try { music = JSON.parse(row.recipe)?.audio?.music?.prompt || ""; } catch { /* unreadable recipe */ } return { name: row.name, music }; })).catch(() => [] as { name: string; music: string }[]);
@@ -36,7 +36,40 @@ export async function GET() {
       return { template, fromClips: Boolean(manifest?.fromClips) };
     } catch { return { template: null, fromClips: false }; }
   }));
-  return NextResponse.json({ items: result.results.map((item, index) => ({ ...item, template: made[index].template, fromClips: made[index].fromClips, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` })) });
+  // Versions of one film: the first (its history id is the job's id) is the original; each edit saved a later one.
+  type Row = Record<string, unknown> & { id: string; createdAt: number; jobId?: string | null; originJobId?: string | null };
+  const rows = result.results as Row[];
+  const filmOf = new Map<string, string>();
+  const order = new Map<string, string[]>();
+  await Promise.all(rows.map(async (item) => {
+    if (item.jobId) {
+      filmOf.set(item.id, item.jobId);
+      const manifest = await loadManifest(env, item.jobId).catch(() => null);
+      if (manifest?.versions?.length) { order.set(item.jobId, manifest.versions); for (const version of manifest.versions) filmOf.set(version, item.jobId); }
+    }
+    if (item.originJobId) filmOf.set(item.id, item.originJobId);
+  }));
+  const items = rows.map((item, index) => {
+    const film = filmOf.get(item.id) || null;
+    const listed = film ? order.get(film) : undefined;
+    const siblings = film ? rows.filter((other) => filmOf.get(other.id) === film) : [];
+    let version: number | null = null;
+    if (film && siblings.length > 1) {
+      if (item.id === film) version = 0;
+      else if (listed && listed.includes(item.id)) version = listed.indexOf(item.id) + 1;
+      else version = siblings.filter((other) => other.id !== film && other.createdAt <= item.createdAt).length;
+    }
+    return { ...item, filmId: film, version, template: made[index].template, fromClips: made[index].fromClips, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` };
+  });
+  // Keep every film's versions together: the original first, then its edits in order, placed where the film's newest version is.
+  const placed = new Set<string>(); const sorted: typeof items = [];
+  for (const item of items) {
+    if (!item.filmId || item.version === null) { sorted.push(item); continue; }
+    if (placed.has(item.filmId)) continue;
+    placed.add(item.filmId);
+    sorted.push(...items.filter((other) => other.filmId === item.filmId).sort((a, b) => (a.version ?? 0) - (b.version ?? 0)));
+  }
+  return NextResponse.json({ items: sorted });
 }
 
 export async function POST(request: Request) {

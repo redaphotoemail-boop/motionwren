@@ -216,6 +216,8 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
       env.DB.prepare(`UPDATE projects SET status = 'completed', final_history_id = ?, updated_at = ? WHERE render_job_id = ? AND owner_id = ?`).bind(historyId, now, row.id, row.ownerId),
       env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'delivery', 'Your video is ready', 'The finished video is saved in your project history and ready to download.', NULL, ?)`).bind(`${historyId}:ready`, row.ownerId, now),
     ]);
+    // A later version: remember it in order, so History can list the first version as the original and the edits after it.
+    if (existing && manifest) { manifest.versions = [...(manifest.versions || []), historyId]; await saveManifest(env, row.id, manifest).catch(() => undefined); }
     await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", "Your finished video is saved in your MotionWren dashboard and ready to download.");
     // Scene photos and finished scenes are kept (regenerate a scene, re-join) until the retention clean-up.
   } catch (error) {

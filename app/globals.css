@@ -1196,7 +1196,7 @@ p { text-wrap: pretty; }
   .mode-switch::-webkit-scrollbar { display: none; }
   .mode-switch button { flex: 0 0 140px; }
   .default-engine-bar button, .default-engine-ok { margin-left: 0; }
-  .mobile-generation-bar { position: sticky; top: 70px; z-index: 20; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--lift); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+  .mobile-generation-bar { position: static; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--lift); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
   .mobile-generation-bar > div { display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--amber-ink); font-size: 12px; }
   .mobile-generation-bar a { padding: 10px 12px; border-radius: 12px; background: var(--paper); color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 600; }
   .studio-app .mobile-generation-bar select { padding-top: 10px; padding-bottom: 10px; }
@@ -1519,7 +1519,7 @@ button, a, select, .btn { touch-action: manipulation; }
 
 /* Studio: the mode tabs (including History) follow you down the page */
 .studio-app .mode-switch { position: sticky; top: 8px; z-index: 15; box-shadow: 0 8px 24px -16px rgba(20, 22, 26, .35); }
-@media (max-width: 900px) { .studio-app .mode-switch { top: 62px; overflow-x: auto; display: flex; } .studio-app .mode-switch button { flex: none; min-width: 132px; } }
+@media (max-width: 900px) { .studio-app .mode-switch { top: 8px; z-index: 40; overflow-x: auto; display: flex; } .studio-app .mode-switch button { flex: none; min-width: 132px; } }
 
 /* ---------- Finish your film (Studio) and Edit film (History) ---------- */
 .series-finish-panel { max-width: none; display: grid; gap: 8px; }
@@ -1906,3 +1906,5 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .clip-preview video { display: block; width: 100%; max-height: 70vh; background: #000; }
 .clip-preview > div > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; font-size: 13px; }
 .clip-preview button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+.history-meta .history-tag.history-tag-main { background: var(--paper-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-2); }

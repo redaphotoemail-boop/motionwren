@@ -71,6 +71,8 @@ export type ProductionManifest = {
      the scene's own prompt in `inputs` is never edited. round counts re-makes (at most MAX_FIX_ROUNDS). */
   /** A film made from clips of earlier films (Studio "Use saved clips"): no engine was used, so the quality check never re-makes anything. */
   fromClips?: { jobId: string; scene: number }[];
+  /** History ids of the later versions of this film (each edit saves a new one); the first version keeps the job's own id. */
+  versions?: string[];
   fix?: { round: number; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */
     kept?: { scene: number; round: number; file: string; issues: string[] }[]; flagged?: { scene: number; issues: string[] }[] };
