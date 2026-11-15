@@ -24,3 +24,5 @@ protected section below is missing. If you must change one on purpose, Reda has 
 - WrenCut (/admin/wrencut): reference upload/link → template "MotionWren N" (no reference info kept), History/photo preview, show-in-Studio switch, effect chips on every template thumbnail, "Update from a reference" (re-read a template)
 
 - Edit film panel (Studio History → Edit): Scenes and movement, Listing cards, Sound, and "Your clips" (each saved clip viewable, "Edit again with a template" with the choice of which clips to use, no engine cost).
+
+- Cinematic titles (Studio "Finish your film" → Titles, and Edit film → Titles): five fonts, words typed at the start and/or the end; drawn by the composer (composer/titles.mjs, composer/fonts); never read from a reference video.

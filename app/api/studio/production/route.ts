@@ -1,5 +1,6 @@
 import { fitRecipe, pairWhooshRamps } from "../../../wrencut-fit";
 import { storyOrder } from "../../_lib/room-order";
+import { cleanFilmTitles } from "../../../titles";
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, engineCost, engineUpscales, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
@@ -120,6 +121,8 @@ export async function POST(request: Request) {
       manifest.edit.crossfade = 0; manifest.edit.recipe = recipe!;
     }
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
+    const filmTitles = cleanFilmTitles(body.titles);
+    if (filmTitles) manifest.edit.titles = filmTitles;
   }
   const soundIn = body.sound && typeof body.sound === "object" ? body.sound as { voice?: { mode?: unknown; voiceId?: unknown; lines?: unknown; film?: unknown } | null; sfx?: { on?: unknown; prompts?: unknown } | null } : null;
   try {

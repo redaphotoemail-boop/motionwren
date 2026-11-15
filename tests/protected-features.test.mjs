@@ -28,4 +28,5 @@ assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("api/ad
 assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("FxChips"), "The Studio template thumbnails lost their effect chips");
 const editFilm = readFileSync("app/studio/edit-film.tsx", "utf8");
 for (const text of ["Scenes and movement", "Listing cards", "Sound", "Your clips", "Edit again with a template"]) assert.ok(editFilm.includes(text), `The Edit film panel lost: ${text}`);
+assert.ok(readFileSync("app/studio/page.tsx", "utf8").includes("TitlesPanel"), "The Studio finishing panel lost the cinematic titles");
 console.log("protected features: all present");

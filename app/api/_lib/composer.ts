@@ -24,6 +24,8 @@ export type EditSpec = {
   moves?: (string | null)[];
   /** Opening property card and closing agent card to burn in. */
   cards?: import("./production").ListingCards;
+  /** Cinematic titles (typed words) at the start and/or end. */
+  titles?: import("../../titles").FilmTitles;
   /** Photo move 2.0: every move needs real depth (no flat fallback) and travels further. */
   strictDepth?: boolean;
   /** Photo move 3.0: depth in true distances (metres) from a metric model. */

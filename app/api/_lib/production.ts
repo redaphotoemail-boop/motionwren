@@ -82,6 +82,8 @@ export type ProductionManifest = {
     grade?: "warm";
     /** A WrenCut template applied to this film: the recipe of shots, joins, zoom and colour. It decides the film's length. */
     recipe?: import("../../wrencut").WrenRecipe;
+    /** Cinematic titles typed in the Studio: words at the start and/or end, in one of five fonts. */
+    titles?: import("../../titles").FilmTitles;
     /** With a recipe: edit from only these scenes (by index), in this order. */
     useScenes?: number[];
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
