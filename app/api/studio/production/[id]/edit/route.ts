@@ -9,7 +9,7 @@ import { getRecipe } from "../../../../_lib/wrencut";
 import { makeCutEffects } from "../../../../_lib/film-sound";
 import { motionLabel } from "../../../../../motion-label";
 import { ElevenLabsMissingKey, makeSfx, makeVoice } from "../../../../_lib/film-sound";
-import { cleanCards, loadManifest, outputKey, saveManifest } from "../../../../_lib/production";
+import { cleanCards, frameKey, loadManifest, outputKey, saveManifest } from "../../../../_lib/production";
 import { getRenderJob, jobCardsNote, jobScenes, publicJob, runJobAction } from "../../../../_lib/render-jobs";
 import { studioToken } from "../../../../_lib/studio-token";
 
@@ -60,7 +60,7 @@ type Body = {
   music?: unknown;
   voice?: { mode?: unknown; voiceId?: unknown; lines?: unknown; film?: unknown } | null;
   sfx?: { on?: unknown; prompts?: unknown } | null;
-  scenes?: { scene?: unknown; prompt?: unknown; photoMove?: unknown }[];
+  scenes?: { scene?: unknown; prompt?: unknown; photoMove?: unknown; photo?: unknown }[];
   /** Edit the same scenes with a MotionWren template ("wren:…"), from the scenes listed in useScenes (all when left out). */
   template?: unknown;
   useScenes?: unknown;
@@ -154,6 +154,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     for (const item of Array.isArray(body.scenes) ? body.scenes : []) {
       const scene = Number(item.scene);
       if (!redo.has(scene)) continue;
+      if (!manifest.photoMoves?.[scene] && typeof item.photo === "string" && /^data:image\/jpeg;base64,/.test(item.photo) && item.photo.length <= 10_400_000) {
+        // A new photo for this scene: it replaces the stored one, and the engine is handed the new file.
+        const bytes = Uint8Array.from(atob(item.photo.slice(item.photo.indexOf(",") + 1)), (char) => char.charCodeAt(0));
+        const key = manifest.photos?.[scene]?.key || frameKey(id, scene);
+        await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+        if (manifest.photos?.[scene]) manifest.photos[scene].file = undefined;
+      }
       if (manifest.photoMoves?.[scene] && (PHOTO_MOVE_KEYS as readonly string[]).includes(String(item.photoMove))) manifest.photoMoves[scene] = String(item.photoMove);
       else if (typeof item.prompt === "string" && item.prompt.trim().length >= 20 && typeof manifest.inputs[scene].prompt === "string") manifest.inputs[scene] = { ...manifest.inputs[scene], prompt: item.prompt.trim().slice(0, 6000) };
     }

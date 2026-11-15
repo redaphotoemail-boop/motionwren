@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PHOTO_MOVE_KEYS } from "../engine-catalog";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, type FinalSound } from "./final-edit";
 import type { StudioJob } from "./production";
+import { prepareFrameFile } from "./prepare-frame";
 
 /* Edit a finished film from History: its listing cards, music, voiceover,
    sound effects, and the camera movement of any single scene. Everything that
@@ -40,6 +41,8 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const [wrenId, setWrenId] = useState("");
   const [titles, setTitles] = useState<TitlesInput>(emptyTitles());
   const [titlesStart, setTitlesStart] = useState("");
+  const [recreate, setRecreate] = useState<Record<number, boolean>>({});
+  const [newPhotos, setNewPhotos] = useState<Record<number, string>>({});
   const [skipped, setSkipped] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<{ message: string; fix?: string } | null>(null);
@@ -66,7 +69,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const voiceChanged = initialSound ? JSON.stringify([sound.voiceMode, sound.voiceId, sound.voiceMode === "film" ? sound.film : sound.lines]) !== JSON.stringify([initialSound.voiceMode, initialSound.voiceId, initialSound.voiceMode === "film" ? initialSound.film : initialSound.lines]) : false;
   const sfxChanged = initialSound ? JSON.stringify([sound.sfxOn, sound.sfxOn ? sound.sfx : []]) !== JSON.stringify([initialSound.sfxOn, initialSound.sfxOn ? initialSound.sfx : []]) : false;
   const musicChanged = initialSound ? sound.music !== initialSound.music && sound.music !== "keep" : false;
-  const changedScenes = Object.entries(moves).filter(([, value]) => value).map(([index]) => Number(index));
+  const changedScenes = [...new Set([...Object.entries(moves).filter(([, value]) => value).map(([index]) => Number(index)), ...Object.entries(recreate).filter(([, value]) => value).map(([index]) => Number(index))])].sort((a, b) => a - b);
   const cardsChanged = Boolean(data) && (openingOn !== Boolean(data?.cards?.opening) || closingOn !== Boolean(data?.cards?.closing) || title !== (data?.cards?.opening?.title || "") || detail !== (data?.cards?.opening?.detail || "") || message !== (data?.cards?.opening?.message || "") || agent !== (data?.cards?.closing?.name || "") || contact !== (data?.cards?.closing?.contact || "") || (logo !== (hadLogo ? "keep" : "none")));
   const remakeCents = data && !data.photoEngine ? changedScenes.length * data.remakeCostCents : 0;
   const titlesChanged = Boolean(data) && JSON.stringify(titles) !== titlesStart;
@@ -95,7 +98,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
       body.voice = sound.voiceMode === "off" ? { mode: "off" } : { mode: sound.voiceMode, voiceId: sound.voiceId, lines: sound.lines.slice(0, data.count), film: sound.film };
     }
     if (sfxChanged) body.sfx = { on: sound.sfxOn, prompts: sound.sfx.slice(0, data.count) };
-    if (changedScenes.length) body.scenes = changedScenes.map((scene) => data.photoEngine ? { scene, photoMove: moves[scene] } : { scene, prompt: scenePrompt(moves[scene]) });
+    if (changedScenes.length) body.scenes = changedScenes.map((scene) => data.photoEngine ? { scene, photoMove: moves[scene] } : { scene, ...(moves[scene] ? { prompt: scenePrompt(moves[scene]) } : {}), ...(newPhotos[scene] ? { photo: newPhotos[scene] } : {}) });
     try {
       const response = await fetch(`/api/studio/production/${jobId}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string; fix?: string; warning?: string };
@@ -116,9 +119,16 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           {templates.length ? <label className="fin-fields"><span className="label">Edit again with a template</span><select value={wrenId} onChange={(event) => setWrenId(event.target.value)} aria-label="Template"><option value="">Keep the current edit</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
         </FinalSection>}
 
-        <FinalSection title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Choose a new movement for a scene to make it again — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}.`}>
-          <div className="fin-scenes">{data.scenes.map((scene) => <div className="fin-scene" key={scene.index}><img src={scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
-            <select value={moves[scene.index] || ""} onChange={(event) => setMoves((current) => ({ ...current, [scene.index]: event.target.value }))} aria-label={`New movement for scene ${scene.index + 1}`}><option value="">Keep as is</option>{data.photoEngine ? PHOTO_MOVE_KEYS.map((key) => <option key={key} value={key}>{prettyMove(key)}</option>) : motions.filter((item) => item.key !== "custom" && item.key !== "mixed").map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></div>)}</div>
+        <FinalSection title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Turn on Recreate for the scenes you want made again, with the same movement or a new one, and optionally a new photo — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}. Scenes you leave off are kept.`}>
+          <div className="fin-scenes">{data.scenes.map((scene) => { const on = Boolean(recreate[scene.index]) || Boolean(moves[scene.index]); return <div className={on && !data.photoEngine ? "fin-scene fin-scene-open" : "fin-scene"} key={scene.index}><img src={newPhotos[scene.index] || scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
+            {data.photoEngine
+              ? <select value={moves[scene.index] || ""} onChange={(event) => setMoves((current) => ({ ...current, [scene.index]: event.target.value }))} aria-label={`New movement for scene ${scene.index + 1}`}><option value="">Keep as is</option>{PHOTO_MOVE_KEYS.map((key) => <option key={key} value={key}>{prettyMove(key)}</option>)}</select>
+              : <div className="fin-recreate"><span>Recreate</span><button type="button" className={on ? "fin-switch on" : "fin-switch"} role="switch" aria-checked={on} aria-label={`Recreate scene ${scene.index + 1}`} onClick={() => { if (on) { setRecreate((current) => ({ ...current, [scene.index]: false })); setMoves((current) => ({ ...current, [scene.index]: "" })); setNewPhotos((current) => { const next = { ...current }; delete next[scene.index]; return next; }); } else setRecreate((current) => ({ ...current, [scene.index]: true })); }}><i/></button></div>}
+            {on && !data.photoEngine && <div className="fin-scene-more">
+              <select value={moves[scene.index] || ""} onChange={(event) => setMoves((current) => ({ ...current, [scene.index]: event.target.value }))} aria-label={`Movement for scene ${scene.index + 1}`}><option value="">Same movement</option>{motions.filter((item) => item.key !== "custom" && item.key !== "mixed").map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>
+              <label className="fin-photo-pick"><input type="file" accept="image/jpeg,image/png,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; try { const prepared = await prepareFrameFile(file, data.aspect); setNewPhotos((current) => ({ ...current, [scene.index]: prepared })); } catch (error) { setProblem({ message: error instanceof Error ? error.message : "That photo could not be used." }); } }}/><span>{newPhotos[scene.index] ? "Photo replaced · choose another" : "Use a new photo"}</span></label>
+            </div>}
+          </div>; })}</div>
         </FinalSection>
 
         <FinalSection title="Listing cards" note="Turn a card on to add or change it; turn it off to remove it from the film.">
