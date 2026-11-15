@@ -4,6 +4,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr tesseract-ocr-eng ca-certificates curl python3-minimal fonts-liberation2 fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/* \
  && (curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod 755 /usr/local/bin/yt-dlp || echo 'yt-dlp not installed: social links will ask for an upload')
+# Bump this when the editor code must reach production: it changes the image, so a new container is always built from the new code.
+ARG EDITOR_IMAGE=2026-11-15-shot-length
+LABEL editor.image=$EDITOR_IMAGE
 WORKDIR /app
 COPY server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs ./
 COPY fonts ./fonts
