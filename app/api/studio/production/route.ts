@@ -1,4 +1,4 @@
-import { fitRecipe, pairWhooshRamps } from "../../../wrencut-fit";
+import { smoothRecipe } from "../../../wrencut-fit";
 import { storyOrder } from "../../_lib/room-order";
 import { cleanFilmTitles } from "../../../titles";
 import { NextResponse } from "next/server";
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   if (mode === "series" && valid.length < 2) return NextResponse.json({ error: "Add at least two scenes." }, { status: 400 });
   // A template film walks through the home in story order, and the template is tailored to the number of photos given.
   const ordered = wren && (body.template as { storyOrder?: unknown }).storyOrder !== false ? (await storyOrder(env, valid)).scenes : valid;
-  const recipe = wren ? pairWhooshRamps(fitRecipe(wren.recipe, ordered.length)) : null;
+  const recipe = wren ? smoothRecipe(wren.recipe, ordered.length) : null;
 
   // How many scenes and how long each, so the film lands on the chosen length.
   let count = 1, sceneSeconds: number, duration: number, shareSeconds = 0;

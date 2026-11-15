@@ -49,3 +49,21 @@ export function storyOrderIndexes(rooms: (Room | null)[]): number[] {
   const rank = rooms.map((room) => { if (room) last = ROOM_ORDER.indexOf(room); return last; });
   return identity.sort((a, b) => rank[a] - rank[b] || a - b);
 }
+
+export const SMOOTH_DISSOLVE_SECONDS = 0.5;
+
+/* Smooth film: a listing film made from a few photos, not a fast reel. The template keeps its length, music, colour look and
+   titles, but every photo's clip plays as one continuous shot, joined by soft dissolves. No hard cuts to a different moment
+   of the same room (they read as hiccups), no white flashes, no speed ramps, no cut sounds. */
+export function smoothRecipe(recipe: WrenRecipe, photoCount: number): WrenRecipe {
+  const count = Math.max(1, Math.min(12, Math.floor(photoCount) || 1));
+  const total = recipe.slots.length ? Math.round((recipe.slots.reduce((sum, slot) => sum + slot.dur, 0) - recipe.joins.reduce((sum, join) => sum + overlap(join), 0)) * 1000) / 1000 : recipe.duration;
+  if (count < 2) return recipe;
+  const x = SMOOTH_DISSOLVE_SECONDS;
+  const dur = Math.round(((total + (count - 1) * x) / count) * 1000) / 1000;
+  const slots = Array.from({ length: count }, () => ({ dur, zoom: [1, 1] as [number, number], pan: [0, 0] as [number, number] }));
+  const joins = Array.from({ length: count - 1 }, () => ({ type: "dissolve" as const, dur: x }));
+  const { sfx: _sfx, ...audio } = recipe.audio || {};
+  void _sfx;
+  return { ...recipe, slots, joins, duration: total, ...(recipe.audio ? { audio } : {}) };
+}

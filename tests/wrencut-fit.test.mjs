@@ -1,4 +1,4 @@
-import { fitRecipe, pairWhooshRamps, storyOrderIndexes } from "../app/wrencut-fit.ts";
+import { fitRecipe, pairWhooshRamps, smoothRecipe, storyOrderIndexes } from "../app/wrencut-fit.ts";
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { if (ok) { pass += 1; console.log(`PASS ${name}${detail ? ` — ${detail}` : ""}`); } else { fail += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`); } };
 const slots = Array.from({ length: 48 }, (_, i) => ({ dur: 1, zoom: [1, 1.05], pan: [0, 0], ...(i === 10 ? { speed: [[0, 0.5], [1, 2]] } : {}) }));
@@ -20,4 +20,13 @@ check("short shots are left alone", pairWhooshRamps({ ...recipe, slots: slots.ma
 check("rooms are put in story order", storyOrderIndexes(["bedroom", "kitchen", "exterior", "living", "bathroom"]).join() === "2,3,1,0,4");
 check("an unknown room keeps its place", storyOrderIndexes(["kitchen", null, "exterior", "bedroom"]).join() === "2,0,1,3");
 check("mostly unknown keeps the order", storyOrderIndexes([null, null, "kitchen", null]).join() === "0,1,2,3");
+{
+  const big = { version: 1, duration: 10, fps: 24, aspect: "9:16", slots: Array.from({ length: 12 }, (_, i) => ({ dur: 1, zoom: [1, 1.1], pan: [0, 0], ...(i % 3 === 0 ? { speed: [[0, 1], [1, 2]] } : {}) })), joins: Array.from({ length: 11 }, (_, i) => ({ type: i % 4 === 0 ? "flash" : "cut", dur: 0.04 })), audio: { music: { prompt: "x" }, sfx: [{ join: 0, kind: "whoosh", lead: 0, prompt: "w" }] } };
+  const s = smoothRecipe(big, 5);
+  const length = s.slots.reduce((a, b) => a + b.dur, 0) - s.joins.reduce((a, j) => a + j.dur, 0);
+  check("smooth: one shot per photo", s.slots.length === 5);
+  check("smooth: soft dissolves only", s.joins.every((j) => j.type === "dissolve" && j.dur === 0.5));
+  check("smooth: no speed ramps or cut sounds, music kept", s.slots.every((slot) => !slot.speed) && s.audio.sfx === undefined && !!s.audio.music);
+  check("smooth: same length as the template", Math.abs(length - s.duration) < 0.01 && Math.abs(s.duration - (12 - 0.04 * 11 - 0.12 * 0)) < 3, String(s.duration));
+}
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

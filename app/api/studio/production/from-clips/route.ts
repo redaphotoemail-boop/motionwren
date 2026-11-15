@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
-import { fitRecipe, pairWhooshRamps } from "../../../../wrencut-fit";
+import { smoothRecipe } from "../../../../wrencut-fit";
 import { cleanFilmTitles } from "../../../../titles";
 import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineUpscales, studioEngine, type StudioResolution } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS } from "../../../../engine-providers";
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const wrenAsked = typeof body.template === "object" && body.template !== null ? (body.template as { wren?: unknown }).wren : undefined;
     const wren = isWrenId(wrenAsked) ? await getRecipe(env, wrenAsked) : null;
     if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
-    const recipe = wren ? pairWhooshRamps(fitRecipe(wren.recipe, count)) : null;
+    const recipe = wren ? smoothRecipe(wren.recipe, count) : null;
     const duration = recipe ? recipeSeconds(recipe) : Math.round((count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS) * 1000) / 1000;
     const upscales = engineUpscales(engine, resolution);
     const costCents = upscales ? Math.round(UPSCALE_PER_SECOND * duration * 100) : 0; // only the 1080p upscale of the new film, if any
