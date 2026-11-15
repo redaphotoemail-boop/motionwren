@@ -8,7 +8,7 @@ import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } fr
 import { soundLayers } from "./film-sound";
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
-import { CROSSFADE_SECONDS, engineCost, studioEngine, type StudioEngineKey } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineCost, engineUpscales, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
 import { recipeSeconds } from "../../wrencut";
@@ -728,7 +728,12 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     if (manifest.upscale) manifest.upscale = { to: "1080p" };
     if (manifest.edit) manifest.edit = { ...manifest.edit, key: undefined, tries: 0, startedAt: 0, lastError: "", usedBackupJoiner: false };
     const seconds = manifest.sceneSeconds;
-    const extra = Math.round(engineCost(manifest.engine, engineResolution(manifest.engine), seconds) * scenes.length * 100);
+    // A re-made scene costs what the engine really charges: its price at the resolution the film is made at (an upscaled
+    // film is made at 720p), plus the upscale of the whole film again where there is one. (It used to use the engine's
+    // top-resolution price, which overstated every re-make.)
+    const made = nativeResolution(manifest.engine, row.resolution as never);
+    const extra = Math.round((engineCost(manifest.engine, made, seconds) * scenes.length + (engineUpscales(manifest.engine, row.resolution as never) ? UPSCALE_PER_SECOND * row.duration : 0)) * 100);
+    if (manifest.fix) { const history = [...manifest.fix.history]; const last = history[history.length - 1]; if (last) history[history.length - 1] = { ...last, cents: extra }; manifest.fix = { ...manifest.fix, history }; }
     await saveManifest(env, row.id, manifest);
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
     await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1}, about $${(extra / 100).toFixed(2)} more).`);

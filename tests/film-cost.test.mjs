@@ -9,4 +9,7 @@ check("library music is free", filmCostLines({ ...base, music: "library" }).line
 const b = filmCostLines({ ...base, voiceChars: 1000, sfxCount: 4, sfxSeconds: 20, reviewCents: 3.5 });
 check("voice, sound effects and review add lines", ["Voiceover", "Sound effects", "Quality check"].every((x) => b.lines.some((l) => l.label === x)));
 check("unedited has only the engine", filmCostLines({ ...base, edited: false, music: "none" }).lines.length === 1);
+const r = filmCostLines({ ...base, engineCents: 70, remakeCents: 216, remakeRounds: 2 });
+check("re-makes get their own line", r.lines[0].label === "Video scenes (first attempt)" && r.lines[1].label === "Automatic re-makes" && r.lines[1].cents === 216);
+check("total includes the re-makes", r.totalCents === r.lines.reduce((s, l) => s + l.cents, 0) && r.totalCents > 286);
 process.exit(fail ? 1 : 0);

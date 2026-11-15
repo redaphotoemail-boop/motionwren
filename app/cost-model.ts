@@ -68,14 +68,15 @@ export const BREAKDOWN_RATES = {
 
 export type FilmCostInput = {
   engineName: string; engineCents: number; scenes: number; sceneSeconds: number; resolution: string; upscaled: boolean;
-  duration: number; edited: boolean;
+  duration: number; edited: boolean; remakeCents?: number; remakeRounds?: number;
   music: "library" | "generated" | "none"; voiceChars: number; sfxCount: number; sfxSeconds: number; reviewCents: number;
 };
 export type CostLine = { label: string; detail: string; cents: number; estimate: boolean };
 
 export function filmCostLines(input: FilmCostInput): { lines: CostLine[]; totalCents: number } {
   const lines: CostLine[] = [];
-  lines.push({ label: "Video scenes", detail: `${input.engineName} · ${input.scenes} scene${input.scenes === 1 ? "" : "s"} × ${input.sceneSeconds} s${input.upscaled ? " · upscaled to 1080p (included)" : ""}${input.resolution ? ` · ${input.resolution}` : ""}`, cents: Math.max(0, Math.round(input.engineCents || 0)), estimate: false });
+  lines.push({ label: (input.remakeCents || 0) > 0 ? "Video scenes (first attempt)" : "Video scenes", detail: `${input.engineName} · ${input.scenes} scene${input.scenes === 1 ? "" : "s"} × ${input.sceneSeconds} s${input.upscaled ? " · upscaled to 1080p (included)" : ""}${input.resolution ? ` · ${input.resolution}` : ""}`, cents: Math.max(0, Math.round(input.engineCents || 0)), estimate: false });
+  if ((input.remakeCents || 0) > 0) lines.push({ label: "Automatic re-makes", detail: `The quality check sent flagged scenes back to the engine · ${input.remakeRounds || 1} ${input.remakeRounds === 1 ? "round" : "rounds"}`, cents: Math.round(input.remakeCents || 0), estimate: false });
   if (input.edited) {
     lines.push({ label: "Final edit", detail: "Joining, transitions, titles and finishing on our server", cents: Math.round(COST_RATES.editPerFilm * 100), estimate: true });
     if (input.music === "generated") lines.push({ label: "Music", detail: "Made for this film", cents: musicCentsForSeconds(input.duration + COST_RATES.musicExtraSeconds), estimate: true });

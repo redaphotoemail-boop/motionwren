@@ -69,7 +69,7 @@ export type ProductionManifest = {
   aiReview?: import("./film-review").AiReview;
   /* The fix loop: a flagged scene is made again with an ADDED instruction (notes[scene]);
      the scene's own prompt in `inputs` is never edited. round counts re-makes (at most MAX_FIX_ROUNDS). */
-  fix?: { round: number; notes: string[]; history: { round: number; scenes: number[]; why: string }[];
+  fix?: { round: number; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */
     kept?: { scene: number; round: number; file: string; issues: string[] }[]; flagged?: { scene: number; issues: string[] }[] };
   upscale?: { to: "1080p"; stored?: boolean; predictionId?: string; startedAt?: number; tries?: number; done?: boolean; skipped?: string; lastError?: string };

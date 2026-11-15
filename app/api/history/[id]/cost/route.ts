@@ -28,8 +28,15 @@ export async function GET(request: Request) {
     const sfxCount = edit?.sound?.sfx?.tracks.filter(Boolean).length || 0;
     const review = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(`review-cost:${job.id}`).first<{ value?: string }>();
     const music = !edited || edit?.sound?.noMusic || !edit?.music ? "none" : edit.music.source === "library" ? "library" : "generated";
+    // Automatic quality re-makes are billed again: show them on their own line. Rounds recorded before the price fix have no amount;
+    // they were recorded at the engine's top-resolution price.
+    const sceneSecs = manifest?.sceneSeconds || history.duration;
+    const oldRate = engine.pricePerSecond[engine.resolutions.includes("1080p") ? "1080p" : engine.resolutions[engine.resolutions.length - 1]] || 0;
+    const remakeCents = (manifest?.fix?.history || []).reduce((sum, round) => sum + (round.cents ?? Math.round(oldRate * sceneSecs * round.scenes.length * 100)), 0);
+    const remakeRounds = manifest?.fix?.history.length || 0;
     const { lines, totalCents } = filmCostLines({
-      engineName: engine.name, engineCents: job.costCents, scenes: manifest?.inputs.length || 1, sceneSeconds: manifest?.sceneSeconds || history.duration, resolution: history.resolution,
+      remakeCents: Math.min(remakeCents, job.costCents), remakeRounds,
+      engineName: engine.name, engineCents: Math.max(0, job.costCents - Math.min(remakeCents, job.costCents)), scenes: manifest?.inputs.length || 1, sceneSeconds: manifest?.sceneSeconds || history.duration, resolution: history.resolution,
       upscaled: Boolean(manifest?.upscale), duration: history.duration, edited, music, voiceChars, sfxCount, sfxSeconds: sfxCount * Math.min(manifest?.sceneSeconds || 5, 12), reviewCents: Number(review?.value) || 0,
     });
     return NextResponse.json({ lines, totalCents });
