@@ -1,5 +1,6 @@
 "use client";
 
+import { frameCrop } from "../frame-crop";
 import SaveVideo from "../components/save-video";
 import { templateMotions } from "../film-motion";
 import { videoRef } from "../video-ref";
@@ -218,9 +219,7 @@ async function prepareFrame(source: string, aspect: AspectKey, _engine: EngineKe
   const original = image.naturalWidth / image.naturalHeight;
   // Already the right shape and small enough for the server: send it untouched (no crop, no re-encode).
   if (high && Math.abs(original / target - 1) < 0.01 && /^data:image\/(jpeg|png|webp);/.test(source) && source.length <= 10_400_000) return source;
-  let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
-  if (original > target) { sw = image.naturalHeight * target; sx = (image.naturalWidth - sw) / 2; }
-  else { sh = image.naturalWidth / target; sy = (image.naturalHeight - sh) / 2; }
+  const { sx, sy, sw, sh } = frameCrop(image.naturalWidth, image.naturalHeight, target);
   const canvas = document.createElement("canvas"); canvas.width = Math.min(high ? 6144 : 1280, Math.round(sw)); canvas.height = Math.round(canvas.width / target);
   const context = canvas.getContext("2d"); if (!context) throw new Error("The selected frame could not be prepared.");
   context.imageSmoothingQuality = "high"; context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
