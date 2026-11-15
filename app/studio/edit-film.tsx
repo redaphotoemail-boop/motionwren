@@ -3,6 +3,7 @@
 import TitlesPanel, { emptyTitles, hasTitles, titlesFrom, titlesPayload, type TitlesInput } from "./titles-panel";
 import { useEffect, useMemo, useState } from "react";
 import { PHOTO_MOVE_KEYS } from "../engine-catalog";
+import Variants from "./variants";
 import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, type FinalSound } from "./final-edit";
 import type { StudioJob } from "./production";
 import { prepareFrameFile } from "./prepare-frame";
@@ -117,6 +118,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     <div className="fin-sheet">
       <header className="fin-sheet-head"><div><span className="label">EDIT FILM</span><h2>Change your finished film</h2><p>Scenes you leave alone are kept as they are and cost nothing again.</p></div><button type="button" className="fin-close" onClick={onClose} disabled={busy} aria-label="Close">×</button></header>
       {loadError ? <div className="fin-problem">{loadError}</div> : !data ? <p className="fin-quiet">Opening your film…</p> : <div className="fin-sheet-body">
+        {data.count > 1 && !data.photoEngine && <Variants jobId={jobId} count={data.count} onStarted={onStarted}/>}
         {data.count > 1 && !data.photoEngine && <FinalSection title="Your clips" note="Each scene as the engine made it. Edit them again with a template at no engine cost; untick a clip to leave it out.">
           <div className="fin-scenes">{data.scenes.map((scene) => <div className="fin-scene" key={`clip-${scene.index}`}>{scene.clip ? <video src={scene.clip} poster={scene.photo} controls muted playsInline preload="none" aria-label={`Clip ${scene.index + 1}`}/> : <img src={scene.photo} alt={`Scene ${scene.index + 1}`}/>}<div><strong>Clip {scene.index + 1}</strong><small>{scene.clip ? "Saved" : "Not saved"}</small></div>
             {wrenId ? <label className="fin-use"><input type="checkbox" checked={!skipped.includes(scene.index)} onChange={(event) => setSkipped((current) => event.target.checked ? current.filter((value) => value !== scene.index) : [...current, scene.index])}/> Use</label> : null}</div>)}</div>
