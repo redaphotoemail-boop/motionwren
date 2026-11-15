@@ -16,6 +16,17 @@ export async function GET(request: Request, context: { params: Promise<{ jobId: 
     try { allowed = (await requireAdmin(env)).id === row.ownerId; } catch { allowed = false; }
   }
   if (!allowed) return Response.json({ error: "Not found." }, { status: 404 });
+  // Video needs byte ranges (phones will not play a clip without them).
+  const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.get("range") || "");
+  if (range && file.endsWith(".mp4")) {
+    const head = await env.BUCKET.head(`render-jobs/${jobId}/${file}`);
+    if (!head) return Response.json({ error: "Not found." }, { status: 404 });
+    const start = Math.min(Number(range[1]), Math.max(0, head.size - 1));
+    const end = Math.min(range[2] ? Number(range[2]) : head.size - 1, head.size - 1);
+    const part = await env.BUCKET.get(`render-jobs/${jobId}/${file}`, { range: { offset: start, length: end - start + 1 } });
+    if (!part?.body) return Response.json({ error: "Not found." }, { status: 404 });
+    return new Response(part.body, { status: 206, headers: { "Content-Type": "video/mp4", "Content-Range": `bytes ${start}-${end}/${head.size}`, "Content-Length": String(end - start + 1), "Accept-Ranges": "bytes", "Cache-Control": "private, max-age=300" } });
+  }
   const object = await env.BUCKET.get(`render-jobs/${jobId}/${file}`);
   if (!object?.body) return Response.json({ error: "Not found." }, { status: 404 });
   return new Response(object.body, { headers: { "Content-Type": object.httpMetadata?.contentType || (file.endsWith(".mp4") ? "video/mp4" : file.endsWith(".mp3") ? "audio/mpeg" : "image/jpeg"), "Cache-Control": "private, max-age=3600" } });

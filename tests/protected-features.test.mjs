@@ -26,4 +26,6 @@ const wrencut = readFileSync("app/admin/wrencut/page.tsx", "utf8");
 for (const text of ["Bring a reference", "Make the preview", "Show in Studio", "Update from a reference"]) assert.ok(wrencut.includes(text), `WrenCut lost: ${text}`);
 assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("api/admin/wrencut"), "The Studio template grid lost the WrenCut templates");
 assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("FxChips"), "The Studio template thumbnails lost their effect chips");
+const editFilm = readFileSync("app/studio/edit-film.tsx", "utf8");
+for (const text of ["Scenes and movement", "Listing cards", "Sound", "Your clips", "Edit again with a template"]) assert.ok(editFilm.includes(text), `The Edit film panel lost: ${text}`);
 console.log("protected features: all present");

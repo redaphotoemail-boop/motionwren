@@ -436,9 +436,13 @@ const slowSingle = (manifest: ProductionManifest) => manifest.inputs.length === 
 async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, origin: string) {
   const count = manifest.inputs.length;
   const { segments } = alignedScenes(row, count);
-  const moves = segments.map((_, index) => manifest.photoMoves?.[index] || null);
-  const speeds = segments.map((_, index) => !moves[index] && isSidewaysMove(manifest.inputs[index]?.prompt) ? SIDEWAYS_SPEED : 1);
-  const clips = segments.map((url, index) => manifest.saved[index] && !moves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
+  const allMoves = segments.map((_, index) => manifest.photoMoves?.[index] || null);
+  const allSpeeds = segments.map((_, index) => !allMoves[index] && isSidewaysMove(manifest.inputs[index]?.prompt) ? SIDEWAYS_SPEED : 1);
+  const allClips = segments.map((url, index) => manifest.saved[index] && !allMoves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
+  // A template film can be edited from only some of its clips (chosen when it is edited again).
+  const only = manifest.edit?.recipe && manifest.edit.useScenes?.length ? [...new Set(manifest.edit.useScenes)].filter((index) => Number.isInteger(index) && index >= 0 && index < count) : [];
+  const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : list;
+  const moves = pick(allMoves), speeds = pick(allSpeeds), clips = pick(allClips);
   if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   let edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
