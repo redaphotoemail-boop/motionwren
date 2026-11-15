@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
-import { advanceRenderJob, beginQueue, getRenderJob, jobCardsNote, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
+import { advanceRenderJob, beginQueue, fixSceneByHand, getRenderJob, jobCardsNote, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
 import { MAX_FRAME_BYTES, frameKey, framesPresent, loadManifest, storeFrameBytes } from "../../../_lib/production";
 import type { JobAction } from "../../../_lib/scene-queue";
 import { studioToken } from "../../../_lib/studio-token";
@@ -80,6 +80,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
       const fresh = result.id ? await getRenderJob(env, result.id) : null;
       return NextResponse.json({ replaced: id, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
+    }
+    if (body.action === "fix-scene") {
+      const result = await fixSceneByHand(env, row, Number.isInteger(body.scene) ? Number(body.scene) : -1, token, webhook);
+      if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
+      const fresh = await getRenderJob(env, id);
+      return NextResponse.json({ instruction: result.text, cents: result.cents, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
     }
     if (["resume", "retry-scene", "regenerate-scene", "reassemble"].includes(String(body.action))) {
       const scene = Number.isInteger(body.scene) ? Number(body.scene) : null;

@@ -50,4 +50,6 @@ const prodLib = readFileSync("app/api/_lib/production.ts", "utf8");
 assert.ok(/MAX_FIX_ROUNDS = 2/.test(prodLib) && prodLib.includes("qualityState"), "The quality loop lost its three-attempt limit or its status");
 assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("Quality problem not fixed"), "The unresolved-quality alert is gone");
 assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("qualityState"), "History stopped reporting each film's quality status");
+for (const text of ["Fix this scene", "attempts · see what was changed", "frames looked at"]) assert.ok(qualityTab.includes(text), `The Quality tab lost: ${text}`);
+assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("fixSceneByHand") && readFileSync("app/api/studio/production/[id]/route.ts", "utf8").includes("fix-scene"), "The Fix this scene action is gone");
 console.log("protected features: all present");

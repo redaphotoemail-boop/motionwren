@@ -58,7 +58,7 @@ const QUESTION = `This is a frame from a real-estate promo video that was made f
    frame is compared with that description. Camera movement, cropping,
    lighting, and sharpness are not problems — only things the video added,
    removed, or changed versus the photograph. */
-const REALITY_DESCRIBE = `Describe this real-estate photograph in one short paragraph: the room and its layout, the furniture, fixtures, finishes, windows and doors, and what is visible outside the windows. List only what is actually visible, under 60 words.`;
+const REALITY_DESCRIBE = `Describe this real-estate photograph in one short paragraph: the room and its layout, the furniture, fixtures, finishes, windows and doors, and what is visible outside the windows. List only what is actually visible, under 60 words. State exactly where each parked car or vehicle is (for example: silver car on the left of the driveway).`;
 const REALITY_CHECK = (inventory: string) => `This is a frame from a video made from the photograph described below. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Compare the frame with the description and flag it ONLY if something in the frame was added, removed, or changed versus the photograph: furniture, fixtures, finishes, walls, windows, doors, layout, or anything outside the windows. Pay special attention to cars and other vehicles: if a car or vehicle is not where the photograph has it, or has turned, rolled or moved, flag it and say "car moved". Do not flag camera movement, cropping, lighting, or sharpness. Answer with exactly one line: "OK" if nothing was added, removed, or changed, or "ISSUE: <what changed, under 15 words>". Description: ${inventory}`;
 
 const clean = (text: string) => text.replace(/[^\p{L}\p{N} ,.;:'()%/-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 140);
@@ -162,7 +162,8 @@ export async function reviewStills(env: unknown, stills: Uint8Array[], times: nu
   try {
     let findings: Finding[] = [];
     let costCents = 0;
-    if (useCf) { findings = await reviewWithCloudflare(env, stills, times); costCents += CF_REVIEW_CENTS; }
+    const scale = Math.max(1, stills.length / 4); // the cost model is per four frames
+    if (useCf) { findings = await reviewWithCloudflare(env, stills, times); costCents += CF_REVIEW_CENTS * scale; }
     if (useClaude && (!useCf || findings.length)) { findings = await reviewWithClaude(stills, times); costCents += CLAUDE_REVIEW_CENTS; } // Claude double-checks what Cloudflare flagged
     let realityFindings = 0;
     let realityError: string | undefined;
@@ -170,7 +171,7 @@ export async function reviewStills(env: unknown, stills: Uint8Array[], times: nu
     if (pairs > 0) {
       try {
         let reality: Finding[] = [];
-        if (useCf) { reality = await reviewRealityWithCloudflare(env, sources || [], stills, times); costCents += 2 * CF_REVIEW_CENTS; }
+        if (useCf) { reality = await reviewRealityWithCloudflare(env, sources || [], stills, times); costCents += 2 * CF_REVIEW_CENTS * scale; }
         if (useClaude && (!useCf || reality.length)) { reality = await reviewRealityWithClaude(sources || [], stills, times); costCents += CLAUDE_REVIEW_CENTS; } // Claude double-checks what Cloudflare flagged
         findings = [...findings, ...reality];
         realityFindings = reality.length;

@@ -10,6 +10,7 @@ import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./musi
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { fixEngine } from "../../fix-engine";
+import { fixInstruction } from "../../fix-notes";
 import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
 import { recipeSeconds } from "../../wrencut";
@@ -495,7 +496,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const layers = soundLayers(edit.sound, (file) => jobFileLink(origin, row, file), share, crossfade, duration);
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "", ...(edit.music && !edit.music.saved ? { music: { ...edit.music, seconds: duration } } : {}) };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, ...(cut ? { anchorY: 0.75 } : {}), duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(9, Math.max(4, (clips as string[]).length)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, ...(cut ? { anchorY: 0.75 } : {}), duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(24, Math.max(4, (clips as string[]).length * 3)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -681,6 +682,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       }
       const review = await reviewStills(env, stills, times, use, sources);
       manifest.aiReview = review;
+      manifest.checkedFrames = Array.from({ length: count }, (_, scene) => times.filter((at) => sceneAt(at) === scene).length);
       if (review.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${row.id}`, String(review.costCents), Date.now()).run().catch(() => undefined);
       if (review.status === "flag") {
         alertText += ` ${review.findings.map((item) => `At ${item.at} s: ${item.issue}.`).join(" ")}`;
@@ -693,13 +695,17 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     const scenes = [...reasons.keys()].filter((scene) => !manifest.photoMoves?.[scene]);
     if (scenes.length && round < MAX_FIX_ROUNDS && await fixSetting(env)) {
       const notes = [...(manifest.fix?.notes || Array(count).fill(""))];
-      for (const scene of scenes) notes[scene] = [...new Set(reasons.get(scene))].join(" ").slice(0, 700);
-      manifest.fix = { round: round + 1, notes, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400) }] };
+      const sent = [...(manifest.fix?.sent || [])];
+      for (const scene of scenes) {
+        notes[scene] = fixInstruction(issues.get(scene) || [], undefined, issues.get(scene)?.length ? "" : [...new Set(reasons.get(scene))].join(" ")).slice(0, 1500);
+        sent.push({ round: round + 1, scene, text: notes[scene], by: "check" });
+      }
+      manifest.fix = { ...manifest.fix, round: round + 1, notes, sent, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400) }] };
       if (await remakeScenes(env, row, manifest, scenes, issues)) return true;
     }
     // Delivered as it is: remember which scenes still have a flag, so they can be previewed in History → Quality.
     if (issues.size) {
-      manifest.fix = { round, notes: manifest.fix?.notes || Array(count).fill(""), history: manifest.fix?.history || [], kept: manifest.fix?.kept, flagged: [...issues.entries()].map(([scene, list]) => ({ scene, issues: list })) };
+      manifest.fix = { ...manifest.fix, round, notes: manifest.fix?.notes || Array(count).fill(""), history: manifest.fix?.history || [], kept: manifest.fix?.kept, flagged: [...issues.entries()].map(([scene, list]) => ({ scene, issues: list })) };
       await saveManifest(env, row.id, manifest);
     }
     if (alertText.trim()) {
@@ -771,9 +777,46 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     if (manifest.fix) { const history = [...manifest.fix.history]; const last = history[history.length - 1]; if (last) history[history.length - 1] = { ...last, cents: extra }; manifest.fix = { ...manifest.fix, history }; }
     await saveManifest(env, row.id, manifest);
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
-    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (attempt ${manifest.fix?.round! + 1} of ${MAX_FIX_ROUNDS + 1} on ${studioEngine(manifest.engine).name}, about $${(extra / 100).toFixed(2)} more). Open History, find ${videoRef(row.id)} and tap Quality to preview what was flagged.`);
+    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (${(manifest.fix?.round || 1) > MAX_FIX_ROUNDS ? "fixed by hand" : `attempt ${(manifest.fix?.round || 1) + 1} of ${MAX_FIX_ROUNDS + 1}`} on ${studioEngine(manifest.engine).name}, about $${(extra / 100).toFixed(2)} more). Open History, find ${videoRef(row.id)} and tap Quality to preview what was flagged.`);
     return true;
   } finally { await releaseLease(env, `job-lock:${row.id}`, lease); }
+}
+
+/* The engine and the price of the owner's "Fix this scene": a hand-requested fix always goes to the engine that has worked best (Wan 3.0). */
+export function fixEstimate(manifest: ProductionManifest, row: { resolution: string; duration: number }) {
+  const target = fixEngine((manifest.fix?.firstEngine as StudioEngineKey | undefined) || manifest.engine, Math.max((manifest.fix?.round || 0) + 1, MAX_FIX_ROUNDS + 1));
+  const made = nativeResolution(target, row.resolution as never);
+  const cents = Math.round((engineCost(target, made, manifest.sceneSeconds) + (engineUpscales(target, row.resolution as never) ? UPSCALE_PER_SECOND * row.duration : 0)) * 100);
+  return { engine: target, cents };
+}
+
+/* "Fix this scene": the owner taps it on one scene of a finished film. A full instruction is written from everything the check
+   recorded about that scene plus the standing camera-only rules, then only that scene is made again; the film is joined again and the
+   result lands in History as a new version (the first version stays). Checked once more afterwards, but never re-made automatically again. */
+export async function fixSceneByHand(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, scene: number, token: string, webhookUrl?: string): Promise<{ ok: true; text: string; cents: number } | { error: string }> {
+  if (!QUEUE_KINDS.has(row.kind) || row.kind === "ad-series") return { error: "This kind of video cannot be fixed scene by scene." };
+  if (row.status !== "succeeded") return { error: row.status === "failed" ? "Use Resume or Start over for a stopped video." : "This video is still being made. Try again when it is finished." };
+  const loaded = await loadManifest(env, row.id);
+  if (!loaded) return { error: "This video was made before it could be fixed scene by scene." };
+  const manifest = normalizeManifest(loaded) as Required<ProductionManifest>;
+  const count = manifest.inputs.length;
+  if (!Number.isInteger(scene) || scene < 0 || scene >= count) return { error: "Choose a scene." };
+  if (manifest.photoMoves?.[scene]) return { error: "This scene is a photo move made by the editor, not by a video engine, so there is nothing to make again." };
+  if (manifest.fromClips) return { error: "This film was made from saved clips." };
+  if (!manifest.photos?.[scene]?.link) return { error: "This scene's photo is no longer stored." };
+  const flagged = manifest.fix?.flagged?.find((item) => item.scene === scene)?.issues;
+  const lastKept = [...(manifest.fix?.kept || [])].reverse().find((item) => item.scene === scene)?.issues;
+  const issues = flagged?.length ? flagged : lastKept || [];
+  const text = fixInstruction(issues, undefined, "This fix was asked for by hand, so check every point above with extra care.").slice(0, 1500);
+  const round = Math.max((manifest.fix?.round || 0) + 1, MAX_FIX_ROUNDS + 1); // past the automatic limit: the check will not make it again by itself
+  const notes = [...(manifest.fix?.notes || Array(count).fill(""))];
+  notes[scene] = text;
+  const { cents } = fixEstimate(manifest, row);
+  manifest.fix = { ...manifest.fix, round, notes, history: [...(manifest.fix?.history || []), { round, scenes: [scene], why: `Fix this scene (asked by hand): ${issues.join(" ").slice(0, 300)}` }], sent: [...(manifest.fix?.sent || []), { round, scene, text, by: "you" }] };
+  if (!await remakeScenes(env, row, manifest, [scene], new Map([[scene, issues]]))) return { error: "This video is being updated right now. Try again in a few seconds." };
+  const fresh = await getRenderJob(env, row.id);
+  if (fresh) await advanceRenderJob(env, fresh, token, webhookUrl);
+  return { ok: true, text, cents };
 }
 
 async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, key: string, ctx?: FinishContext) {

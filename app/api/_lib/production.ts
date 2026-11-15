@@ -67,6 +67,8 @@ export type ProductionManifest = {
      skipped: why the 720p film was kept instead. */
   qc?: import("./composer").FilmCheck;
   aiReview?: import("./film-review").AiReview;
+  /** How many frames of each scene the AI review looked at in the last check (so a clean scene still shows that it was checked). */
+  checkedFrames?: number[];
   /* The fix loop: a flagged scene is made again with an ADDED instruction (notes[scene]);
      the scene's own prompt in `inputs` is never edited. round counts re-makes (at most MAX_FIX_ROUNDS). */
   /** A film made from clips of earlier films (Studio "Use saved clips"): no engine was used, so the quality check never re-makes anything. */
@@ -76,6 +78,8 @@ export type ProductionManifest = {
   /** "Original photo shape": the film is made at this shape (width ÷ height), the shape of the photos themselves. */
   frame?: { ratio: number };
   fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string }[];
+    /** The exact instruction written for each re-made scene, and who asked for it (the automatic check, or the owner's "Fix this scene" tap). */
+    sent?: { round: number; scene: number; text: string; by: "check" | "you"; engine?: string }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */
     kept?: { scene: number; round: number; file: string; issues: string[] }[]; flagged?: { scene: number; issues: string[] }[] };
   upscale?: { to: "1080p"; stored?: boolean; predictionId?: string; startedAt?: number; tries?: number; done?: boolean; skipped?: string; lastError?: string };
