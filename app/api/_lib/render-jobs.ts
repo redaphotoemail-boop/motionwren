@@ -294,11 +294,13 @@ export async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, r
     }
     return;
   }
-  await env.DB.batch([
+  const failed = await env.DB.batch([
     env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND status NOT IN ('succeeded','failed')`).bind(message.slice(0, 1000), now, row.id),
     env.DB.prepare(`UPDATE projects SET status = 'failed', updated_at = ? WHERE render_job_id = ? AND owner_id = ? AND status != 'completed'`).bind(now, row.id, row.ownerId),
     env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'generation_failed', 'Video processing stopped', ?, NULL, ?)`).bind(`${row.id}:failed`, row.ownerId, customerSafeError(message).slice(0, 500), now),
   ]);
+  // Photos that never arrived: the owner is told by email too, in case they left the page and are not looking at it.
+  if (failed[0]?.meta?.changes && row.kind.startsWith("studio-") && /did not finish sending/i.test(message)) await sendAccountEmail(env, row.ownerId, "Your film was not started: its photos did not arrive", `${message}\n\nOpen MotionWren Studio on the phone you sent them from and choose Send again, or start the film again. Nothing was charged.`);
   const project = await env.DB.prepare(`SELECT id FROM projects WHERE render_job_id = ? AND owner_id = ? LIMIT 1`).bind(row.id, row.ownerId).first<{ id: string }>();
   if (project) {
     const reserved = await env.DB.prepare(`SELECT id FROM credit_ledger WHERE project_id = ? AND owner_id = ? AND type = 'project_reservation' LIMIT 1`).bind(project.id, row.ownerId).first();

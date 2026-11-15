@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
 import { advanceRenderJob, beginQueue, getRenderJob, jobCardsNote, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
-import { MAX_FRAME_BYTES, framesPresent, loadManifest, storeFrameBytes } from "../../../_lib/production";
+import { MAX_FRAME_BYTES, frameKey, framesPresent, loadManifest, storeFrameBytes } from "../../../_lib/production";
 import type { JobAction } from "../../../_lib/scene-queue";
 import { studioToken } from "../../../_lib/studio-token";
 
 /* Steps 2 and 3 of a Studio video (see ../route.ts), and picking a stopped
    one back up:
-   PUT  ?scene=N  — one scene's prepared photo (raw JPEG body).
-   POST           — start: every photo is in, so the video joins the queue.
+   PUT  ?scene=N  — one scene's prepared photo (raw JPEG body). With an x-photo-sha256 header the photo is checked
+                    against it, then read back from storage, and the reply says how many bytes are really stored.
+   GET  ?photos=1 — which photos the server really holds (their sizes), so a page can send only what is missing.
+   POST           — start: every photo is in, so the video joins the queue. With { photos: [{ bytes, sha256 }] } each
+                    stored photo's size is checked against what the page sent, and the reply says how many were verified.
    POST {"action": "resume" | "retry-scene" | "regenerate-scene" | "reassemble", "scene"?: n}
                   — act on a video through the same queue (never duplicates engine jobs).
    POST {"action": "start-over"} — a new run with the same photos and settings. */
@@ -35,10 +38,30 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     if (!/^image\/(jpeg|png|webp)$/.test(contentType)) return NextResponse.json({ error: "Send the scene's photo as a JPEG, PNG or WebP." }, { status: 415 });
     const size = Number(request.headers.get("content-length")) || 0;
     if (size > MAX_FRAME_BYTES) return NextResponse.json({ error: "This photo is too large." }, { status: 413 });
-    await storeFrameBytes(env, id, scene - 1, await request.arrayBuffer(), contentType);
+    const bytes = await request.arrayBuffer();
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const claimed = (request.headers.get("x-photo-sha256") || "").toLowerCase();
+    if (claimed && claimed !== digest) return NextResponse.json({ error: "The photo arrived damaged. Sending it again." }, { status: 422 });
+    await storeFrameBytes(env, id, scene - 1, bytes, contentType);
+    // Read it back: only a photo that is really stored at its full size counts as received.
+    const stored = await env.BUCKET.head(frameKey(id, scene - 1));
+    if (!stored || stored.size !== bytes.byteLength) return NextResponse.json({ error: "The photo could not be stored. Sending it again." }, { status: 502 });
     // Sending photos counts as progress, so the server waits for the rest.
     await env.DB.prepare(`UPDATE render_jobs SET updated_at = ? WHERE id = ? AND status = 'starting'`).bind(Date.now(), id).run();
-    return NextResponse.json({ ok: true, scene });
+    return NextResponse.json({ ok: true, scene, bytes: stored.size, sha256: digest });
+  } catch (error) { return jsonError(error); }
+}
+
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params;
+    const { env, row } = await ownJob(id);
+    if (!row) return NextResponse.json({ error: "Video not found." }, { status: 404 });
+    if (new URL(request.url).searchParams.get("photos") !== "1") return NextResponse.json({ error: "Nothing to show." }, { status: 400 });
+    const manifest = await loadManifest(env, id);
+    const total = manifest?.inputs.length || 0;
+    const sizes = await Promise.all(Array.from({ length: total }, async (_, index) => (await env.BUCKET.head(frameKey(id, index)))?.size || 0));
+    return NextResponse.json({ status: row.status, total, sizes, received: sizes.filter(Boolean).length });
   } catch (error) { return jsonError(error); }
 }
 
@@ -75,10 +98,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const present = await framesPresent(env, id, manifest.inputs.length);
     const missing = present.map((value, index) => value ? 0 : index + 1).filter(Boolean);
     if (missing.length) return NextResponse.json({ error: `Scene ${missing.join(", ")} has no photo yet.`, missing }, { status: 409 });
+    // The page says how big each photo was; every stored photo must match, or it is asked for again.
+    const expected = Array.isArray(body.photos) ? (body.photos as { bytes?: unknown }[]).map((item) => Number(item?.bytes)) : [];
+    let verified = 0;
+    if (expected.length === manifest.inputs.length) {
+      const sizes = await Promise.all(expected.map(async (_, index) => (await env.BUCKET.head(frameKey(id, index)))?.size || 0));
+      const wrong = sizes.map((size, index) => size === expected[index] ? 0 : index + 1).filter(Boolean);
+      if (wrong.length) return NextResponse.json({ error: `Photo ${wrong.join(", ")} did not arrive complete.`, missing: wrong }, { status: 409 });
+      verified = sizes.length;
+    }
     // Into the queue (only once, however many times this is clicked); the
     // first scene is sent right away if the engine has room.
     if (await beginQueue(env, id)) { const fresh = await getRenderJob(env, id); if (fresh) await advanceRenderJob(env, fresh, token, webhook); }
     const fresh = await getRenderJob(env, id);
-    return NextResponse.json({ job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
+    return NextResponse.json({ verified, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : null });
   } catch (error) { return jsonError(error); }
 }

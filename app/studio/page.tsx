@@ -21,7 +21,7 @@ import { ChangeEvent, DragEvent, useEffect, useRef, useState, type ReactNode } f
 import { Icon } from "../ui-icon";
 import { drawListingOverlays, listingFactsText } from "./overlays";
 import { PHOTO_MOVE_FOR_MOTION, engineKeepsPhotoShape, autoFilmSeconds, AUTO_SECONDS_PER_PHOTO, engineCost, scenePlan, studioEngine, studioEngines, VIDEO_LENGTHS, type StudioEngineKey, type StudioResolution, type VideoLength } from "../engine-catalog";
-import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startOverStudioJob, startStudioProduction, stopStudioJob, stoppedMessage, useStudioJobs, type Sending, type StudioJob } from "./production";
+import { canResume, historyKind, isActive, jobMode, ProductionView, resumeStudioJob, startOverStudioJob, startStudioProduction, resumeStudioUpload, loadPending, clearPending, type PendingUpload, type Receipt, stopStudioJob, stoppedMessage, useStudioJobs, type Sending, type StudioJob } from "./production";
 
 type MotionKey = "push" | "orbit" | "slide" | "focus" | "pull" | "walkthrough" | "tilt" | "mixed" | "custom";
 type SpeedKey = "slow" | "medium" | "fast";
@@ -386,22 +386,49 @@ export default function Home() {
   useEffect(() => { if (mode === "history") window.scrollTo({ top: 0, behavior: "auto" }); }, [mode]);
   /* One film's photos are sent at a time, at full quality, and the next film waits until the studio confirms it has every photo. */
   const sendingRef = useRef(false);
-  const [received, setReceived] = useState(false);
+  const [received, setReceived] = useState<Receipt | null>(null);
+  const [unfinished, setUnfinished] = useState<PendingUpload | null>(null);
+  const [resumeError, setResumeError] = useState("");
+  /* A film whose photos were never all confirmed (page closed, connection lost): offer to finish it. */
+  useEffect(() => { void loadPending().then((item) => { if (item) setUnfinished(item); }); }, []);
+  /* While photos are on their way, leaving the page would lose them: ask the browser to confirm. */
+  useEffect(() => {
+    if (!sending) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [sending]);
+  async function sendAgain() {
+    if (!unfinished || sendingRef.current) return;
+    sendingRef.current = true; setResumeError(""); setReceived(null);
+    const pending = unfinished;
+    try {
+      const job = await resumeStudioUpload(pending, {
+        onCreated: (made) => production.track({ ...made, scenes: made.scenes || null }),
+        onProgress: setSending,
+        onVerified: (receipt) => { setReceived(receipt); window.setTimeout(() => setReceived(null), 30000); },
+      });
+      production.track(job); setUnfinished(null);
+    } catch (reason) { setResumeError(reason instanceof Error ? reason.message : "The photos could not be sent. Please try again."); }
+    finally { setSending(null); sendingRef.current = false; }
+  }
+  async function discardUnfinished() { if (unfinished) { await clearPending(unfinished.jobId); setUnfinished(null); setResumeError(""); } }
   async function launch(tab: ProductionTab, body: Record<string, unknown>, photos: string[], extra?: (job: StudioJob) => void) {
     if (sendingRef.current) throw new Error("Your photos are still being sent to the studio. Wait for \"Photos received\" before starting another film.");
-    sendingRef.current = true; setReceived(false);
+    sendingRef.current = true; setReceived(null);
     let created: StudioJob | null = null;
     try {
       const job = await startStudioProduction(body, photos, {
         onCreated: (job) => { created = job; production.track({ ...job, scenes: job.scenes || null }); extra?.(job); setJobIds((current) => ({ ...current, [tab]: job.id })); },
         onProgress: setSending,
-      });
+        onVerified: (receipt) => { setReceived(receipt); window.setTimeout(() => setReceived(null), 30000); },
+      }, tab);
       production.track(job);
-      setReceived(true); window.setTimeout(() => setReceived(false), 8000);
     } catch (reason) {
       // Nothing was started: close the half-made job so it does not linger.
       const job = created as StudioJob | null;
       if (job) { await stopStudioJob(job.id); production.track({ ...job, status: "failed", error: reason instanceof Error ? reason.message : "The video could not start." }); }
+      void loadPending().then((item) => { if (item) setUnfinished(item); });
       throw reason;
     } finally { setSending(null); sendingRef.current = false; }
   }
@@ -687,8 +714,9 @@ export default function Home() {
   return <main className="studio-app">
     {connected === false && <section className="connect-bar"><div><strong>Connect Replicate to generate</strong><span>Your token is stored in a secure, private browser cookie and is never displayed again.</span></div><div className="token-form"><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="r8_••••••••••••••••••••" autoComplete="off" /><button onClick={connectReplicate} disabled={savingToken || !token}>{savingToken ? "Connecting…" : "Connect"}</button></div>{tokenError && <p className="token-error">{tokenError}</p>}</section>}
     {connected === true && <div className="connected-bar"><span><i /> Replicate connected</span><button onClick={async () => { await fetch("/api/token", { method: "DELETE" }); setConnected(false); }}>Disconnect</button></div>}
-    {sending && <div className="send-bar" role="status"><span className="spinner"/><div><strong>Sending photos {Math.min(sending.done + 1, sending.total)} of {sending.total}</strong><small>Keep this page open until it says "Photos received". The next film can start after that.</small></div></div>}
-    {!sending && received && <div className="send-bar send-ok" role="status"><div><strong>Photos received ✓</strong><small>Your film is in line at the studio. You can start another.</small></div></div>}
+    {sending && <div className="send-bar" role="status"><span className="spinner"/><div><strong>{sending.phase === "checking" ? "Checking every photo…" : `Sending photo ${Math.min(sending.done + 1, sending.total)} of ${sending.total}`}</strong><small>{sending.phase === "checking" ? "Almost done — confirming the studio holds each one." : "Keep this page open and the screen on until it says every photo arrived."}</small></div></div>}
+    {!sending && received && <div className="send-bar send-ok" role="status"><div><strong>All {received.count} photo{received.count === 1 ? "" : "s"} arrived and were checked ✓</strong><small>Your film is being made. You can close this page now — it will be in History when it is ready.</small></div><button type="button" className="send-close" aria-label="Dismiss" onClick={() => setReceived(null)}>×</button></div>}
+    {!sending && !received && unfinished && <div className="send-bar send-warn" role="status"><div><strong>Photos were not fully sent</strong><small>{resumeError || "Nothing was made or charged. Your photos are still saved on this device."}</small></div><button type="button" className="send-action" onClick={sendAgain}>Send again</button><button type="button" className="send-close" aria-label="Discard" onClick={discardUnfinished}>×</button></div>}
     <section className="studio-head"><p className="eyebrow">Studio · owner only</p><h1>{mode === "single" ? "Create a polished property video." : mode === "series" ? "Create a complete property sequence." : mode === "transition" ? "Move smoothly between your frames." : mode === "extend" ? "Continue your existing scene." : mode === "upscale" ? "Finish your video at a higher resolution." : "Your saved videos."}</h1><p className="subhead">Test the full pipeline on your own photos, see what each run costs, and choose the engine every customer gets.</p>{activeJobs.length > 0 && <button type="button" className="live-pill" onClick={() => selectMode(activeJobs.length > 1 ? "history" : jobMode(activeJobs[0]))}><i />{activeJobs.length === 1 ? "1 video in production" : `${activeJobs.length} videos in production`}</button>}</section>
     <div className="mode-switch"><button className={mode === "single" ? "active" : ""} onClick={() => selectMode("single")}><strong>Single shot</strong><small>One image</small></button><button className={mode === "series" ? "active" : ""} onClick={() => selectMode("series")}><strong>Multi-shot series</strong><small>Several images</small></button><button className={mode === "transition" ? "active" : ""} onClick={() => selectMode("transition")}><strong>Frame transition</strong><small>Exact keyframes</small></button><button className={mode === "extend" ? "active" : ""} onClick={() => selectMode("extend")}><strong>Extend scene</strong><small>Continue a clip</small></button><button className={mode === "upscale" ? "active" : ""} onClick={() => selectMode("upscale")}><strong>Upscale</strong><small>Higher resolution</small></button><button className={mode === "history" ? "active" : ""} onClick={() => { selectMode("history"); loadHistory(); }}><strong>History</strong><small>Saved videos</small></button></div>
     {mode !== "upscale" && mode !== "history" && <section className="default-engine-bar" aria-live="polite"><div><span className="label">Testing with</span><strong>{selectedEngine.name}</strong></div><div><span className="label">Customer default</span><strong>{customerEngine ? studioEngine(customerEngine).name : "Loading…"}</strong></div>{customerEngine && customerEngine !== engine ? <button type="button" onClick={makeCustomerDefault} disabled={savingDefault}>{savingDefault ? "Saving…" : `Make ${selectedEngine.shortName} the default`}</button> : customerEngine ? <span className="default-engine-ok"><i />This is the customer default</span> : null}{defaultMessage && <small>{defaultMessage}</small>}</section>}
