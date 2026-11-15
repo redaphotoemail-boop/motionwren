@@ -55,3 +55,5 @@ assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("fixScene
 assert.ok(readFileSync("app/studio/variants.tsx", "utf8").includes("Make versions") && readFileSync("app/studio/edit-film.tsx", "utf8").includes("<Variants"), "Edit film lost Make versions");
 assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").includes("manifest.edit.reframe = canvas"), "Saved-clip films lost the social canvas cut");
 console.log("protected features: all present");
+assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("Requirements:") && readFileSync("app/studio/variants.tsx", "utf8").includes("upscale: false"), "Template requirements or native-quality versions lost");
+assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("export async function upscaleFinal") && readFileSync("app/studio/page.tsx", "utf8").includes("Upscale to 1080p"), "Upscale last-touch lost");

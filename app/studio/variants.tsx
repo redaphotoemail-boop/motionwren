@@ -6,7 +6,8 @@
 import { useEffect, useState } from "react";
 import type { StudioJob } from "./production";
 
-type Tpl = { id: string; name: string; seconds: number; photos: number; active?: boolean; social?: { key: string; frame: string } };
+type Tpl = { id: string; name: string; seconds: number; photos: number; guide?: { best: number; least: number }; active?: boolean; social?: { key: string; frame: string } };
+const need = (item: { photos: number; guide?: { best: number; least: number } }) => ({ best: item.guide?.best ?? item.photos, least: item.guide?.least ?? 2 });
 const frameName = (frame?: string) => frame === "vertical" ? "9:16" : frame === "cinematic" ? "2.39:1" : frame === "horizontal" ? "16:9" : "";
 
 export default function Variants({ jobId, count, onStarted }: { jobId: string; count: number; onStarted: (job: StudioJob | null, message: string) => void }) {
@@ -18,14 +19,16 @@ export default function Variants({ jobId, count, onStarted }: { jobId: string; c
     fetch("/api/admin/wrencut", { cache: "no-store" }).then((response) => response.json()).then((body: { templates?: Tpl[] }) => setTemplates((body.templates || []).filter((item) => item.active))).catch(() => undefined);
   }, []);
   if (count < 2 || !templates.length) return null;
+  const ready = (item: Tpl) => count >= need(item).least;
   const toggle = (id: string) => setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   async function make() {
     setBusy(true); setNote("");
     let last: StudioJob | null = null; let made = 0; const failed: string[] = [];
     for (const id of picked) {
       const tpl = templates.find((item) => item.id === id);
+      if (tpl && !ready(tpl)) { failed.push(`${tpl.name}: needs at least ${need(tpl).least} scenes`); continue; }
       try {
-        const response = await fetch("/api/studio/production/from-clips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clips: Array.from({ length: count }, (_, scene) => ({ jobId, scene })), template: { wren: id }, music: "", label: tpl?.name || "Version" }) });
+        const response = await fetch("/api/studio/production/from-clips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upscale: false, clips: Array.from({ length: count }, (_, scene) => ({ jobId, scene })), template: { wren: id }, music: "", label: tpl?.name || "Version" }) });
         const data = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string };
         if (!response.ok || !data.job) failed.push(`${tpl?.name || "A template"}: ${data.error || "could not start"}`); else { made += 1; last = data.job; }
       } catch { failed.push(`${tpl?.name || "A template"}: connection problem`); }
@@ -35,10 +38,11 @@ export default function Variants({ jobId, count, onStarted }: { jobId: string; c
     if (made) { setPicked([]); onStarted(last, `${made} ${made === 1 ? "version is" : "versions are"} being edited from your film's own scenes. Each will appear in History in a minute or two.`); }
   }
   return <section className="fin-section var-section">
-    <header><strong>Make versions</strong><small>Cut this film&apos;s own scenes into other templates. No new generation: only the editing.</small></header>
-    <div className="var-list" role="group" aria-label="Templates">{templates.map((item) => <label className={picked.includes(item.id) ? "var-item on" : "var-item"} key={item.id}>
-      <input type="checkbox" checked={picked.includes(item.id)} onChange={() => toggle(item.id)} disabled={busy}/>
-      <span><strong>{item.name}</strong><small>{Math.round(item.seconds * 10) / 10} s{item.social ? ` · ${frameName(item.social.frame)}` : ""}</small></span>
+    <header><strong>Make versions</strong><small>Cut this film&apos;s own scenes into other templates. No new generation: only the editing. Versions stay at the engine&apos;s own quality; upscale to 1080p only once you approve one.</small></header>
+    <p className="var-need"><strong>This film has {count} scenes. Each template shows how many scenes it needs.</strong></p>
+    <div className="var-list" role="group" aria-label="Templates">{templates.map((item) => <label className={`${picked.includes(item.id) ? "var-item on" : "var-item"}${ready(item) ? "" : " short"}`} key={item.id}>
+      <input type="checkbox" checked={picked.includes(item.id)} onChange={() => toggle(item.id)} disabled={busy || !ready(item)}/>
+      <span><strong>{item.name}</strong><b className="req">Needs {need(item).best} scenes{need(item).least < need(item).best ? ` · at least ${need(item).least}` : ""}{ready(item) ? " ✓" : ` · this film has ${count}`}</b><small>{Math.round(item.seconds * 10) / 10} s{item.social ? ` · ${frameName(item.social.frame)}` : ""}</small></span>
     </label>)}</div>
     <div className="var-bar"><span>{picked.length ? `${picked.length} chosen` : "Tick the versions you want"}</span><button type="button" onClick={make} disabled={busy || !picked.length}>{busy ? "Starting…" : `Make ${picked.length || ""} ${picked.length === 1 ? "version" : "versions"}`}</button></div>
     {note && <p className="var-note">{note}</p>}

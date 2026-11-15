@@ -2030,3 +2030,16 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .var-bar button { min-height: 40px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--ink); color: var(--paper); font-weight: 600; cursor: pointer; }
 .var-bar button:disabled { opacity: .4; cursor: default; }
 .var-note { margin: 0; color: var(--muted); font-size: 12px; }
+
+/* Template requirements (bold, first) and the last-touch upscale */
+.tpl-need { margin: 0 0 8px; font-size: 14px; line-height: 1.45; color: var(--muted, #6e6e73); }
+.tpl-need strong { color: var(--ink, #1d1d1f); font-weight: 700; }
+.tpl-need.ok strong { color: var(--ink, #1d1d1f); }
+.tpl-need:not(.ok) { color: #b3261e; }
+.tpl-need:not(.ok) strong { color: #b3261e; }
+.var-need { margin: 6px 0 10px; font-size: 14px; }
+.var-item .req { display: block; font-weight: 700; font-size: 13px; }
+.var-item.short { opacity: 0.55; }
+.var-item.short .req { color: #b3261e; }
+.history-upscale { margin-top: 8px; border: 1px solid currentColor; background: transparent; border-radius: 980px; padding: 6px 12px; font-size: 13px; cursor: pointer; align-self: flex-start; }
+.history-upscale:disabled { opacity: 0.5; cursor: default; }
