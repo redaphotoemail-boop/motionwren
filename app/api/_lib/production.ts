@@ -73,6 +73,8 @@ export type ProductionManifest = {
   fromClips?: { jobId: string; scene: number }[];
   /** History ids of the later versions of this film (each edit saves a new one); the first version keeps the job's own id. */
   versions?: string[];
+  /** "Original photo shape": the film is made at this shape (width ÷ height), the shape of the photos themselves. */
+  frame?: { ratio: number };
   fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */
     kept?: { scene: number; round: number; file: string; issues: string[] }[]; flagged?: { scene: number; issues: string[] }[] };
@@ -94,6 +96,8 @@ export type ProductionManifest = {
     templateName?: string;
     /** With a recipe: edit from only these scenes (by index), in this order. */
     useScenes?: number[];
+    /** The finished film is cut to this frame instead of the one it was made at (nothing is made again). */
+    reframe?: "horizontal" | "vertical";
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over

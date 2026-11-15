@@ -1,4 +1,6 @@
 import { smoothRecipe } from "../../../wrencut-fit";
+import { cleanShape } from "../../../original-shape";
+import { engineKeepsPhotoShape } from "../../../engine-catalog";
 import { storyOrder } from "../../_lib/room-order";
 import { cleanFilmTitles } from "../../../titles";
 import { NextResponse } from "next/server";
@@ -54,7 +56,13 @@ export async function POST(request: Request) {
   // A template film is always real video. A Photo move engine only pans over a still photo, so it cannot be used with a template.
   if (wren && studioEngine(engine).photoMove) return NextResponse.json({ error: "This template needs a video engine. Photo move only slides across a still photo, so the film would look like photos, not video. Choose another engine." }, { status: 400 });
   // A WrenCut template follows the frame chosen in Studio (it used to force 9:16 whenever the reference was a reel, which cropped landscape photos).
-  const aspect = templated ? "vertical" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
+  // "Original photo shape": the film keeps the shape of the photos (the browser sends it), so nothing is cut off before the engine.
+  const ownShape = !templated && body.aspect === "original" ? cleanShape(body.frameRatio) : null;
+  if (!templated && body.aspect === "original") {
+    if (!ownShape) return NextResponse.json({ error: "The photos' shape could not be read. Choose another frame size." }, { status: 400 });
+    if (!engineKeepsPhotoShape(engine)) return NextResponse.json({ error: `${studioEngine(engine).name} only makes 16:9 or vertical films, so it can't keep the photo's own shape. Choose another engine or frame size.` }, { status: 400 });
+  }
+  const aspect = templated ? "vertical" : ownShape ? "original" : body.aspect === "vertical" ? "vertical" : body.aspect === "cinematic" ? "cinematic" : "horizontal";
   const scenesIn = Array.isArray(body.scenes) ? body.scenes as SceneBody[] : [];
   const inline = scenesIn.length > 0 && scenesIn.every((scene) => typeof scene.image === "string");
   const valid = scenesIn.filter((scene) => typeof scene.prompt === "string" && scene.prompt.trim().length >= 20 && (!inline || (String(scene.image).startsWith("data:image/") && String(scene.image).length <= MAX_INLINE_FRAME)));
@@ -99,6 +107,7 @@ export async function POST(request: Request) {
   // One soundtrack across the joined film (when the scenes have sound), never a different track per scene.
   const audio = mode === "series" && body.audioMode === "single_master" ? { mode: "single_master" as const, direction: typeof body.audioDirection === "string" ? body.audioDirection.slice(0, 1200) : "", voiceoverScript: typeof body.voiceoverScript === "string" ? body.voiceoverScript.slice(0, 2000) : "" } : undefined;
   const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, audio, links.map((link, index) => ({ key: frameKey(id, index), link })));
+  if (ownShape) manifest.frame = { ratio: ownShape };
   // The final edit: each scene's share on screen and the film's one music track.
   if (engine === "photo" || engine === "photo2" || engine === "photo3") {
     if (engine !== "photo") manifest.photoStrict = true;

@@ -21,6 +21,10 @@ export type StudioEngine = {
   upscaleTo1080?: boolean;
   /** No AI video: a slow camera move made on the original photo. Always as sharp as the photo. */
   photoMove?: boolean;
+  /** Makes the film at the photo's own shape (3:2, 4:3…) instead of cropping it to 16:9 / 9:16 first. True only where the
+      provider's page says the frame size is ignored when a photo is given (Kling 3, Wan 3), or where no frame size is sent
+      at all and the photo decides (Hailuo 2.3, Wan 2.5, Wan 2.7, H3, H3 Lite). The others only take 16:9 / 9:16 / 1:1. */
+  ownShape?: boolean;
 };
 
 /** The camera moves Photo move can make (the editor knows each one). */
@@ -34,6 +38,7 @@ export const UPSCALE_PER_SECOND = 0.0186;
 export const studioEngines: StudioEngine[] = [
   {
     key: "wan3",
+    ownShape: true,
     name: "Wan 3.0",
     shortName: "Wan 3.0",
     description: "Newest Wan model with cinematic motion and longer generations. 1080p is made at 720p, then upscaled to 1080p automatically.",
@@ -48,6 +53,7 @@ export const studioEngines: StudioEngine[] = [
   },
   {
     key: "h3",
+    ownShape: true,
     name: "MiniMax H3",
     shortName: "H3",
     description: "MiniMax's top model, made at 768p and upscaled to 1080p. Added Nov 11 for real-estate testing.",
@@ -62,6 +68,7 @@ export const studioEngines: StudioEngine[] = [
   },
   {
     key: "h3lite",
+    ownShape: true,
     name: "MiniMax H3 Lite",
     shortName: "H3 Lite",
     description: "Lower-cost MiniMax H3 at 768p. New: being tested against Wan 3.0 for real estate.",
@@ -75,6 +82,7 @@ export const studioEngines: StudioEngine[] = [
   },
   {
     key: "hailuo23",
+    ownShape: true,
     name: "MiniMax Hailuo 2.3",
     shortName: "Hailuo 2.3",
     description: "High-detail image animation with controlled, realistic motion.",
@@ -88,6 +96,7 @@ export const studioEngines: StudioEngine[] = [
   },
   {
     key: "kling3",
+    ownShape: true,
     name: "Kling Video 3.0",
     shortName: "Kling 3.0",
     description: "Strong spatial consistency, smooth camera motion and native 1080p.",
@@ -141,6 +150,7 @@ export const studioEngines: StudioEngine[] = [
   },
   {
     key: "wan27",
+    ownShape: true,
     name: "Wan 2.7",
     shortName: "Wan 2.7",
     description: "Strong control, synchronized audio and frame-to-frame work.",
@@ -153,6 +163,7 @@ export const studioEngines: StudioEngine[] = [
   },
   {
     key: "wan25",
+    ownShape: true,
     name: "Wan 2.5",
     shortName: "Wan 2.5",
     description: "Reliable image-to-video generation with synchronized audio.",
@@ -248,6 +259,11 @@ export function nativeResolution(key: StudioEngineKey, resolution: StudioResolut
 /** True when a film at this resolution is upscaled after it is edited. */
 export function engineUpscales(key: StudioEngineKey, resolution: StudioResolution) {
   return Boolean(studioEngine(key).upscaleTo1080) && resolution === "1080p";
+}
+
+/** True when the engine can make a film at the photo's own shape ("Original photo shape"). */
+export function engineKeepsPhotoShape(key: StudioEngineKey) {
+  return Boolean(studioEngine(key).ownShape);
 }
 
 export function engineSupportsResolution(key: StudioEngineKey, resolution: StudioResolution) {

@@ -13,6 +13,7 @@ import { fixEngine } from "../../fix-engine";
 import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
 import { recipeSeconds } from "../../wrencut";
+import { shapeSize } from "../../original-shape";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -211,7 +212,7 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     const now = Date.now();
     const expiresAt = now + 90 * 24 * 60 * 60 * 1000;
     await env.DB.batch([
-      env.DB.prepare(`INSERT OR IGNORE INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(historyId, row.ownerId, r2Key, row.prompt, engine, row.category, row.resolution, row.aspect, row.duration, row.costCents, sizeBytes, expiresAt, now),
+      env.DB.prepare(`INSERT OR IGNORE INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(historyId, row.ownerId, r2Key, row.prompt, engine, row.category, row.resolution, manifest?.edit?.reframe || row.aspect, row.duration, row.costCents, sizeBytes, expiresAt, now),
       // Queue jobs keep their per-scene outputs (for regenerating a scene or re-joining later).
       env.DB.prepare(`UPDATE render_jobs SET status = 'succeeded', history_id = ?, segment_urls = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(historyId, QUEUE_KINDS.has(row.kind) && manifest ? row.segmentUrls : JSON.stringify([source]), now, row.id, row.ownerId),
       env.DB.prepare(`UPDATE projects SET status = 'completed', final_history_id = ?, updated_at = ? WHERE render_job_id = ? AND owner_id = ?`).bind(historyId, now, row.id, row.ownerId),
@@ -459,7 +460,12 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   // An upscaled film is edited at the engine's own 720p; the upscaler then makes the 1080p (stretching it first would waste it).
   const height = row.resolution === "1080p" && !manifest.upscale ? 1080 : row.resolution === "480p" ? 480 : 720;
   const wide = Math.round(height * 16 / 9 / 2) * 2;
-  const [width, tall] = row.aspect === "vertical" ? [height, wide] : row.aspect === "square" ? [height, height] : [wide, height];
+  // The frame the film is saved at: the one it was cut to in Edit, else the one it was made at. A film made at the photo's own
+  // shape is edited at that shape. A cut keeps the floor when height has to go (see anchorY).
+  const cut = manifest.edit?.reframe;
+  const own = !cut && row.aspect === "original" && manifest.frame?.ratio ? shapeSize(manifest.frame.ratio, height) : null;
+  const frameNow = cut || row.aspect;
+  const [width, tall] = own ? [own.width, own.height] : frameNow === "vertical" ? [height, wide] : frameNow === "square" ? [height, height] : [wide, height];
   // Studio Ads with the ElevenLabs toggle off arrive with no edit.music:
   // no generated music — the scenes keep their own sound (keepAudio below).
   // Never fall through to the customer musicPrompt fallback here.
@@ -487,7 +493,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const layers = soundLayers(edit.sound, (file) => jobFileLink(origin, row, file), share, crossfade, duration);
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "", ...(edit.music && !edit.music.saved ? { music: { ...edit.music, seconds: duration } } : {}) };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(9, Math.max(4, (clips as string[]).length)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, ...(cut ? { anchorY: 0.75 } : {}), duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(9, Math.max(4, (clips as string[]).length)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";

@@ -28,3 +28,5 @@ protected section below is missing. If you must change one on purpose, Reda has 
 - Cinematic titles (Studio "Finish your film" → Titles, and Edit film → Titles): five fonts, words typed at the start and/or the end; drawn by the composer (composer/titles.mjs, composer/fonts); never read from a reference video.
 
 - Saved clips (Studio, owner only): pick clips from History to make a new film with no engine charge; routes /api/studio/clips and /api/studio/production/from-clips are admin-only. History cards tag template films ("Template · name") and "Saved clips".
+
+- Frame size (Studio): 16:9, 9:16, 2.39 crop-safe and "Original · Photo shape" (the film is made at the photos' own shape, only on engines that keep it: Kling 3, Wan 3/2.7/2.5, Hailuo 2.3, H3, H3 Lite). Edit film → Frame cuts a finished film to 16:9 or vertical with no engine charge (the floor stays; composer `anchorY`).

@@ -20,6 +20,8 @@ export type EditSpec = {
   duration: number;
   sceneSeconds: number;
   crossfade: number;
+  /** When a film is cut to another frame shape: which part of the height is kept (0 = the top, 1 = the bottom; left out = the middle). */
+  anchorY?: number;
   /** Per scene: a camera move made on the photo (the link is the photo), or null for an ordinary clip. */
   moves?: (string | null)[];
   /** Opening property card and closing agent card to burn in. */
