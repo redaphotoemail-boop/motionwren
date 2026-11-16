@@ -4,10 +4,12 @@
 // have less than $5.0 in credit"), on a simulated clock. Nothing leaves this box.
 // Run: npm run test:queue   (Node 22+, uses node:sqlite)
 import { DatabaseSync } from "node:sqlite";
-import { readdirSync, readFileSync, mkdtempSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
+import http from "node:http";
 import { build } from "esbuild";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -670,6 +672,367 @@ const stitchCreates = () => P.stitchInputs.length;
   check("24e the AI review is a separate cost line and part of the total", withReview.reviewCents === 4 && withReview.totalCents === 180 + 8 + 1 + 4, JSON.stringify(withReview));
   const agg = lib.aggregateCosts({ videos: 1, finished: 1, edited: 1, videoCents: 180, musicSeconds: 16.5, priceCents: 0, reviewCents: 3 });
   check("24f totals include the review", agg.reviewCents === 3 && agg.totalCents === 180 + 8 + 1 + 3, JSON.stringify(agg));
+}
+
+/* 25. Edit film: cutting to another frame is honoured on every path.
+   Reda (Nov 16): the frame variations of a MULTI-scene film came back at the
+   original size, labelled 16:9 / 9:16. A cut must reach the composer with the
+   cut's width/height, or the edit must fail loudly — never a same-size
+   version under the cut's label. (3 scenes here stand in for his 8: the
+   routing is identical — CROSSFADE_KINDS + count >= 2.) */
+const webhookFor = (id) => `https://x.test/api/webhooks/replicate/${id}?token=t`;
+// A finished film, made at the photo's own shape (aspect "original", 3:2).
+async function finishedOriginal(env, scenes, kind, tag) {
+  const id = await newJob(env, scenes, { kind, tag });
+  await env.DB.prepare(`UPDATE render_jobs SET aspect = 'original' WHERE id = ?`).bind(id).run();
+  const m0 = lib.normalizeManifest(await lib.loadManifest(env, id));
+  m0.frame = { ratio: 1.5 };
+  await lib.saveManifest(env, id, m0);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  return { id, end };
+}
+// Apply an edit exactly as the Edit POST stores it, then run the re-join.
+async function applyEdit(env, id, patch) {
+  const m = lib.normalizeManifest(await lib.loadManifest(env, id));
+  m.edit = { ...(m.edit || {}), ...patch };
+  await lib.saveManifest(env, id, m);
+  const end = await row(env, id);
+  return lib.runJobAction(env, end, "reassemble", null, "r8_test", webhookFor(id));
+}
+// The aspect History records for the film's newest version.
+async function newestAspect(env, id) {
+  const m = lib.normalizeManifest(await lib.loadManifest(env, id));
+  const vid = m.versions?.length ? m.versions.at(-1) : id;
+  const found = await env.DB.prepare(`SELECT aspect FROM generation_history WHERE id = ?`).bind(vid).first();
+  return found?.aspect;
+}
+
+/* 25a. Multi-scene, composer up: a horizontal cut reaches the composer at 1280x720. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25a");
+  check("25a first film finishes at its own shape", end.status === "succeeded" && (await newestAspect(env, id)) === "original", `${end.status} ${(await newestAspect(env, id))}`);
+  const before = C.specs.length; const stitches = stitchCreates();
+  const result = await applyEdit(env, id, { reframe: "horizontal" });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25a the cut reaches the composer at 1280x720, floor kept, no backup join", result.ok && done.status === "succeeded" && C.specs.length === before + 1 && spec.width === 1280 && spec.height === 720 && spec.anchorY === 0.75 && stitchCreates() === stitches, `spec=${spec.width}x${spec.height} anchorY=${spec.anchorY} edits=${C.specs.length - before} backup=${stitchCreates() - stitches} ${done.error || ""}`);
+  check("25a History records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 25b. Multi-scene, composer up: a vertical cut reaches the composer at 720x1280. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25b");
+  await applyEdit(env, id, { reframe: "vertical" });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25b the vertical cut reaches the composer at 720x1280", end.status === "succeeded" && done.status === "succeeded" && spec.width === 720 && spec.height === 1280 && spec.anchorY === 0.75, `spec=${spec.width}x${spec.height} ${done.error || ""}`);
+  check("25b History records the vertical cut", (await newestAspect(env, id)) === "vertical", await newestAspect(env, id));
+}
+
+/* 25c. Multi-scene, composer DOWN: the cut must NOT come back at the original size.
+   This is Reda's symptom: the edit falls back to the backup joiner, which joins
+   at the original frame while History claims 16:9. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25c");
+  C.down = 100; // the editing service is out
+  const before = stitchCreates();
+  await applyEdit(env, id, { reframe: "horizontal" });
+  const done = await runToEnd(env, id);
+  const m = lib.normalizeManifest(await lib.loadManifest(env, id));
+  check("25c with the editor down, a horizontal cut fails loudly instead of a same-size film", end.status === "succeeded" && done.status === "failed" && /16:9|cut/i.test(done.error || "") && stitchCreates() === before, `status=${done.status} backup=${stitchCreates() - before} error=${done.error || ""}`);
+  check("25c no History version claims 16:9 for it", (await newestAspect(env, id)) === "original" && (m.versions || []).length === 0, `aspect=${await newestAspect(env, id)} versions=${(m.versions || []).length}`);
+}
+
+/* 25d. Multi-scene, composer DOWN: a vertical cut fails loudly too. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25d");
+  C.down = 100;
+  await applyEdit(env, id, { reframe: "vertical" });
+  const done = await runToEnd(env, id);
+  check("25d with the editor down, a vertical cut fails loudly instead of a same-size film", end.status === "succeeded" && done.status === "failed" && /vertical|9:16|cut/i.test(done.error || ""), `status=${done.status} error=${done.error || ""}`);
+  check("25d no History version claims vertical for it", (await newestAspect(env, id)) === "original", await newestAspect(env, id));
+}
+
+/* 25e. Multi-scene: a music change still works together with a cut. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25e");
+  await applyEdit(env, id, { reframe: "horizontal", music: { prompt: "Warm piano for a home tour" } });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25e music change + cut: the composer gets the music and the 1280x720 cut", end.status === "succeeded" && done.status === "succeeded" && spec.width === 1280 && spec.height === 720 && /Warm piano/.test(spec.music?.prompt || spec.music?.url || ""), `spec=${spec.width}x${spec.height} music=${JSON.stringify(spec.music)} ${done.error || ""}`);
+  check("25e History records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 25f. Multi-scene: voice, titles and grade still work together with a cut. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25f");
+  await applyEdit(env, id, { reframe: "horizontal", sound: { voice: { mode: "film", tracks: ["voice.mp3", "", ""] } }, titles: { font: "cormorant", start: { text: "Title", sub: "" }, end: null }, grade: "warm" });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25f voice + titles + grade + cut: the composer gets them all at 1280x720", end.status === "succeeded" && done.status === "succeeded" && spec.width === 1280 && spec.height === 720 && Array.isArray(spec.layers) && spec.layers.length === 1 && spec.layers[0].kind === "voice" && spec.titles?.font === "cormorant" && spec.grade === "warm", `spec=${spec.width}x${spec.height} layers=${JSON.stringify(spec.layers)} grade=${spec.grade} ${done.error || ""}`);
+  check("25f History records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 25g. Multi-scene: a template recipe still works together with a cut. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25g");
+  const recipe = { version: 1, duration: 9, fps: 24, aspect: "16:9", slots: [{ dur: 3, zoom: [1, 1], pan: [0, 0] }, { dur: 3, zoom: [1, 1], pan: [0, 0] }, { dur: 3, zoom: [1, 1], pan: [0, 0] }], joins: [{ type: "cut", dur: 0 }, { type: "cut", dur: 0 }] };
+  await applyEdit(env, id, { reframe: "horizontal", recipe });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25g template + cut: the composer gets the recipe and the 1280x720 cut", end.status === "succeeded" && done.status === "succeeded" && spec.width === 1280 && spec.height === 720 && spec.recipe?.version === 1 && spec.recipeStrength === 0.5, `spec=${spec.width}x${spec.height} recipe=${Boolean(spec.recipe)} ${done.error || ""}`);
+  check("25g History records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 25h. Single scene, composer up: a horizontal cut reaches the composer at 1280x720
+   (it used to be delivered directly at the original size). */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 1, "studio-single", "s25h");
+  const before = C.specs.length; const stitches = stitchCreates();
+  await applyEdit(env, id, { reframe: "horizontal" });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25h single scene: the cut reaches the composer at 1280x720 with its own sound kept", end.status === "succeeded" && done.status === "succeeded" && C.specs.length === before + 1 && spec.width === 1280 && spec.height === 720 && spec.anchorY === 0.75 && spec.keepAudio === true && stitchCreates() === stitches, `spec=${spec.width}x${spec.height} keepAudio=${spec.keepAudio} edits=${C.specs.length - before} ${done.error || ""}`);
+  check("25h History records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 25i. Single scene, composer up: a vertical cut reaches the composer at 720x1280. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 1, "studio-single", "s25i");
+  await applyEdit(env, id, { reframe: "vertical" });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25i single scene: the vertical cut reaches the composer at 720x1280", end.status === "succeeded" && done.status === "succeeded" && spec.width === 720 && spec.height === 1280 && spec.anchorY === 0.75 && spec.keepAudio === true, `spec=${spec.width}x${spec.height} ${done.error || ""}`);
+  check("25i History records the cut", (await newestAspect(env, id)) === "vertical", await newestAspect(env, id));
+}
+
+/* 25j. Single scene with cards: the cut reaches the composer with the cards
+   (it used to take the one-carded-clip path and deliver the plain clip). */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 1, "studio-single", "s25j");
+  const m0 = lib.normalizeManifest(await lib.loadManifest(env, id));
+  m0.cards = { opening: { line: "Opening" }, closing: { line: "Closing" } };
+  await lib.saveManifest(env, id, m0);
+  const before = C.specs.length;
+  await applyEdit(env, id, { reframe: "horizontal" });
+  const done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25j cards + cut: the composer gets the cards and the 1280x720 cut", end.status === "succeeded" && done.status === "succeeded" && C.specs.length === before + 1 && spec.width === 1280 && spec.height === 720 && spec.cards?.closing?.line === "Closing", `spec=${spec.width}x${spec.height} cards=${JSON.stringify(spec.cards)} ${done.error || ""}`);
+  check("25j History records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 25k. Single scene with cards, composer DOWN: the cut must fail loudly,
+   never deliver the plain clip under the cut's label. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 1, "studio-single", "s25k");
+  const m0 = lib.normalizeManifest(await lib.loadManifest(env, id));
+  m0.cards = { opening: { line: "Opening" }, closing: { line: "Closing" } };
+  await lib.saveManifest(env, id, m0);
+  C.down = 100;
+  await applyEdit(env, id, { reframe: "horizontal" });
+  const done = await runToEnd(env, id);
+  check("25k cards + cut with the editor down: fails loudly, no same-size film", end.status === "succeeded" && done.status === "failed" && /16:9|cut/i.test(done.error || ""), `status=${done.status} error=${done.error || ""}`);
+  check("25k no History version claims 16:9 for it", (await newestAspect(env, id)) === "original", await newestAspect(env, id));
+}
+
+/* 25l. A scene remade after a cut is re-joined at the cut frame. */
+{
+  resetProvider();
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 6);
+  const { id, end } = await finishedOriginal(env, 3, "studio-series", "s25l");
+  await applyEdit(env, id, { reframe: "horizontal" });
+  let done = await runToEnd(env, id);
+  const made = P.creates.filter((c) => c.job === "s25l").length;
+  const result = await lib.runJobAction(env, done, "regenerate-scene", 0, "r8_test", webhookFor(id));
+  done = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec || {};
+  check("25l remaking scene 1 after a cut re-joins at 1280x720", end.status === "succeeded" && result.ok && done.status === "succeeded" && P.creates.filter((c) => c.job === "s25l").length === made + 1 && spec.width === 1280 && spec.height === 720, `spec=${spec.width}x${spec.height} remade=${P.creates.filter((c) => c.job === "s25l").length - made} ${done.error || ""}`);
+  check("25l History still records the cut", (await newestAspect(env, id)) === "horizontal", await newestAspect(env, id));
+}
+
+/* 26. True end-to-end: the real composer renders the cut, the Worker saves it to R2, and History matches the
+   film that was actually saved (dimensions measured with ffprobe on the saved bytes, not the label).
+   The simulated Replicate serves REAL clips for its delivery links, the composer's kept-clip downloads go
+   to a local stand-in for /api/job-frames (which reads the same in-memory R2 the Worker writes), and the
+   COMPOSER binding is the real composer server run in-process. Real ffmpeg renders, so this section takes
+   a few minutes. (The global fetch is the simulated provider, so localhost goes over real HTTP and the
+   delivery links serve the real clips; everything else still goes to the simulated provider.) */
+{
+  resetProvider();
+  // Real clips: the 3:2 picture (green ceiling, blue floor, red post) with a 1 kHz tone, 5 s each.
+  const e2eDir = mkdtempSync(join(tmpdir(), "mw-e2e-"));
+  const e2eFf = (args) => execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
+  const realClips = [1, 2, 3].map((i) => {
+    const file = join(e2eDir, `scene${i}.mp4`);
+    e2eFf(["-f", "lavfi", "-i", "color=c=gray:s=1080x720:r=24:d=5", "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=5", "-shortest", "-vf", "drawbox=x=0:y=0:w=1080:h=72:color=green:t=fill,drawbox=x=0:y=648:w=1080:h=72:color=blue:t=fill,drawbox=x=530:y=72:w=20:h=576:color=red:t=fill", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", file]);
+    return readFileSync(file);
+  });
+  const e2eMusicFile = join(e2eDir, "music.mp3");
+  e2eFf(["-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100:duration=14", "-c:a", "libmp3lame", "-b:a", "128k", e2eMusicFile]);
+  const e2eMusic = readFileSync(e2eMusicFile);
+
+  const httpFetch = (url, init = {}) => new Promise((resolve, reject) => {
+    const u = new URL(String(url));
+    const req = http.request({ hostname: u.hostname, port: Number(u.port) || 80, path: `${u.pathname}${u.search}`, method: init?.method || "GET", headers: init?.headers || {} }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => resolve(new Response(Buffer.concat(chunks), { status: res.statusCode, headers: { ...(res.headers["content-type"] ? { "content-type": res.headers["content-type"] } : {}), ...(res.headers["content-length"] ? { "content-length": res.headers["content-length"] } : {}) } })));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    if (init?.body) req.write(init.body);
+    req.end();
+  });
+  const mockFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.startsWith("http://127.0.0.1:") || u.startsWith("http://localhost:")) return httpFetch(u, init);
+    if (u.startsWith("https://replicate.delivery/")) {
+      const pred = P.preds.get(u.split("/").pop().replace(".mp4", ""));
+      const bytes = realClips[pred?.scene ?? 0];
+      return new Response(bytes, { status: 200, headers: { "content-type": "video/mp4", "content-length": String(bytes.length) } });
+    }
+    return mockFetch(u, init);
+  };
+
+  const env = { ...env0(), COMPOSER: null }; await setLimit(env, 6);
+  // Stand-in for /api/job-frames (reads the Worker's own R2) and for ElevenLabs music.
+  const e2eFiles = http.createServer((req, res) => {
+    const u = new URL(req.url, "http://127.0.0.1");
+    const m = /^\/api\/job-frames\/([^/]+)\/(out-\d+\.mp4|music\.mp3|voiceover\.mp3)$/.exec(u.pathname);
+    if (m) {
+      const stored = env.BUCKET.store.get(`render-jobs/${m[1]}/${m[2]}`);
+      if (stored) { res.writeHead(200, { "Content-Type": stored.meta?.contentType || "video/mp4", "Content-Length": stored.value.length }); return res.end(stored.value); }
+      res.writeHead(404); return res.end();
+    }
+    if (req.method === "POST") { res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": e2eMusic.length }); return res.end(e2eMusic); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => e2eFiles.listen(0, "127.0.0.1", resolve));
+  const filesBase = `http://127.0.0.1:${e2eFiles.address().port}`;
+  const e2eWebhook = (id) => `${filesBase}/api/webhooks/replicate/${id}?token=t`;
+
+  // The real composer server, in-process; the binding talks to it over real HTTP.
+  // (REPLICATE_API_BASE is deliberately NOT set here: it would also redirect the Worker's own provider
+  // calls to this stand-in. The composer needs no Replicate call on these plain-edit paths.)
+  process.env.ELEVENLABS_API_KEY = "test-eleven-key";
+  process.env.ELEVENLABS_API_BASE = filesBase;
+  process.env.COMPOSER_DIR = join(e2eDir, "work");
+  const { createServer } = await import("../../composer/server.mjs");
+  const realComposer = createServer();
+  await new Promise((resolve) => realComposer.listen(0, "127.0.0.1", resolve));
+  const composerBase = `http://127.0.0.1:${realComposer.address().port}`;
+  const realStub = { fetch: (input, init) => httpFetch(String(input).replace("http://composer", composerBase), init) };
+  env.COMPOSER = { idFromName: (name) => name, get: () => realStub, getByName: () => realStub };
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const advanceReal = async (id) => { const r = await row(env, id); return lib.advanceRenderJob(env, r, "r8_test", e2eWebhook(id)); };
+  // The composer renders in real time, so poll in real time (the simulated clock still ticks 5 s a step).
+  const runToEndReal = async (id, { timeoutMs = 180000 } = {}) => {
+    const started = performance.now();
+    for (;;) {
+      const r = await row(env, id);
+      if (["succeeded", "failed"].includes(r.status)) return r;
+      if (performance.now() - started > timeoutMs) return r;
+      tick(5000);
+      await advanceReal(id);
+      await sleep(500);
+    }
+  };
+  const startReal = async (id) => { const begun = await lib.beginQueue(env, id); if (begun) await advanceReal(id); return begun; };
+  const finishedOriginalReal = async (scenes, kind, tag) => {
+    const id = await newJob(env, scenes, { kind, tag });
+    await env.DB.prepare(`UPDATE render_jobs SET aspect = 'original' WHERE id = ?`).bind(id).run();
+    const m0 = lib.normalizeManifest(await lib.loadManifest(env, id));
+    m0.frame = { ratio: 1.5 };
+    await lib.saveManifest(env, id, m0);
+    await startReal(id);
+    const end = await runToEndReal(id);
+    return { id, end };
+  };
+  const cutReal = async (id, frame) => {
+    const m = lib.normalizeManifest(await lib.loadManifest(env, id));
+    m.edit = { ...(m.edit || {}), reframe: frame };
+    await lib.saveManifest(env, id, m);
+    return lib.runJobAction(env, await row(env, id), "reassemble", null, "r8_test", e2eWebhook(id));
+  };
+  // The film the Worker actually saved to R2, measured for real.
+  const savedFilm = async (id) => {
+    const r = await row(env, id);
+    const stored = env.BUCKET.store.get(`generation-history/${r.ownerId}/${r.historyId}.mp4`);
+    const file = join(e2eDir, `saved-${r.historyId}.mp4`);
+    writeFileSync(file, stored.value);
+    return file;
+  };
+  const dims = (file) => { const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=width,height", "-of", "json", file]).toString()); const v = info.streams.find((s) => s.width && s.height); return `${v.width}x${v.height}`; };
+  const e2ePixel = (file, x, y) => {
+    const raw = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", file, "-vf", `select=eq(n\\,10),format=rgb24,crop=1:1:${x}:${y}`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
+    return [raw[0], raw[1], raw[2]];
+  };
+  const e2eNear = (rgb, name) => name === "blue" ? rgb[2] > 180 && rgb[0] < 90 : name === "red" ? rgb[0] > 180 && rgb[1] < 90 : false;
+
+  // Multi-scene, 3:2 original: the first film, then the horizontal and vertical cuts, each measured.
+  const { id, end } = await finishedOriginalReal(3, "studio-series", "s26");
+  let film = await savedFilm(id);
+  check("26a end-to-end, multi-scene: the first film is saved at its own 1080x720 shape", end.status === "succeeded" && dims(film) === "1080x720" && (await newestAspect(env, id)) === "original", `${end.status} ${dims(film)} aspect=${await newestAspect(env, id)} ${end.error || ""}`);
+  await cutReal(id, "horizontal");
+  let done = await runToEndReal(id);
+  film = await savedFilm(id);
+  check("26b end-to-end, multi-scene: the horizontal cut is saved at 1280x720, floor kept", done.status === "succeeded" && dims(film) === "1280x720" && e2eNear(e2ePixel(film, 100, 710), "blue") && (await newestAspect(env, id)) === "horizontal", `${done.status} ${dims(film)} aspect=${await newestAspect(env, id)} ${done.error || ""}`);
+  await cutReal(id, "vertical");
+  done = await runToEndReal(id);
+  film = await savedFilm(id);
+  check("26c end-to-end, multi-scene: the vertical cut is saved at 720x1280, post centred", done.status === "succeeded" && dims(film) === "720x1280" && e2eNear(e2ePixel(film, 360, 640), "red") && (await newestAspect(env, id)) === "vertical", `${done.status} ${dims(film)} aspect=${await newestAspect(env, id)} ${done.error || ""}`);
+
+  // Single scene, 3:2 original: the first film, then the horizontal and vertical cuts, each measured.
+  const single = await finishedOriginalReal(1, "studio-single", "s26s");
+  film = await savedFilm(single.id);
+  check("26d end-to-end, single scene: the first film is saved at its own 1080x720 shape", single.end.status === "succeeded" && dims(film) === "1080x720" && (await newestAspect(env, single.id)) === "original", `${single.end.status} ${dims(film)} aspect=${await newestAspect(env, single.id)} ${single.end.error || ""}`);
+  await cutReal(single.id, "horizontal");
+  done = await runToEndReal(single.id);
+  film = await savedFilm(single.id);
+  check("26e end-to-end, single scene: the horizontal cut is saved at 1280x720", done.status === "succeeded" && dims(film) === "1280x720" && (await newestAspect(env, single.id)) === "horizontal", `${done.status} ${dims(film)} aspect=${await newestAspect(env, single.id)} ${done.error || ""}`);
+  await cutReal(single.id, "vertical");
+  done = await runToEndReal(single.id);
+  film = await savedFilm(single.id);
+  check("26f end-to-end, single scene: the vertical cut is saved at 720x1280", done.status === "succeeded" && dims(film) === "720x1280" && (await newestAspect(env, single.id)) === "vertical", `${done.status} ${dims(film)} aspect=${await newestAspect(env, single.id)} ${done.error || ""}`);
+
+  e2eFiles.close(); realComposer.close();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

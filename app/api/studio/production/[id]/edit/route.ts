@@ -110,7 +110,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
     // Cut to another frame: the stored clips are re-framed at the final edit, so nothing is made again and nothing is charged.
     if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "made") {
-      if (body.frame === "made" || body.frame === row.aspect) delete edit.reframe; else edit.reframe = body.frame;
+      if (body.frame === "made" || body.frame === row.aspect) { delete edit.reframe; delete edit.reframeApplied; } else edit.reframe = body.frame;
     }
 
     if (body.titles !== undefined) { const titles = body.titles === null ? undefined : cleanFilmTitles(body.titles); if (titles) edit.titles = titles; else delete edit.titles; }

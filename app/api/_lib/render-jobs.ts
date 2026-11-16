@@ -133,7 +133,11 @@ const CROSSFADE_VERSION = "700f4b0e8fe9957997a9f5046864b787a2b813ac2dc8b84d08eac
 
 export type StitchAudioMode = "silent" | "single_master";
 
-export async function startStitch(token: string, videos: string[], resolution: string, aspect: string, crossfadeSeconds = 0, webhookUrl?: string, targetDuration?: number, audio: { mode?: StitchAudioMode; direction?: string; voiceoverScript?: string } = {}) {
+/* The frame a cut asks for, in plain words, and the error when it cannot be applied. */
+const cutLabel = (cut: string) => cut === "vertical" ? "vertical (9:16)" : "16:9";
+const cutError = (cut: string) => `The cut to ${cutLabel(cut)} could not be applied because the editing service is unavailable. Try again when it is back.`;
+
+export async function startStitch(token: string, videos: string[], resolution: string, aspect: string, crossfadeSeconds = 0, webhookUrl?: string, targetDuration?: number, audio: { mode?: StitchAudioMode; direction?: string; voiceoverScript?: string } = {}, cut?: "horizontal" | "vertical") {
   const audioMode = audio.mode === "single_master" ? "single_master" : "silent";
   const audioDirection = typeof audio.direction === "string" ? audio.direction.slice(0, 1200) : "";
   const voiceoverScript = typeof audio.voiceoverScript === "string" ? audio.voiceoverScript.slice(0, 2000) : "";
@@ -154,6 +158,11 @@ export async function startStitch(token: string, videos: string[], resolution: s
   // output for audio-requested series rather than exposing mismatched music
   // from individual provider clips.
   if (crossfadeSeconds > 0) {
+    // The crossfade model joins at the clips' own size: it cannot cut to
+    // another frame. A cut that reaches it has already lost its editor (and
+    // the external processor above), so fail loudly instead of delivering
+    // the original frame under the cut's label.
+    if (cut) throw new Error(cutError(cut));
     // This version's schema requires both "task" and "input_file" (a URI),
     // even for composeVideosSeamlessly, which reads its clips from urls_csv.
     // Without input_file every join was refused ("input_file is required").
@@ -223,8 +232,11 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   try {
     const now = Date.now();
     const expiresAt = now + 90 * 24 * 60 * 60 * 1000;
+    // A cut is recorded only when it was actually applied (reframeApplied): a cut that was asked for but never
+    // applied must never be shown as the film's frame.
+    const historyAspect = manifest?.edit?.reframe && manifest.edit.reframeApplied ? manifest.edit.reframe : row.aspect;
     await env.DB.batch([
-      env.DB.prepare(`INSERT OR IGNORE INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(historyId, row.ownerId, r2Key, row.prompt, engine, row.category, row.resolution, manifest?.edit?.reframe || row.aspect, row.duration, row.costCents, sizeBytes, expiresAt, now),
+      env.DB.prepare(`INSERT OR IGNORE INTO generation_history (id, owner_id, r2_key, prompt, engine, category, resolution, aspect, duration, cost_cents, size_bytes, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(historyId, row.ownerId, r2Key, row.prompt, engine, row.category, row.resolution, historyAspect, row.duration, row.costCents, sizeBytes, expiresAt, now),
       // Queue jobs keep their per-scene outputs (for regenerating a scene or re-joining later).
       env.DB.prepare(`UPDATE render_jobs SET status = 'succeeded', history_id = ?, segment_urls = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(historyId, QUEUE_KINDS.has(row.kind) && manifest ? row.segmentUrls : JSON.stringify([source]), now, row.id, row.ownerId),
       env.DB.prepare(`UPDATE projects SET status = 'completed', final_history_id = ?, updated_at = ? WHERE render_job_id = ? AND owner_id = ?`).bind(historyId, now, row.id, row.ownerId),
@@ -383,7 +395,9 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
       if (!fresh || fresh.status !== "generating") return;
       const loadedManifest = segments.length === 1 ? await loadManifest(env, row.id) : null;
       const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest)));
-      if (segments.length === 1 && !photoSingle && !loadedManifest?.ads) {
+      // A single clip cut to another frame must go to the editor, not straight to History: the plain clip is the
+      // original frame, and delivering it would label the original size as the cut.
+      if (segments.length === 1 && !photoSingle && !loadedManifest?.ads && !loadedManifest?.edit?.reframe) {
         const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'generating'`).bind(Date.now(), row.id).run();
         if (!claim.meta.changes) return;
         const manifest = await loadManifest(env, row.id);
@@ -405,13 +419,14 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const loaded = await loadManifest(env, row.id);
   const manifest = loaded ? normalizeManifest(loaded) : null;
   const origin = webhookUrl ? new URL(webhookUrl).origin : "";
-  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest) || manifest.edit?.sound?.voice || manifest.edit?.sound?.sfx) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
+  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest) || manifest.edit?.sound?.voice || manifest.edit?.sound?.sfx || manifest.edit?.reframe) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
   // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
   if (manifest?.photoMoves?.some(Boolean)) throw new Error(manifest.photoStrict && manifest.edit?.lastError ? manifest.edit.lastError : "The editing service could not take this film. It will be tried again.");
-  // One carded clip: if the editor cannot take it, the plain clip is still delivered.
-  if ((manifest?.cards || manifest?.upscale) && manifest.inputs.length === 1) {
+  // One carded clip: if the editor cannot take it, the plain clip is still delivered — unless a cut is set, in which
+  // case the plain clip is the wrong frame and must not be delivered under the cut's label.
+  if ((manifest?.cards || manifest?.upscale) && manifest.inputs.length === 1 && !manifest.edit?.reframe) {
     const single = alignedScenes(row, 1).segments[0];
     if (single) {
       manifest.finalUrl = single; await saveManifest(env, row.id, manifest);
@@ -428,9 +443,19 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     segments = stitchSources(manifest, segments as string[], webhookUrl ? new URL(webhookUrl).origin : "", row.id, row.webhookToken);
   }
   const urls = segments.filter((value): value is string => Boolean(value));
-  if (urls.length < 2) throw new Error("The finished scenes could not be found for joining.");
+  const cut = manifest?.edit?.reframe;
+  if (urls.length < 2) {
+    // A single clip with a cut and no editor: there is nothing to join, and the plain clip would be the wrong frame.
+    if (cut && manifest.inputs.length === 1) throw new Error(cutError(cut));
+    throw new Error("The finished scenes could not be found for joining.");
+  }
+  // The backup joiner is asked for the cut's size, so it never delivers the original frame under the cut's label.
+  // The external processor and the crop-fill joiner both take explicit width/height; the crossfade model takes
+  // none, so it refuses a cut outright (see startStitch). Record that the cut was applied once a reframing
+  // join has been started: History only records the cut when this is set.
+  if (cut && manifest) { manifest.edit = { ...manifest.edit, reframeApplied: true }; await saveManifest(env, row.id, manifest); }
   try {
-    const stitchId = await startStitch(token, urls, row.resolution, row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio);
+    const stitchId = await startStitch(token, urls, row.resolution, cut || row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio, cut);
     await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(stitchId, Date.now(), row.id).run();
   } catch (error) {
     if (error instanceof ProviderError && ["throttled", "credit", "transient"].includes(error.kind)) {
@@ -471,7 +496,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const only = manifest.edit?.recipe && manifest.edit.useScenes?.length ? [...new Set(manifest.edit.useScenes)].filter((index) => Number.isInteger(index) && index >= 0 && index < count) : [];
   const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : list;
   const moves = pick(allMoves), speeds = pick(allSpeeds), clips = pick(allClips);
-  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx && !manifest.edit?.reframe) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   let edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
@@ -531,6 +556,8 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     if (tries >= EDIT_TRIES) { await alertManagers(env, "Film edited with the backup joiner", `The editing service could not take a film (${manifest.edit.lastError}). It was joined with the backup joiner, so its music changes between scenes. Use "Re-join scenes" once the editing service is back.`); return false; }
     return true; // tried again on the next step (the job stays "joining")
   }
+  // The composer accepted the film at the cut's size: the cut is applied.
+  if (cut) manifest.edit.reframeApplied = true;
   await saveManifest(env, row.id, manifest);
   await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(`composer:${key}`, Date.now(), row.id).run();
   return true;

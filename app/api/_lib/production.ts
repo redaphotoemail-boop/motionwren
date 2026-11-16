@@ -115,6 +115,10 @@ export type ProductionManifest = {
     useScenes?: number[];
     /** The finished film is cut to this frame instead of the one it was made at (nothing is made again). */
     reframe?: "horizontal" | "vertical";
+    /** Set once a cut has actually been applied to a finished version (by the composer, or by the backup joiner at the
+        cut's size). History only records the cut when this is set — a cut that was asked for but never applied must
+        never be shown as the film's frame. Cleared with reframe when the film is cut back to "As made". */
+    reframeApplied?: boolean;
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over
