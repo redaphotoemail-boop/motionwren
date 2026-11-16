@@ -201,7 +201,10 @@ export function validRecipe(recipe) {
 
 /* The slices of a ramped shot. speed = [[u, s], …]: s is how fast the source runs at u (0..1 along the shot); strength
    blends toward steady (1 = as read). Fast slices are blurred by blending neighbouring frames; slow ones are
-   smoothed by making in-between frames, so slow motion does not stutter. */
+   smoothed by making in-between frames, so slow motion does not stutter.
+   src: the filter label the slices come from (default: the file input
+   `${index}:v`). The template path passes its moved picture here, so
+   the ramp re-times the camera move as well as the footage. */
 const SLICES = 8;
 /* The crop that fills a frame after the picture was scaled to cover it. Centred unless the picture is cut to another shape
    (anchorY 0 keeps the top, 1 the bottom): a 3:2 film cut to 16:9 keeps the floor. Without an anchor it is the plain centred crop. */
@@ -209,7 +212,7 @@ export function coverCrop(w, h, anchorY) {
   const a = Number.isFinite(anchorY) ? Math.min(1, Math.max(0, anchorY)) : 0.5;
   return a === 0.5 ? `crop=${w}:${h}` : `crop=${w}:${h}:(in_w-${w})/2:(in_h-${h})*${a.toFixed(3)}`;
 }
-export function rampHead({ index, speed, d, start, fps, strength = 1, avail }) {
+export function rampHead({ index, speed, d, start, fps, strength = 1, avail, src }) {
   const total = d + 0.2;
   const at = (u) => {
     const pts = speed;
@@ -235,7 +238,7 @@ export function rampHead({ index, speed, d, start, fps, strength = 1, avail }) {
     parts.forEach((part) => { part.s = Math.max(0.12, part.s * f); part.from = from; part.to = from + sliceLen * part.s; from = part.to; });
     source = from;
   }
-  const pre = `[${index}:v]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${Math.ceil(source + 1)},split=${SLICES}${parts.map((_, k) => `[rp${index}_${k}]`).join("")}`;
+  const pre = `[${src || `${index}:v`}]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${Math.ceil(source + 1)},split=${SLICES}${parts.map((_, k) => `[rp${index}_${k}]`).join("")}`;
   lines.push(pre);
   parts.forEach((part, k) => {
     const blur = part.s > 1.12 ? `,tmix=frames=${Math.min(8, Math.max(3, Math.round(part.s * 2.4)))}` : ""; // motion blur: fast parts smear across neighbouring frames

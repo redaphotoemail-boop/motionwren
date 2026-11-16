@@ -219,6 +219,7 @@ import { analyzeVideo, assignClips, coverCrop, recipeChain, shotArgs, recipeDura
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { planTitles, titleGraph } from "./titles.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
+import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, prepareTemplateInputs, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
 
 /* The depth of a photo, as true distances in metres, from Depth Anything 3 Metric-Large (Apache-2.0, so it may be used commercially).
    Used by every photo move. The earlier Depth Anything v2 model was removed: its larger weights are non-commercial. */
@@ -537,6 +538,15 @@ function validSpec(spec) {
   if (!(spec.crossfade >= 0 && spec.crossfade < spec.sceneSeconds / 2)) return "Crossfade is out of range.";
   if (spec.grade !== undefined && spec.grade !== "warm") return "Unknown colour grade.";
   if (spec.recipe !== undefined) { const bad = validRecipe(spec.recipe); if (bad) return bad; if (Math.abs(recipeDuration(spec.recipe) - spec.duration) > 0.3) return "The film length must match the recipe."; }
+  if (spec.templateRecipe !== undefined) {
+    // A template recipe (spec v1): validated by its own reader, loudly.
+    let template;
+    try { template = parseTemplateRecipe(spec.templateRecipe); }
+    catch (error) { return String(error?.message || error).slice(0, 300); }
+    if (clips.length !== template.inputs.length) return `The template recipe needs one clip per input slot (${template.inputs.length}).`;
+    if (Math.abs(templateDuration(template) - spec.duration) > 0.3) return "The film length must match the template recipe.";
+    if (template.resolution !== `${spec.width}x${spec.height}`) return "The template recipe's size must match the film.";
+  }
   if (spec.music && !spec.music.url && typeof spec.music.prompt !== "string") return "Music needs a prompt or a link.";
   if (spec.subtitles !== undefined) {
     const sub = spec.subtitles;
@@ -653,7 +663,33 @@ async function compose(key, spec) {
       editFiles = shotFiles;
       recipeInput = { recipe: spec.recipe, starts: picks.map(() => 0), strength: spec.recipeStrength, prepared: true };
     }
-    const editDuration = spec.recipe ? recipeDuration(spec.recipe) : spec.duration;
+    // A template recipe (spec v1): each scene is rendered on its own
+    // first, then joined as the recipe says. No recipe = this never runs.
+    let templateInput = null;
+    if (spec.templateRecipe) {
+      const template = parseTemplateRecipe(spec.templateRecipe);
+      // Still photos are looped into clips of the length the recipe
+      // needs before planning, so the planner sees real durations.
+      const prepared = await prepareTemplateInputs({ recipe: template, files, durations: infos.map((info) => info.duration), width: spec.width, height: spec.height, fps, dir });
+      const picks = planTemplateScenes(template, prepared.durations);
+      let bannerFile = null;
+      const bannerScene = template.scenes.find((scene) => scene.overlay?.type === "call_banner");
+      if (bannerScene) {
+        job.stage = "banner";
+        bannerFile = await makeCallBanner({ title: bannerScene.overlay.title, subtitle: bannerScene.overlay.subtitle, width: spec.width, height: spec.height, dir });
+      }
+      const sceneFiles = new Array(picks.length);
+      for (let i = 0; i < picks.length; i += 1) {
+        const pick = picks[i];
+        job.stage = `template scene ${i + 1}/${picks.length}`;
+        sceneFiles[i] = path.join(dir, `template-${String(i + 1).padStart(2, "0")}.mp4`);
+        try {
+          await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: template, scene: pick.scene, input: prepared.files[pick.clip], output: sceneFiles[i], width: spec.width, height: spec.height, fps, start: pick.start, bannerFile: pick.scene.overlay ? bannerFile : null, available: prepared.durations[pick.clip] - pick.start })]);
+        } catch (error) { throw new Error(`Template scene ${pick.scene.id} could not be made: ${String(error?.message || error).slice(0, 300)}`); }
+      }
+      templateInput = { template, sceneFiles };
+    }
+    const editDuration = templateInput ? templateDuration(templateInput.template) : spec.recipe ? recipeDuration(spec.recipe) : spec.duration;
 
     job.stage = "music";
     const music = await getMusic(spec, dir, job);
@@ -720,7 +756,11 @@ async function compose(key, spec) {
       } catch (error) { job.titlesError = String(error?.message || error).slice(0, 300); console.warn(`titles: skipped; ${job.titlesError}`); titles = null; }
     }
     const editInput = { ...recipeInput, clips: editFiles, music, voiceover, musicVolume, subtitles, width: spec.width, height: spec.height, fps, crossfade, duration: editDuration, sceneSeconds: spec.sceneSeconds, output, keepAudio: spec.keepAudio === true, hasAudio: editFiles.map((file) => (infos[files.indexOf(file)]?.audioStreams || 0) > 0), speeds: spec.speeds, grade: spec.grade, anchorY: spec.anchorY };
-    try { await run("ffmpeg", editArgs({ ...editInput, cards, titles }), { timeoutMs: 20 * 60 * 1000 }); }
+    if (templateInput) {
+      // The template is the edit: its own join. Cards, titles and
+      // subtitles are not part of a recipe, so they are not applied here.
+      await run("ffmpeg", templateEditArgs({ recipe: templateInput.template, sceneFiles: templateInput.sceneFiles, music, voiceover, musicVolume, width: spec.width, height: spec.height, fps, duration: editDuration, output }), { timeoutMs: 20 * 60 * 1000 });
+    } else try { await run("ffmpeg", editArgs({ ...editInput, cards, titles }), { timeoutMs: 20 * 60 * 1000 }); }
     catch (error) {
       // A card that cannot be drawn never costs the film: make it again without the cards.
       if (!cards && !titles) throw error;
@@ -738,6 +778,8 @@ async function compose(key, spec) {
     if ((music || voiceover) && check.audioStreams !== 1) throw new Error("The edit is missing its sound.");
     // The free quality check: it only reports, it never fails or changes the film.
     if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards) }); }
+    // The template's own mechanical check, same rule: report only.
+    if (spec.templateRecipe && spec.qc !== false) { job.stage = "template quality"; job.templateQc = await templateQualityCheck(output, { recipe: templateInput.template, width: check.width, height: check.height, fps }); }
     if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: Number.isInteger(spec.stills) ? Math.max(4, Math.min(24, spec.stills)) : 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }
     const stat = await fs.stat(output);
     Object.assign(job, { status: "done", stage: "done", finishedAt: Date.now(), outputBytes: stat.size, duration: round(check.duration, 3), width: check.width, height: check.height, videoDuration: round(check.videoDuration || check.duration, 3), build: EDITOR_BUILD, fps, music: Boolean(music) });

@@ -8,8 +8,10 @@ RUN apt-get update \
 ARG EDITOR_IMAGE=2026-11-15-shot-length
 LABEL editor.image=$EDITOR_IMAGE
 WORKDIR /app
-COPY server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs ./
+COPY server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs template-recipe.mjs verify-template.mjs ./
 COPY fonts ./fonts
+COPY luts ./luts
+COPY templates ./templates
 ENV PORT=8080 NODE_ENV=production COMPOSER_DIR=/tmp/composer
 EXPOSE 8080
 USER node

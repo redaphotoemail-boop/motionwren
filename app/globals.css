@@ -2037,6 +2037,11 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .tpl-need.ok strong { color: var(--ink, #1d1d1f); }
 .tpl-need:not(.ok) { color: #b3261e; }
 .tpl-need:not(.ok) strong { color: #b3261e; }
+/* Night version (template recipes): the same photo, only the light and colour change. */
+.tpl-night { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line, #e5e5ea); border-radius: 12px; font-size: 14px; line-height: 1.45; }
+.tpl-night strong { color: var(--ink, #1d1d1f); font-weight: 700; }
+.tpl-night-pick { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.tpl-night-pick input { width: 18px; height: 18px; accent-color: var(--ink, #1d1d1f); }
 .var-need { margin: 6px 0 10px; font-size: 14px; }
 .var-item .req { display: block; font-weight: 700; font-size: 13px; }
 .var-item.short { opacity: 0.55; }

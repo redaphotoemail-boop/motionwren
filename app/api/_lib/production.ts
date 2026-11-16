@@ -102,6 +102,9 @@ export type ProductionManifest = {
     grade?: "warm";
     /** A WrenCut template applied to this film: the recipe of shots, joins, zoom and colour. It decides the film's length. */
     recipe?: import("../../wrencut").WrenRecipe;
+    /** A template recipe (spec v1) applied to this film: the frozen JSON
+        from composer/templates/*.json. It decides the film's length. */
+    templateRecipe?: Record<string, unknown>;
     /** Cinematic titles typed in the Studio: words at the start and/or end, in one of five fonts. */
     titles?: import("../../titles").FilmTitles;
     /** What the film was made with, shown in History: the template's name, and whether it was made from saved clips. */
