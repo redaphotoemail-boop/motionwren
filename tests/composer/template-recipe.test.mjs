@@ -10,6 +10,7 @@ import path from "node:path";
 import {
   parseTemplateRecipe, planTemplateScenes, templateDuration, templateShotArgs,
   templateEditArgs, templateQualityCheck, makeCallBanner, sampleRampCurve,
+  isStillImage, prepareTemplateInputs, rampSourceSeconds, stillToClip,
 } from "../../composer/template-recipe.mjs";
 import { sampleFrames, sharpness } from "../../composer/qc.mjs";
 
@@ -210,6 +211,154 @@ check("a ramped scene keeps its 3.0s", Math.abs(dur(rampOut) - 3) < 0.2, `${dur(
   check("QC passes a good film (except audio, which it has none of)", qcFull.checks.filter((c) => c.id !== "audio").every((c) => c.pass), JSON.stringify(qcFull.checks));
   const shortQc = await templateQualityCheck(s1Out, { recipe: whipRecipe, width: W, height: H, fps: FPS });
   check("QC fails a film of the wrong length", shortQc.checks.find((c) => c.id === "duration")?.pass === false, JSON.stringify(shortQc.checks.find((c) => c.id === "duration")));
+}
+
+/* v1.1 — ramp source needs, loud failure on a short clip, still inputs. */
+check("a constant-speed ramp consumes d+0.2s of source", Math.abs(rampSourceSeconds([[0, 1], [1, 1]], 3) - 3.2) < 0.01, `${rampSourceSeconds([[0, 1], [1, 1]], 3)}s`);
+check("a double-speed ramp consumes twice the source", Math.abs(rampSourceSeconds([[0, 2], [1, 2]], 3) - 6.4) < 0.01, `${rampSourceSeconds([[0, 2], [1, 2]], 3)}s`);
+check("the tour U-ramp consumes 4.336s for a 3.2s scene", Math.abs(rampSourceSeconds([[0, 2.5], [0.2, 1.0], [0.45, 0.4], [0.7, 0.9], [1, 2.5]], 3.2) - 4.336) < 0.01, `${rampSourceSeconds([[0, 2.5], [0.2, 1.0], [0.45, 0.4], [0.7, 0.9], [1, 2.5]], 3.2)}s`);
+{
+  const shortRamp = parseTemplateRecipe({
+    recipe_version: "1.0", template_id: "short-ramp", name: "Short ramp", aspect: "9:16", resolution: "360x640", fps: 30, duration_s: 3.2,
+    inputs: [{ slot: "a", type: "image_or_video", required: true }],
+    scenes: [{ id: "A", start_s: 0, duration_s: 3.2, input: "a", camera: { move: "glide" }, transition_in: "open" }],
+    text_styles: {}, grades: {},
+    speed_ramps: [{ scene: "A", points: [[0, 2.5], [0.2, 1.0], [0.45, 0.4], [0.7, 0.9], [1, 2.5]] }],
+  });
+  // A clip too short for the LENGTH fails on the length; a clip long
+  // enough for the length but too short for the ramp's 0.97 margin
+  // (need 4.336s, ramp margin needs 4.336/0.97 = 4.47s) fails on the
+  // ramp. 4.4s is between the two, so it hits the ramp check.
+  const err = throws(() => planTemplateScenes(shortRamp, [4.4]));
+  check("a clip too short for its ramp fails loudly", err.includes("for its speed ramp"), err.slice(0, 120));
+  check("a clip too short for the scene length also fails loudly", throws(() => planTemplateScenes(shortRamp, [4])).includes("needs 4.336s"), "4s clip");
+  check("a long enough clip plans the same ramp", planTemplateScenes(shortRamp, [8])[0].start === 0, "8s clip");
+}
+// A still photo is a valid template input: it loops into a clip and the
+// recipe's camera move is what moves it.
+const still = path.join(dir, "still.jpg");
+ff(["-f", "lavfi", "-i", "testsrc2=s=360x640:r=30:d=1", "-frames:v", "1", still]);
+check("a JPEG is a still image, a video is not", isStillImage(still) && !isStillImage(clip), `still=${isStillImage(still)} video=${isStillImage(clip)}`);
+const stillClip = path.join(dir, "still-clip.mp4");
+await stillToClip({ input: still, output: stillClip, width: W, height: H, fps: FPS, seconds: 3.5 });
+check("a still loops into a clip of the asked length", Math.abs(dur(stillClip) - 3.5) < 0.15, `${dur(stillClip).toFixed(2)}s`);
+{
+  const tour = parseTemplateRecipe(fs.readFileSync(new URL("../../composer/templates/tour-flow-v1.json", import.meta.url), "utf8"));
+  check("tour-flow-v1 parses: 5 scenes, all ramped", tour.scenes.length === 5 && tour.speed_ramps.length === 5, `${tour.scenes.length} scenes, ${tour.speed_ramps.length} ramps`);
+  const files = ["exterior", "foyer", "living", "kitchen", "bedroom"].map(() => still);
+  const prepared = await prepareTemplateInputs({ recipe: tour, files, durations: files.map(() => 0), width: W, height: H, fps: FPS, dir });
+  check("still inputs loop to the ramp need plus margin", prepared.durations.every((d, i) => Math.abs(d - [4.628, 4.636, 4.636, 4.636, 3.5][i]) < 0.01), prepared.durations.map((d) => d.toFixed(3)).join(","));
+  const plan = planTemplateScenes(tour, prepared.durations);
+  const stillScene = path.join(dir, "still-scene.mp4");
+  ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: tour, scene: plan[1].scene, input: prepared.files[plan[1].clip], output: stillScene, width: W, height: H, fps: FPS, start: plan[1].start, available: prepared.durations[plan[1].clip] - plan[1].start })]);
+  check("a ramped scene renders from a still photo", Math.abs(dur(stillScene) - 3.2) < 0.2, `${dur(stillScene).toFixed(2)}s`);
+}
+// The ramp's blur, measured without a caption: a caption is drawn after
+// the ramp, so its sharp text inflates whole-frame sharpness whenever
+// it is on screen and masks the blur. A dedicated no-caption scene with
+// the tour U-ramp and a glide, rendered from the detailed testsrc2
+// still: the fast entry and exit are smeared, the slow middle sharp.
+// Fast = the most-blurred frame across the fast entry and exit (tmix
+// needs a few frames to build up, so the very first fast frame is
+// sharp); slow = the sharpest frame across the slow middle.
+{
+  const blurRecipe = parseTemplateRecipe({
+    recipe_version: "1.0", template_id: "blur-cal", name: "Blur cal", aspect: "9:16", resolution: "360x640", fps: 30, duration_s: 3.2,
+    inputs: [{ slot: "a", type: "image_or_video", required: true }],
+    scenes: [{ id: "A", start_s: 0, duration_s: 3.2, input: "a", camera: { move: "glide" }, transition_in: "open" }],
+    text_styles: {}, grades: {},
+    speed_ramps: [{ scene: "A", points: [[0, 2.5], [0.2, 1.0], [0.45, 0.4], [0.7, 0.9], [1, 2.5]] }],
+  });
+  const need = rampSourceSeconds([[0, 2.5], [0.2, 1.0], [0.45, 0.4], [0.7, 0.9], [1, 2.5]], 3.2) + 0.3;
+  const detailClip = path.join(dir, "blur-detail.mp4");
+  await stillToClip({ input: still, output: detailClip, width: W, height: H, fps: FPS, seconds: need });
+  const blurOut = path.join(dir, "blur-scene.mp4");
+  ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: blurRecipe, scene: blurRecipe.scenes[0], input: detailClip, output: blurOut, width: W, height: H, fps: FPS, start: 0, available: need })]);
+  const sFrames = await sampleFrames(blurOut, { width: W, height: H, fps: 30 });
+  const sharpAt = (u) => sharpness(sFrames[Math.round(u * 3.2 * 30)], W, H);
+  const fastSharp = Math.min(...[0.05, 0.10, 0.15, 0.85, 0.90, 0.95].map(sharpAt));
+  const slowSharp = Math.max(...[0.4, 0.5, 0.6].map(sharpAt));
+  // >=20% drop is the bar (same as the verifier's blur calibration: a
+  // push-in's blur is weaker than a glide's, and a constant-speed
+  // scene with no blur reads ~1.0x).
+  check("a ramped still is blurred fast and sharp slow", slowSharp > 5 && fastSharp < 0.80 * slowSharp, `sharpness fast ${fastSharp.toFixed(1)} vs slow ${slowSharp.toFixed(1)}`);
+}
+
+/* v1.2 — night slots: a day photo rendered as night by grade only.
+   The house must not change at all — only light and colour — so the
+   grade is the night LUT, never an AI re-render. */
+{
+  const tourJson = JSON.parse(fs.readFileSync(new URL("../../composer/templates/tour-flow-v1.json", import.meta.url), "utf8"));
+  const badNight = (mutate, label) => {
+    const copy = JSON.parse(JSON.stringify(tourJson));
+    mutate(copy);
+    const error = throws(() => parseTemplateRecipe(copy));
+    check(`reader refuses: ${label}`, error.startsWith("Template recipe:"), error.slice(0, 120));
+  };
+  badNight((r) => { r.night_slots = ["attic"]; }, "night slot names an unknown scene");
+  badNight((r) => { r.night_slots = "S1"; }, "night_slots must be a list");
+  const houseJson = JSON.parse(recipeJson);
+  const badFlash = (mutate, label) => {
+    const copy = JSON.parse(JSON.stringify(houseJson));
+    mutate(copy);
+    const error = throws(() => parseTemplateRecipe(copy));
+    check(`reader refuses: ${label}`, error.startsWith("Template recipe:"), error.slice(0, 120));
+  };
+  badFlash((r) => { r.night_slots = ["FLASH"]; }, "night slot on the white flash scene");
+  // The graph: a night-slotted scene carries the night LUT, not its own.
+  const nightTour = parseTemplateRecipe({ ...tourJson, night_slots: ["S1"] });
+  const dayTour = parseTemplateRecipe(tourJson);
+  const nightGraph = templateShotArgs({ recipe: nightTour, scene: nightTour.scenes[0], input: "in.mp4", output: "out.mp4", width: W, height: H, fps: FPS, start: 0, available: 8 }).join(" ");
+  const dayGraph = templateShotArgs({ recipe: dayTour, scene: dayTour.scenes[0], input: "in.mp4", output: "out.mp4", width: W, height: H, fps: FPS, start: 0, available: 8 }).join(" ");
+  check("a night slot renders with the night LUT, not its day grade", nightGraph.includes("night-warm-windows.cube") && !nightGraph.includes("bright-warm-day.cube"), "night LUT in graph");
+  check("a scene outside night_slots keeps its own grade", dayGraph.includes("bright-warm-day.cube") && !dayGraph.includes("night-warm-windows.cube"), "day LUT in graph");
+  // A night slot named by input slot works the same as by scene id.
+  const slotTour = parseTemplateRecipe({ ...tourJson, night_slots: ["exterior"] });
+  const slotGraph = templateShotArgs({ recipe: slotTour, scene: slotTour.scenes[0], input: "in.mp4", output: "out.mp4", width: W, height: H, fps: FPS, start: 0, available: 8 }).join(" ");
+  check("a night slot named by input slot works too", slotGraph.includes("night-warm-windows.cube"), "slot name");
+  // The render: the same day photo, day grade vs night grade. The night
+  // version is dark and blue-dominant; the day version is bright; and
+  // the house is unchanged — the edge maps correlate, because a LUT is
+  // a pointwise colour map and cannot move, add or remove anything.
+  const s1Need = rampSourceSeconds([[0, 0.5], [0.3, 0.7], [0.55, 1.0], [0.8, 1.9], [1, 2.5]], 3.2) + 0.3;
+  const nightClip = path.join(dir, "night-clip.mp4");
+  await stillToClip({ input: still, output: nightClip, width: W, height: H, fps: FPS, seconds: s1Need });
+  const dayOut = path.join(dir, "night-day.mp4");
+  const nightOut = path.join(dir, "night-night.mp4");
+  ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: dayTour, scene: dayTour.scenes[0], input: nightClip, output: dayOut, width: W, height: H, fps: FPS, start: 0, available: s1Need })]);
+  ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: nightTour, scene: nightTour.scenes[0], input: nightClip, output: nightOut, width: W, height: H, fps: FPS, start: 0, available: s1Need })]);
+  const rgbAt = (file, t) => {
+    const raw = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-ss", String(t), "-i", file, "-frames:v", "1", "-vf", `scale=${W}:${H}:flags=area,format=rgb24`, "-f", "rawvideo", "-"]);
+    let r = 0, g = 0, b = 0; const n = W * H;
+    for (let i = 0; i < n; i += 1) { r += raw[i * 3]; g += raw[i * 3 + 1]; b += raw[i * 3 + 2]; }
+    return { r: r / n, g: g / n, b: b / n };
+  };
+  const dayRgb = rgbAt(dayOut, 1.6), nightRgb = rgbAt(nightOut, 1.6);
+  const dayLuma = 0.2126 * dayRgb.r + 0.7152 * dayRgb.g + 0.0722 * dayRgb.b;
+  const nightLuma = 0.2126 * nightRgb.r + 0.7152 * nightRgb.g + 0.0722 * nightRgb.b;
+  check("the day version is bright", dayLuma > 100, `luma ${dayLuma.toFixed(0)}`);
+  check("the night version is dark and blue-dominant", nightLuma < 110 && nightRgb.b > nightRgb.r, `luma ${nightLuma.toFixed(0)} B ${nightRgb.b.toFixed(0)} > R ${nightRgb.r.toFixed(0)}`);
+  const edge = (frame) => {
+    const out = new Float64Array(W * H);
+    for (let y = 1; y < H - 1; y += 1) for (let x = 1; x < W - 1; x += 1) {
+      const i = y * W + x;
+      out[i] = 4 * frame[i] - frame[i - 1] - frame[i + 1] - frame[i - W] - frame[i + W];
+    }
+    return out;
+  };
+  const corr = (a, b) => {
+    let ma = 0, mb = 0; const n = a.length;
+    for (let i = 0; i < n; i += 1) { ma += a[i]; mb += b[i]; }
+    ma /= n; mb /= n;
+    let num = 0, da = 0, db = 0;
+    for (let i = 0; i < n; i += 1) { const x = a[i] - ma, y = b[i] - mb; num += x * y; da += x * x; db += y * y; }
+    return num / Math.max(1e-9, Math.sqrt(da * db));
+  };
+  const dayFrames = await sampleFrames(dayOut, { width: W, height: H, fps: 30 });
+  const nightFrames = await sampleFrames(nightOut, { width: W, height: H, fps: 30 });
+  const at = Math.round(1.6 * 30);
+  const edgeCorr = corr(edge(dayFrames[at]), edge(nightFrames[at]));
+  check("the night grade does not change the house (edges correlate)", edgeCorr > 0.85, `edge correlation ${edgeCorr.toFixed(3)}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

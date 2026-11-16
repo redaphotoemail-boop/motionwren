@@ -15,6 +15,7 @@ import EditFilm from "./edit-film";
 import TitlesPanel, { emptyTitles, titlesPayload, type TitlesInput } from "./titles-panel";
 import TemplateStrip, { emptyTemplatePick, type TemplatePick } from "./template-strip";
 import { libraryTemplatePlan } from "../library-templates";
+import { templateRecipeById } from "../template-recipes";
 import { wrenPlan } from "../wrencut";
 import { socialPlan, socialSpec } from "../social-templates";
 import { motionLabel } from "../motion-label";
@@ -358,6 +359,8 @@ export default function Home() {
   const seriesAudioRequested = soundEnabled || voiceoverEnabled; const finalPrompt = buildPrompt(motion, details, category, "", speed, aspect, audioPrompt); const extensionPrompt = buildPrompt(motion, `Continue the scene naturally from this exact final frame. ${details}`, category, "Preserve seamless continuity with the preceding clip: same subject, lighting, color grade, lens, environment and direction of action.", speed, aspect, audioPrompt); const price = estimateCost(engine, resolution, frames);
   // The film length decides how many scenes are used and how long each runs (same plan the server uses).
   const socialPicked = tpl.on && tpl.wren?.social ? socialSpec(tpl.wren.social) : null;
+  // A template recipe is edited by the composer straight from the photos — no AI generation of the shots.
+  const recipePicked = tpl.on && tpl.recipe ? templateRecipeById(tpl.recipe.id) : null;
   const plan = socialPicked ? (() => { const sp = socialPlan(socialPicked, Math.max(2, shots.length)); return wrenPlan(engine, resolution, sp.count, sp.seconds, sp.minScene); })() : tpl.on && tpl.wren && tpl.id.startsWith("wren:") ? wrenPlan(engine, resolution, Math.max(2, shots.length), tpl.wren.best && shots.length < tpl.wren.best ? Math.max(4, Math.round(tpl.wren.seconds * Math.max(2, shots.length) / tpl.wren.best)) : tpl.wren.seconds) : tpl.on && tpl.id !== "none" ? libraryTemplatePlan(engine, resolution, Math.max(2, shots.length)) : autoTime ? scenePlan(engine, resolution, autoFilmSeconds(shots.length), Math.max(2, shots.length), AUTO_SECONDS_PER_PHOTO) : scenePlan(engine, resolution, seriesLength, Math.max(2, shots.length), secondsPerImage === "auto" ? undefined : secondsPerImage); const planScenes = Math.min(plan.count, shots.length); const stitchedDuration = plan.totalSeconds; const seriesCost = engineCost(engine, resolution, plan.sceneSeconds * Math.max(planScenes, 2)); const shortOfLength = shots.length >= 2 && stitchedDuration < seriesLength - 3;
   const branding: RealEstateBranding = { listingEnabled, listingTitle, listingBeds, listingBaths, listingSquareFeet, listingPrice, listingMessage, agentEnabled, agentName, agentEmail, agentPhone, agentLogo, agentLogoName };
   const brandingProps: RealEstateBrandingProps = { ...branding, setListingEnabled, setListingTitle, setListingBeds, setListingBaths, setListingSquareFeet, setListingPrice, setListingMessage, setAgentEnabled, setAgentName, setAgentEmail, setAgentPhone, acceptAgentLogo, removeAgentLogo: () => { setAgentLogo(""); setAgentLogoName(""); } };
@@ -565,6 +568,25 @@ export default function Home() {
           production.track({ ...data.job, scenes: data.job.scenes || null }); setJobIds((current) => ({ ...current, series: data.job!.id })); setClipChoice([]);
         } catch { note("The film could not start. Check your connection."); }
         finally { setStarting(""); }
+  }
+  /* A template recipe film: the photos are the template's inputs, in the
+     recipe's inputs order. No AI generation of the shots — the composer
+     edits them straight from the photos. */
+  async function makeFromPhotos(note: (message: string) => void) {
+    if (!recipePicked) return;
+    const needed = recipePicked.photos;
+    const used = shots.filter((shot) => shot.source).slice(0, needed);
+    if (used.length < needed) return note(`This template needs ${needed} photos, one per slot, in this order.`);
+    setStarting("series"); setError("");
+    try {
+      const photos = await Promise.all(used.map((shot) => prepareFrame(shot.source, "vertical", engine, true)));
+      const response = await fetch("/api/studio/production/from-photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photos, templateRecipe: recipePicked.id, nightSlots: tpl.recipe?.nightSlots || [], titles: titlesPayload(titles), music: finalSound.music || defaultMusicId({ aspect: "vertical", duration: recipePicked.seconds }) }) });
+      const data = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string };
+      if (!response.ok || !data.job) { note(data.error || "The film could not start."); return; }
+      production.track({ ...data.job, scenes: data.job.scenes || null }); setJobIds((current) => ({ ...current, series: data.job!.id }));
+      setLocalThumbs((current) => ({ ...current, [data.job!.id]: used.map((shot) => shot.source) }));
+    } catch { note("The film could not start. Check your connection."); }
+    finally { setStarting(""); }
   }
   async function acceptSeriesFiles(files: FileList | File[]) {
     const selected = Array.from(files).filter((file) => file.type.startsWith("image/")).slice(0, Math.max(0, 12 - shots.length));
@@ -819,7 +841,7 @@ export default function Home() {
           <div className="series-summary"><div><span>Length</span><strong>{stitchedDuration}s</strong></div><div><span>Scenes</span><strong>{shots.length < 2 ? 0 : planScenes}</strong></div><div><span>Engine cost</span><strong>{shots.length < 2 ? "—" : `$${seriesCost.toFixed(2)}`}</strong></div></div>
           {seriesJob && (isActive(seriesJob) || seriesJob.status === "failed") && <ProductionView job={seriesJob} title={`${seriesJob.status === "failed" ? "Your" : "Making your"} ${seriesJob.category.replace(/^Studio · /, "") || "film"}`} thumbs={localThumbs[seriesJob.id]} onStop={() => stopJob("series")} onResume={() => resumeJob(seriesJob.id)} onStartOver={() => startOver(seriesJob.id)} onDelete={() => deleteJob(seriesJob.id)} offline={production.offline} sending={sending}/>}
           {error && <div className="error">{error}</div>}
-          <div className="series-actions"><button className="generate" onClick={viaClips ? () => makeFromClips(clipChoice, setError) : generateSeries} disabled={!connected || (shots.length < 2 && !viaClips) || (Boolean(tpl.wren?.least) && tpl.on && !viaClips && shots.filter((shot) => shot.source).length < (tpl.wren?.least || 0)) || seriesGenerating || starting === "clips" || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" || starting === "clips" ? "Sending your scenes…" : viaClips ? `Make a film from your ${clipChoice.length} saved clips · no new generation` : isActive(seriesJob) ? `Make another ${seriesLength}-second film` : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button>{connected && shots.length < 2 && !viaClips && <p className="series-hint">{shots.length ? "Add one more photo to make a film" : "Add 2 or more photos, or choose 2 or more saved clips below"}</p>}</div>
+          <div className="series-actions"><button className="generate" onClick={viaClips ? () => makeFromClips(clipChoice, setError) : recipePicked ? () => makeFromPhotos(setError) : generateSeries} disabled={!connected || (shots.length < 2 && !viaClips) || (Boolean(tpl.wren?.least) && tpl.on && !viaClips && shots.filter((shot) => shot.source).length < (tpl.wren?.least || 0)) || (recipePicked && shots.filter((shot) => shot.source).length < recipePicked.photos) || seriesGenerating || starting === "clips" || status === "preparing"}>{!connected ? "Connect Replicate first" : starting === "series" || starting === "clips" ? "Sending your scenes…" : viaClips ? `Make a film from your ${clipChoice.length} saved clips · no new generation` : recipePicked ? `Make ${recipePicked.seconds}-second film · edited from your photos, no generation` : isActive(seriesJob) ? `Make another ${seriesLength}-second film` : seriesJob?.status === "failed" ? `Try again · ${seriesLength}-second film` : `Make ${seriesLength}-second film`}<span>→</span></button>{connected && shots.length < 2 && !viaClips && <p className="series-hint">{shots.length ? "Add one more photo to make a film" : "Add 2 or more photos, or choose 2 or more saved clips below"}</p>}</div>
           {historyMessage && <p className="history-message">{historyMessage}</p>}
           <p className="queue-note">Scenes are made on our server, in turn. A scene that fails is redone automatically, up to three tries. The film is edited with crossfades and one music track, then saved to History — you can close or refresh this page.</p>
           <div className="stitched-result"><span className="label">FINAL VIDEO</span>{stitchedOutput ? <><video src={stitchedOutput} controls playsInline/>{downloadLink(stitchedOutput, seriesJob, stitchedFormat, "motionwren-film")}</> : <><strong>Your film will appear here</strong><small>Scenes stay in your order, cross-dissolve, and share one music track.</small></>}{overlayWork && seriesJob && overlayWork.id === seriesJob.id && <p className={overlayWork.busy ? "history-message" : "error"}>{overlayWork.busy ? `Adding the listing cards… ${overlayWork.message}` : overlayWork.message}</p>}</div>

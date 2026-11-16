@@ -219,7 +219,7 @@ import { analyzeVideo, assignClips, coverCrop, recipeChain, shotArgs, recipeDura
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { planTitles, titleGraph } from "./titles.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
-import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
+import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, prepareTemplateInputs, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
 
 /* The depth of a photo, as true distances in metres, from Depth Anything 3 Metric-Large (Apache-2.0, so it may be used commercially).
    Used by every photo move. The earlier Depth Anything v2 model was removed: its larger weights are non-commercial. */
@@ -668,7 +668,10 @@ async function compose(key, spec) {
     let templateInput = null;
     if (spec.templateRecipe) {
       const template = parseTemplateRecipe(spec.templateRecipe);
-      const picks = planTemplateScenes(template, infos.map((info) => info.duration));
+      // Still photos are looped into clips of the length the recipe
+      // needs before planning, so the planner sees real durations.
+      const prepared = await prepareTemplateInputs({ recipe: template, files, durations: infos.map((info) => info.duration), width: spec.width, height: spec.height, fps, dir });
+      const picks = planTemplateScenes(template, prepared.durations);
       let bannerFile = null;
       const bannerScene = template.scenes.find((scene) => scene.overlay?.type === "call_banner");
       if (bannerScene) {
@@ -681,7 +684,7 @@ async function compose(key, spec) {
         job.stage = `template scene ${i + 1}/${picks.length}`;
         sceneFiles[i] = path.join(dir, `template-${String(i + 1).padStart(2, "0")}.mp4`);
         try {
-          await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: template, scene: pick.scene, input: files[pick.clip], output: sceneFiles[i], width: spec.width, height: spec.height, fps, start: pick.start, bannerFile: pick.scene.overlay ? bannerFile : null, available: infos[pick.clip].duration - pick.start })]);
+          await run("ffmpeg", ["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: template, scene: pick.scene, input: prepared.files[pick.clip], output: sceneFiles[i], width: spec.width, height: spec.height, fps, start: pick.start, bannerFile: pick.scene.overlay ? bannerFile : null, available: prepared.durations[pick.clip] - pick.start })]);
         } catch (error) { throw new Error(`Template scene ${pick.scene.id} could not be made: ${String(error?.message || error).slice(0, 300)}`); }
       }
       templateInput = { template, sceneFiles };

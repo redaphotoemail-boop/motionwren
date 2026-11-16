@@ -9,6 +9,7 @@
 import { FxChips } from "../fx-chips";
 import { useEffect, useState } from "react";
 import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplatePlan, parseLibraryEnabled, type LibraryTemplateFields, type LibraryTemplateId } from "../library-templates";
+import { TEMPLATE_RECIPES, type TemplateRecipeEntry } from "../template-recipes";
 import type { WrenTemplate } from "../wrencut";
 import { wrenPlan } from "../wrencut";
 import { socialPlan, socialSpec } from "../social-templates";
@@ -16,8 +17,10 @@ import SocialGuide, { type SocialPhoto } from "./social-guide";
 import { PreviewPlayer } from "../wrencut-player";
 import { engineCost, studioEngine, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
-/* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count). */
-export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; least?: number; hasMusic?: boolean; social?: string }; texts?: string[] };
+/* id is a built-in template, or "wren:…" for a MotionWren template made in WrenCut (then `wren` holds its length and photo count), or
+   "recipe:…" for a template recipe (then `recipe` holds its id and the night slots the user picked). A recipe template is edited by the
+   composer straight from the photos — no AI generation of the shots. */
+export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; least?: number; hasMusic?: boolean; social?: string }; recipe?: { id: string; nightSlots: string[] }; texts?: string[] };
 export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
 
 type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void; photos?: SocialPhoto[]; onFrame?: (frame: "vertical" | "horizontal" | "cinematic") => void; onArrange?: (order: number[]) => void };
@@ -44,18 +47,20 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
     return () => { cancelled = true; };
   }, []);
   const templates = LIBRARY_TEMPLATES.filter((item) => isLibraryTemplateVisible(item.id, enabled || {}));
-  if (!enabled || (!templates.length && !wrens.length)) return null;
-  const hasSocial = wrens.some((item) => item.social);
+  if (!enabled || (!templates.length && !wrens.length && !TEMPLATE_RECIPES.length)) return null;
+  const hasSocial = wrens.some((item) => item.social) || TEMPLATE_RECIPES.length > 0;
   const chosenWren = wrens.find((item) => item.id === value.id);
-  const tab = tabPick || (chosenWren?.social ? "social" : "listing"); // follows the chosen template until the tab is tapped
+  const chosenRecipe = TEMPLATE_RECIPES.find((item) => value.recipe?.id === item.id);
+  const tab = tabPick || (chosenWren?.social || chosenRecipe ? "social" : "listing"); // follows the chosen template until the tab is tapped
   const chosen = templates.find((item) => item.id === value.id);
   const plan = chosen && photoCount >= 2 ? libraryTemplatePlan(engine, resolution, photoCount) : null;
   const chosenSocial = chosenWren?.social ? socialSpec(chosenWren.social.key) : null;
   const wrenCost = chosenWren && photoCount >= 2 ? (() => { const sp = chosenSocial ? socialPlan(chosenSocial, photoCount) : null; const wp = sp ? wrenPlan(engine, resolution, sp.count, sp.seconds, sp.minScene) : wrenPlan(engine, resolution, photoCount, chosenWren.seconds); return { count: wp.count, cost: engineCost(engine, wp.resolution, wp.sceneSeconds * wp.count) }; })() : null;
   const cost = plan ? engineCost(engine, plan.resolution, plan.sceneSeconds * plan.count) : null;
   const wrenOf = (item: WrenTemplate) => ({ seconds: item.seconds, photos: item.photos, best: item.guide?.best, least: item.guide?.least, hasMusic: item.hasMusic, ...(item.social ? { social: item.social.key } : {}) });
-  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); if (item.social && onFrame) onFrame(item.social.frame); onChange({ ...value, id: item.id, wren: wrenOf(item), texts: [] }); };
-  const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined });
+  const pickWren = (item: WrenTemplate) => { if (item.engine && onEngine) onEngine(item.engine as StudioEngineKey); if (item.social && onFrame) onFrame(item.social.frame); onChange({ ...value, id: item.id, wren: wrenOf(item), recipe: undefined, texts: [] }); };
+  const pickBuiltIn = (id: string) => onChange({ ...value, id, wren: undefined, recipe: undefined });
+  const pickRecipe = (item: TemplateRecipeEntry) => { if (onFrame) onFrame("vertical"); onChange({ ...value, id: `recipe:${item.id}`, wren: undefined, recipe: { id: item.id, nightSlots: value.recipe?.id === item.id ? value.recipe.nightSlots : [] }, texts: [] }); };
   const toggle = () => {
     const on = !value.on;
     if (on && value.id === "none") { if (templates.length) onChange({ ...value, on, id: templates[0].id, wren: undefined }); else { const first = wrens.find((item) => !item.social) || wrens[0]; if (first.engine && onEngine) onEngine(first.engine as StudioEngineKey); if (first.social && onFrame) onFrame(first.social.frame); onChange({ ...value, on, id: first.id, wren: { seconds: first.seconds, photos: first.photos, hasMusic: first.hasMusic, ...(first.social ? { social: first.social.key } : {}) } }); } return; }
@@ -81,7 +86,11 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
         <strong>{item.name}</strong>
         <small>{item.photoSlots} photos · vertical</small>
       </button>)}{wrens.filter((item) => !item.social).map(renderWren)}</div>
-      {hasSocial ? <div className="tpl-rail" role="radiogroup" aria-label="Social media templates" hidden={tab !== "social"}>{wrens.filter((item) => item.social).map(renderWren)}</div> : null}
+      {hasSocial ? <div className="tpl-rail" role="radiogroup" aria-label="Social media templates" hidden={tab !== "social"}>{wrens.filter((item) => item.social).map(renderWren)}{TEMPLATE_RECIPES.map((item) => <button type="button" role="radio" aria-checked={value.recipe?.id === item.id} key={item.id} className={value.recipe?.id === item.id ? "tpl-tile active" : "tpl-tile"} onClick={() => pickRecipe(item)} disabled={disabled}>
+        <span className="tpl-poster" aria-hidden><b>{Math.round(item.seconds)}<small>s</small></b></span>
+        <strong>{item.name}</strong>
+        <small>{item.photos} photos · edited from your photos, no generation</small>
+      </button>)}</div> : null}
       {hasSocial && tab === "social" ? <small className="tpl-hint">Short, on-the-beat edits for Reels, TikTok, Shorts and YouTube. Each tells you what photos it needs, then checks yours.</small> : null}
       {watching && chosenWren?.previewUrl ? <PreviewPlayer src={chosenWren.previewUrl} title={chosenWren.name} onClose={() => setWatching(false)} /> : null}
       {chosenWren && <div className="tpl-fields">
@@ -90,6 +99,18 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
         <p className="tpl-summary"><strong>{chosenWren.name}</strong> · {chosenWren.seconds} s · built for {chosenWren.photos} photos{chosenWren.hasMusic || chosenWren.hasEffects ? " · music and effects matched" : ""}{wrenCost ? ` · uses ${wrenCost.count} of your photos · engine cost about $${wrenCost.cost.toFixed(2)}` : ""}</p>
         {chosenWren.previewUrl ? <button type="button" className="wc-watch" onClick={() => setWatching(true)}>Watch full screen with sound</button> : null}
         {chosenSocial ? <SocialGuide spec={chosenSocial} photos={photos} engine={engine} resolution={resolution} onArrange={onArrange} disabled={disabled} /> : null}
+      </div>}
+      {chosenRecipe && <div className="tpl-fields">
+        {(() => { const best = chosenRecipe.photos, ok = photoCount >= best; return <p className={ok ? "tpl-need ok" : "tpl-need"}><strong>Requirements: {best} photos, one per slot, in this order.</strong> {ok ? `You have ${photoCount} — complete.` : `You have ${photoCount} — add ${best - photoCount} more before you can make this film.`}</p>; })()}
+        <p className="tpl-summary"><strong>{chosenRecipe.name}</strong> · {chosenRecipe.seconds} s · edited from your photos, no generation</p>
+        {chosenRecipe.nightEligible.length ? <div className="tpl-night">
+          <strong>No night photo?</strong>
+          <span>Make a night version from your day photo — the same photo, only the light and colour change. The house does not change at all.</span>
+          {chosenRecipe.nightEligible.map((slot) => {
+            const on = (value.recipe?.nightSlots || []).includes(slot);
+            return <label key={slot} className="tpl-night-pick"><input type="checkbox" checked={on} disabled={disabled} onChange={() => onChange({ ...value, recipe: { id: chosenRecipe.id, nightSlots: on ? (value.recipe?.nightSlots || []).filter((s) => s !== slot) : [...(value.recipe?.nightSlots || []), slot] } })} /><span>Night version of the {slot} photo</span></label>;
+          })}
+        </div> : null}
       </div>}
       {chosen && <div className="tpl-fields">
         <p className="tpl-summary"><strong>{chosen.name}</strong> · {chosen.durationSeconds} s vertical · hard cuts · up to {chosen.photoSlots} photos{plan ? ` · uses ${plan.count} of your photos` : ""}{cost !== null ? ` · engine cost about $${cost.toFixed(2)}` : ""}</p>

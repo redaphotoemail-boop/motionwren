@@ -51,6 +51,11 @@ export type EditSpec = {
   grade?: "warm";
   /** A WrenCut template's recipe (shots, joins, zoom, colour); its length decides the film's. */
   recipe?: import("../../wrencut").WrenRecipe;
+  /** A template recipe (spec v1: composer/templates/*.json — the frozen
+      JSON of scenes, captions, transitions, ramps, grade). Its length
+      decides the film's; when set, the composer's template branch runs
+      and `recipe` is ignored. When absent, behavior is exactly as today. */
+  templateRecipe?: Record<string, unknown>;
   /** How much of the recipe's per-shot camera move to apply (0 to 1). */
   recipeStrength?: number;
   subtitles?: { lines: import("../../ads-creative").SubtitleLine[]; position?: "bottom" | "top"; size?: "small" | "medium" | "large" };

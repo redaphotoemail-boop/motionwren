@@ -25,11 +25,12 @@
 
    What it does NOT do: when no template recipe is given, the composer
    behaves exactly as it does today — this module is never called.
-   Still-image inputs are not supported in v1: template inputs are video
-   clips (the same as every other composer job); a still must be looped
-   into a clip by the caller. */
+   Still-image inputs (v1.1): a template input may be a still photo
+   (JPEG/PNG/WebP). prepareTemplateInputs loops it into a clip of the
+   length the recipe needs, so the recipe's camera move is what moves
+   it — a real listing photo is a valid template input. */
 
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -231,6 +232,25 @@ export function parseTemplateRecipe(value) {
       }
     }
   }
+  // Night slots (a job-time choice, not part of the frozen template): the
+  // scenes or input slots named here are rendered with the night grade
+  // (night_warm_windows) instead of their own grade. It is a grade only —
+  // the same photo, the same move, the same timing; the house does not
+  // change at all, only the light and colour. The night grade is a
+  // composer built-in, so it does not need to be in the recipe's grades
+  // map (a template author cannot predict which slot a user will want
+  // at night). Each entry must name a real scene or input slot, and a
+  // white flash takes no grade, so it cannot be night-graded.
+  if (recipe.night_slots !== undefined) {
+    if (!Array.isArray(recipe.night_slots)) fail("night_slots must be a list.");
+    const byId = new Map(scenes.map((scene) => [scene.id, scene]));
+    for (const slot of recipe.night_slots) {
+      if (typeof slot !== "string" || !slot) fail("night_slots entries must be scene ids or input slot names.");
+      const scene = byId.get(slot) || scenes.find((s) => s.input === slot);
+      if (!scene) fail(`a night slot names an unknown scene or input slot "${slot}".`);
+      if (scene.type === "white_flash") fail(`a night slot cannot be put on the white flash scene "${scene.id}".`);
+    }
+  }
   if (recipe.music !== undefined) {
     if (typeof recipe.music.track !== "string" || !recipe.music.track.trim()) fail("music.track is required when music is given.");
     for (const key of ["beat_map_s", "cut_points_s"]) {
@@ -276,9 +296,15 @@ export function planTemplateScenes(recipe, clipDurations) {
     const occurrence = uses[clip]++;
     const room = Math.max(0, clipDurations[clip] - scene.duration_s - 0.05);
     const start = totalUses[clip] > 1 ? round(room * (occurrence / (totalUses[clip] - 1))) : 0;
-    if (clipDurations[clip] + 0.05 < start + scene.duration_s) {
-      fail(`scene "${scene.id}" needs ${round(start + scene.duration_s)}s of "${scene.input}" but the clip is ${round(clipDurations[clip])}s.`);
+    const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
+    // A scene needs at least its own duration of footage — the white-flash
+    // continuation starts at start + duration_s — even when its ramp
+    // consumes less than that by running slow.
+    const need = ramp ? Math.max(rampSourceSeconds(ramp.points, scene.duration_s), scene.duration_s) : scene.duration_s;
+    if (clipDurations[clip] + 0.05 < start + need) {
+      fail(`scene "${scene.id}" needs ${round(start + need)}s of "${scene.input}" but the clip is ${round(clipDurations[clip])}s.`);
     }
+    if (ramp) rampNeeds(ramp.points, scene.duration_s, clipDurations[clip] - start, scene.id);
     return { scene, clip, start };
   }).map((plan, index, all) => {
     // The flash scene continues the previous scene's footage from where
@@ -310,6 +336,116 @@ export function sampleRampCurve(points, samples = 16) {
     return points[points.length - 1][1];
   };
   return Array.from({ length: samples + 1 }, (_, i) => [round(i / samples, 4), round(at(i / samples), 4)]);
+}
+
+/* ---------- speed ramps: how much footage they need, and the loud check ---------- */
+
+/* How many source seconds a ramp consumes: rampHead's own arithmetic, so
+   the check below matches it exactly. total = d + 0.2 is rampHead's
+   headroom; each of its 8 slices runs sliceLen output seconds at the
+   curve's speed at its midpoint. */
+export function rampSourceSeconds(points, d) {
+  const sampled = sampleRampCurve(points);
+  const total = d + 0.2;
+  const sliceLen = total / 8;
+  const at = (u) => {
+    if (u <= sampled[0][0]) return sampled[0][1];
+    for (let k = 1; k < sampled.length; k += 1) {
+      if (u <= sampled[k][0]) {
+        const [u0, s0] = sampled[k - 1], [u1, s1] = sampled[k];
+        return s0 + (s1 - s0) * ((u - u0) / Math.max(1e-6, u1 - u0));
+      }
+    }
+    return sampled[sampled.length - 1][1];
+  };
+  let source = 0;
+  for (let k = 0; k < 8; k += 1) source += sliceLen * at(Math.min(1, ((k + 0.5) * sliceLen) / d));
+  return round(source, 3);
+}
+
+/* A ramp that would need more footage than the clip has is a loud
+   failure, never a silent slow-down: rampHead would otherwise scale
+   the whole ramp down to fit (see wrencut.mjs), and the film would
+   quietly lose the whip. The 0.97 matches rampHead's own trigger, so
+   a ramp that would have run at full speed is never failed here. */
+export function rampNeeds(points, d, available, sceneId) {
+  const needed = rampSourceSeconds(points, d);
+  if (Number.isFinite(available) && needed > available * 0.97) {
+    fail(`scene "${sceneId}" needs ${needed}s of footage for its speed ramp but only ${round(available)}s is left in the clip — use a longer clip or ease the ramp.`);
+  }
+  return needed;
+}
+
+/* ---------- still-image inputs ---------- */
+
+const STILL_CODECS = new Set(["mjpeg", "png", "webp", "bmp", "tiff"]);
+
+/* A still photo as a template input: an image file (JPEG/PNG/WebP) has
+   no video stream, so ffprobe reports no duration and no frame rate.
+   A video file's first stream is a video codec, never one of these. */
+export function isStillImage(file) {
+  try {
+    const out = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", file], { encoding: "utf8", timeout: 15000 });
+    return STILL_CODECS.has(String(out).trim().split("\n")[0].trim());
+  } catch { return false; }
+}
+
+const runFfmpeg = (args) => new Promise((resolve, reject) => {
+  const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+  let err = "";
+  child.stderr.on("data", (chunk) => { err += chunk; });
+  child.on("error", reject);
+  child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg failed (${code}): ${err.slice(-300)}`))));
+});
+
+/* Loop a still photo into a clip of `seconds`, at the film's size and
+   fps. The picture is scaled to cover the frame (never stretched), so
+   a portrait photo fills a portrait film and a landscape photo is
+   cropped, not squeezed. The clip is static — the recipe's camera move
+   is what moves it — so it re-encodes cheaply. */
+export async function stillToClip({ input, output, width, height, fps, seconds }) {
+  await runFfmpeg(["-hide_banner", "-y", "-nostdin", "-loop", "1", "-framerate", String(fps), "-i", input,
+    "-vf", `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},setsar=1,format=yuv420p`,
+    "-t", seconds.toFixed(3), "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", String(fps), output]);
+  return output;
+}
+
+/* Replace any still-photo inputs with looped clips of the length the
+   recipe needs, and return the files and durations the planner uses.
+   A slot's loop length is the longest its scenes need: a ramped scene
+   needs rampSourceSeconds, an unramped scene its own duration. A white
+   flash continues the previous scene's footage, so its duration is
+   added to that scene's slot as well. Video inputs pass through
+   untouched. */
+export async function prepareTemplateInputs({ recipe, files, durations, width, height, fps, dir }) {
+  const parsed = recipe._width ? recipe : parseTemplateRecipe(recipe);
+  const slotIndex = new Map(parsed.inputs.map((input, i) => [input.slot, i]));
+  const need = parsed.inputs.map(() => 0);
+  for (let i = 0; i < parsed.scenes.length; i += 1) {
+    const scene = parsed.scenes[i];
+    if (scene.type === "white_flash") {
+      const prev = parsed.scenes[i - 1];
+      if (prev) need[slotIndex.get(prev.input)] += scene.duration_s;
+      continue;
+    }
+    const slot = slotIndex.get(scene.input);
+    const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
+    // At least the scene's own duration (see planTemplateScenes: the
+    // white-flash continuation starts at start + duration_s), and the
+    // ramp's source need when that is longer.
+    const seconds = ramp ? Math.max(rampSourceSeconds(ramp.points, scene.duration_s), scene.duration_s) : scene.duration_s;
+    need[slot] = Math.max(need[slot], seconds);
+  }
+  const outFiles = [...files], outDurations = [...durations];
+  for (let i = 0; i < files.length; i += 1) {
+    if (!isStillImage(files[i])) continue;
+    const seconds = round(need[i] + 0.3, 3);
+    const output = path.join(dir, `still-${String(i + 1).padStart(2, "0")}.mp4`);
+    await stillToClip({ input: files[i], output, width, height, fps, seconds });
+    outFiles[i] = output;
+    outDurations[i] = seconds;
+  }
+  return { files: outFiles, durations: outDurations };
 }
 
 /* ---------- drawing one scene ---------- */
@@ -370,9 +506,19 @@ export function templateShotArgs({ recipe, scene, input, output, width, height, 
   const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
   let src = "0:v";
   if (ramp) {
-    // Re-time first (bezier-eased, sampled densely), then move the result.
+    // The ramp re-times the scene's own motion AND the recipe's camera
+    // move together: the move runs first, over the source seconds the
+    // ramp consumes, and the ramp then re-times the moved picture. A
+    // still photo's push-in therefore whips and settles with the ramp
+    // instead of gliding at constant speed. A ramp that cannot be
+    // executed fails loudly here — rampHead would otherwise scale it
+    // down silently, so it is called without `avail`.
+    if (!Number.isFinite(available)) fail(`scene "${scene.id}" has a speed ramp but the clip's available length was not given — the ramp cannot be checked.`);
+    const needed = rampNeeds(ramp.points, d, available, scene.id);
     const sampled = sampleRampCurve(ramp.points);
-    const built = rampHead({ index: 0, speed: sampled, d, start, fps, strength: 1, avail: available });
+    filters.push(`[0:v]trim=start=${start.toFixed(3)}:duration=${(needed + 0.1).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=1[src]`);
+    filters.push(...moveChain({ move: scene.camera.move, amount: scene.camera.amount || 1.06, d: needed, fps, width, height, src: "src" }));
+    const built = rampHead({ index: 0, speed: sampled, d, start: 0, fps, strength: 1, src: "moved" });
     filters.push(...built.lines);
     src = built.label;
     filters.push(`[${src}]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS[ramped]`);
@@ -389,12 +535,22 @@ export function templateShotArgs({ recipe, scene, input, output, width, height, 
     filters.push(`[${src}]fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},fade=t=out:st=0:d=${peakOff.toFixed(3)}:color=white,setsar=1,format=yuv420p[flashed]`);
     return ["-hide_banner", "-y", "-nostdin", "-i", input, "-filter_complex", filters.join(";"), "-map", "[flashed]", "-t", d.toFixed(3), "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", String(fps), output];
   }
-  filters.push(...moveChain({ move: scene.camera.move, amount: scene.camera.amount || 1.06, d, fps, width, height, src }));
-  let last = "moved";
-  if (scene.grade) {
-    const grade = GRADE_TABLE[scene.grade];
+  // A ramped scene already had its move applied before the ramp (above);
+  // every other scene gets its move here. A ramped scene's picture is
+  // at [ramped] now, not [moved].
+  if (src !== "ramped") filters.push(...moveChain({ move: scene.camera.move, amount: scene.camera.amount || 1.06, d, fps, width, height, src }));
+  let last = src === "ramped" ? "ramped" : "moved";
+  // The grade: the scene's own grade, unless this scene (by id or input
+  // slot) is in night_slots — then it is the night grade instead. A
+  // night slot is a grade only: the same photo, the same move, the same
+  // timing; the house does not change at all, only the light and colour.
+  // No AI re-render, so nothing in the picture can drift.
+  const night = (parsed.night_slots || []).includes(scene.id) || (parsed.night_slots || []).includes(scene.input);
+  const gradeName = night ? "night_warm_windows" : scene.grade;
+  if (gradeName) {
+    const grade = GRADE_TABLE[gradeName];
     const lut = path.join(lutDir || LUT_DIR, grade.lut);
-    if (!fs.existsSync(lut)) fail(`grade "${scene.grade}" needs its LUT file (${lut}), which is missing.`);
+    if (!fs.existsSync(lut)) fail(`grade "${gradeName}" needs its LUT file (${lut}), which is missing.`);
     filters.push(`[${last}]eq=${grade.eq},lut3d=file='${lut}'[graded]`);
     last = "graded";
   }
