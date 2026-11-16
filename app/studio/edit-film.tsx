@@ -21,6 +21,7 @@ type Data = {
   music: string; voice: { mode: "scene" | "film"; voiceId: string; lines: string[] } | null; sfx: { prompts: string[] } | null;
   scenes: { index: number; motion: string; photo: string; clip?: string }[];
   titles?: import("../titles").FilmTitles | null;
+  queue?: { id: string; label: string; status: "waiting" | "held"; position: number; holdReason?: string; submittedAt: number }[];
 };
 type Props = {
   jobId: string; onClose: () => void; onStarted: (job: StudioJob | null, message: string) => void;
@@ -48,7 +49,20 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const [skipped, setSkipped] = useState<number[]>([]);
   const [frame, setFrame] = useState<"made" | "horizontal" | "vertical">("made");
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState("");
   const [problem, setProblem] = useState<{ message: string; fix?: string } | null>(null);
+
+  // Set the form to the film's current state (used on load, and after an edit
+  // is queued — so a second Apply does not queue the same changes again).
+  function setFormFrom(body: Data) {
+    setFrame(body.cut || "made"); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
+    const next: FinalSound = { music: body.music === "auto" ? "keep" : body.music, voiceMode: body.voice?.mode || "off", voiceId: body.voice?.voiceId || "", lines: body.voice?.lines || [], film: body.voice?.mode === "film" ? (body.voice.lines.find(Boolean) || "") : "", sfxOn: Boolean(body.sfx), sfx: body.sfx?.prompts || [] };
+    setSoundState(next); setInitial(JSON.stringify(next));
+    setOpeningOn(Boolean(body.cards?.opening)); setClosingOn(Boolean(body.cards?.closing));
+    setTitle(body.cards?.opening?.title || ""); setDetail(body.cards?.opening?.detail || ""); setMessage(body.cards?.opening?.message || "");
+    setAgent(body.cards?.closing?.name || ""); setContact(body.cards?.closing?.contact || ""); setHadLogo(Boolean(body.cards?.closing?.logo)); setLogo(body.cards?.closing?.logo ? "keep" : "none");
+    setMoves({}); setRecreate({}); setNewPhotos({}); setWrenId(""); setSkipped([]);
+  }
 
   useEffect(() => { fetch("/api/admin/wrencut", { cache: "no-store" }).then((response) => response.json()).then((body: { templates?: { id: string; name: string; active?: boolean }[] }) => setTemplates((body.templates || []).filter((item) => item.active !== false).map((item) => ({ id: item.id, name: item.name })))).catch(() => undefined); }, []);
   useEffect(() => {
@@ -57,15 +71,21 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
       const body = await response.json().catch(() => ({})) as Data & { error?: string };
       if (cancelled) return;
       if (!response.ok) { setLoadError(body.error || "This film can't be edited."); return; }
-      setData(body); setFrame(body.cut || "made"); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
-      const next: FinalSound = { music: body.music === "auto" ? "keep" : body.music, voiceMode: body.voice?.mode || "off", voiceId: body.voice?.voiceId || "", lines: body.voice?.lines || [], film: body.voice?.mode === "film" ? (body.voice.lines.find(Boolean) || "") : "", sfxOn: Boolean(body.sfx), sfx: body.sfx?.prompts || [] };
-      setSoundState(next); setInitial(JSON.stringify(next));
-      setOpeningOn(Boolean(body.cards?.opening)); setClosingOn(Boolean(body.cards?.closing));
-      setTitle(body.cards?.opening?.title || ""); setDetail(body.cards?.opening?.detail || ""); setMessage(body.cards?.opening?.message || "");
-      setAgent(body.cards?.closing?.name || ""); setContact(body.cards?.closing?.contact || ""); setHadLogo(Boolean(body.cards?.closing?.logo)); setLogo(body.cards?.closing?.logo ? "keep" : "none");
+      setData(body); setFormFrom(body);
     }).catch(() => !cancelled && setLoadError("This film can't be edited right now."));
     return () => { cancelled = true; };
   }, [jobId]);
+
+  async function cancelQueued(queueId: string) {
+    setCancelling(queueId); setProblem(null);
+    try {
+      const response = await fetch(`/api/studio/production/${jobId}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cancelQueued: queueId }) });
+      const result = await response.json().catch(() => ({})) as { queue?: Data["queue"]; error?: string };
+      if (!response.ok) { setProblem({ message: result.error || "That edit could not be cancelled." }); return; }
+      setData((current) => current ? { ...current, queue: result.queue || [] } : current);
+    } catch { setProblem({ message: "That edit could not be cancelled. Check your connection and try again." }); }
+    finally { setCancelling(""); }
+  }
 
   const setSound = (patch: Partial<FinalSound>) => setSoundState((current) => ({ ...current, ...patch }));
   const initialSound = useMemo(() => initial ? JSON.parse(initial) as FinalSound : null, [initial]);
@@ -106,8 +126,15 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     if (changedScenes.length) body.scenes = changedScenes.map((scene) => data.photoEngine ? { scene, photoMove: moves[scene] } : { scene, ...(moves[scene] ? { prompt: scenePrompt(moves[scene]) } : {}), ...(newPhotos[scene] ? { photo: newPhotos[scene] } : {}) });
     try {
       const response = await fetch(`/api/studio/production/${jobId}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const result = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string; fix?: string; warning?: string };
+      const result = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string; fix?: string; warning?: string; queued?: { id: string; position: number; label: string }; queue?: Data["queue"] };
       if (!response.ok) { setProblem({ message: result.error || "The edit could not start.", fix: result.fix }); return; }
+      if (result.queued) {
+        // The film is still being made: this edit waits in line and runs on its own when the film finishes.
+        onStarted(result.job || null, `Added to the line — edit ${result.queued.position} in line. It starts when the current one finishes.`);
+        setData((current) => current ? { ...current, queue: result.queue || current.queue } : current);
+        setFormFrom(data); // back to the film's current state, so a second Apply does not queue the same changes again
+        return;
+      }
       onStarted(result.job || null, changedScenes.length && !data.photoEngine ? "Making the changed scenes again, then editing your film. The new version will appear here." : "Editing your film. The new version will appear here in a minute or two.");
     } catch { setProblem({ message: "The edit could not start. Check your connection and try again." }); }
     finally { setBusy(false); }
@@ -118,6 +145,9 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     <div className="fin-sheet">
       <header className="fin-sheet-head"><div><span className="label">EDIT FILM</span><h2>Change your finished film</h2><p>Scenes you leave alone are kept as they are and cost nothing again.</p></div><button type="button" className="fin-close" onClick={onClose} aria-label="Close">×</button></header>
       {loadError ? <div className="fin-problem">{loadError}</div> : !data ? <p className="fin-quiet">Opening your film…</p> : <div className="fin-sheet-body">
+        {data.queue?.length ? <FinalSection title="In line" note="Edits waiting for this film. Each one starts on its own when the one before it finishes — you don't need to do anything.">
+          <div className="fin-queue">{data.queue.map((entry) => <div className="fin-queue-row" key={entry.id}><div><strong>Edit {entry.position} in line</strong><small>{entry.label}</small>{entry.status === "held" ? <span className="fin-queue-held">{entry.holdReason || "Held — the film stopped."} Resume the film, or cancel this edit.</span> : <span>Starts when the current one finishes.</span>}</div><button type="button" className="fin-link" disabled={cancelling === entry.id} onClick={() => cancelQueued(entry.id)}>{cancelling === entry.id ? "Cancelling…" : "Cancel"}</button></div>)}</div>
+        </FinalSection> : null}
         {data.count > 1 && !data.photoEngine && <Variants jobId={jobId} count={data.count} onStarted={onStarted}/>}
         {data.count > 1 && !data.photoEngine && <FinalSection title="Your clips" note="Each scene as the engine made it. Edit them again with a template at no engine cost; untick a clip to leave it out.">
           <div className="fin-scenes">{data.scenes.map((scene) => <div className="fin-scene" key={`clip-${scene.index}`}>{scene.clip ? <video src={scene.clip} poster={scene.photo} controls muted playsInline preload="none" aria-label={`Clip ${scene.index + 1}`}/> : <img src={scene.photo} alt={`Scene ${scene.index + 1}`}/>}<div><strong>Clip {scene.index + 1}</strong><small>{scene.clip ? "Saved" : "Not saved"}</small></div>
@@ -160,7 +190,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
         </FinalSection>
         {problem && <div className="fin-problem" role="alert"><span>{problem.message}</span>{problem.fix === "elevenlabs" && <a href="https://elevenlabs.io/app/subscription" target="_blank" rel="noreferrer">Open ElevenLabs plans →</a>}</div>}
       </div>}
-      {data && <footer className="fin-sheet-foot"><div><strong>{!anything ? "No changes yet" : remakeCents ? `${dollars(remakeCents)} to make ${changedScenes.length} scene${changedScenes.length === 1 ? "" : "s"} again` : "No new scenes to make"}</strong><small>{busy ? "Starting your edit — this can take a minute. You can close this; it keeps going on our server and lands in History." : anything ? "A new version is saved to History; the current one stays." : "Change something above to enable Apply."}</small></div><button type="button" className="generate" onClick={apply} disabled={!anything || busy}>{busy ? "Starting…" : "Apply changes"}<span>→</span></button></footer>}
+      {data && <footer className="fin-sheet-foot"><div><strong>{!anything ? "No changes yet" : remakeCents ? `${dollars(remakeCents)} to make ${changedScenes.length} scene${changedScenes.length === 1 ? "" : "s"} again` : "No new scenes to make"}</strong><small>{busy ? "Starting your edit — this can take a minute. You can close this; it keeps going on our server and lands in History." : data.status !== "succeeded" ? "This film is still being made — your edit will wait in line and run when it finishes." : anything ? "A new version is saved to History; the current one stays." : "Change something above to enable Apply."}</small></div><button type="button" className="generate" onClick={apply} disabled={!anything || busy}>{busy ? "Starting…" : "Apply changes"}<span>→</span></button></footer>}
     </div>
   </div>;
 }

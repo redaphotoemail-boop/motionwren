@@ -85,6 +85,8 @@ export type ProductionManifest = {
   sourceFilmId?: string;
   /** History ids of the later versions of this film (each edit saves a new one); the first version keeps the job's own id. */
   versions?: string[];
+  /** Edits submitted while the film was busy, waiting in line (the submission queue): each runs in order when the film before it finishes. A queued edit is never dropped silently — it waits, runs, or fails loudly. */
+  editQueue?: QueuedEdit[];
   /** "Original photo shape": the film is made at this shape (width ÷ height), the shape of the photos themselves. */
   frame?: { ratio: number };
   fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string }[];
@@ -134,11 +136,23 @@ export type ProductionManifest = {
   };
 };
 
+/** One edit waiting in the submission queue. `body` is the exact Edit POST body as submitted (a new photo for a scene is already moved to R2 at queue time — see queuedPhotoKey — so the body never carries photo bytes). `status` is "waiting" while the edit is in line; the queue marks it "held" when the film it waits on has stopped, and it waits again (never dropped) once the film runs. */
+export type QueuedEdit = {
+  id: string;
+  body: Record<string, unknown>;
+  label: string;
+  status: "waiting" | "held";
+  holdReason?: string;
+  submittedAt: number;
+};
+
 type R2Env = { BUCKET: R2Bucket };
 
 const manifestKey = (jobId: string) => `render-jobs/${jobId}/manifest.json`;
 export const frameKey = (jobId: string, index: number) => `render-jobs/${jobId}/scene-${String(index + 1).padStart(2, "0")}.jpg`;
 export const outputKey = (jobId: string, index: number) => `render-jobs/${jobId}/out-${String(index + 1).padStart(2, "0")}.mp4`;
+/** A new photo for a queued edit, waiting in R2 until that edit runs (so the queued body never has to carry the photo bytes). */
+export const queuedPhotoKey = (jobId: string, queueId: string, index: number) => `render-jobs/${jobId}/queued-${queueId}-scene-${String(index + 1).padStart(2, "0")}.jpg`;
 export const musicKey = (jobId: string) => `render-jobs/${jobId}/music.mp3`;
 export const voiceoverKey = (jobId: string) => `render-jobs/${jobId}/voiceover.mp3`;
 
