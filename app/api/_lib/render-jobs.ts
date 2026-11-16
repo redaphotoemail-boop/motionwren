@@ -2,18 +2,22 @@ import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
 import { HttpError, audit } from "./account";
-import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, saveManifest, type ProductionManifest } from "./production";
+import { MAX_FIX_ROUNDS, SIDEWAYS_SPEED, cleanCards, isSidewaysMove, frameKey, framesPresent, loadManifest, musicKey, newManifest, normalizeManifest, outputKey, queuedPhotoKey, saveManifest, type ProductionManifest, type QueuedEdit } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
 import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } from "./film-review";
 import { soundLayers } from "./film-sound";
+import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "./film-sound";
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
-import { CROSSFADE_SECONDS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { fixEngine } from "../../fix-engine";
 import { fixInstruction } from "../../fix-notes";
 import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
-import { recipeSeconds } from "../../wrencut";
+import { isWrenId, joinTimes, recipeSeconds } from "../../wrencut";
+import { getRecipe, recipeFor } from "./wrencut";
+import { cleanFilmTitles } from "../../titles";
+import { musicTemplate } from "../../music-catalog";
 import { shapeSize } from "../../original-shape";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
@@ -883,7 +887,11 @@ async function collectComposedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, ro
 const PHOTO_WAIT_MS = 10 * 60 * 1000;
 
 export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string) {
-  if (["succeeded", "failed"].includes(row.status)) return row;
+  if (["succeeded", "failed"].includes(row.status)) {
+    // The film finished or stopped: a line of edits waiting on it starts (or is held) — the queue advances itself.
+    await advanceEditQueue(env, row, token, webhookUrl).catch(() => undefined);
+    return (await getRenderJob(env, row.id)) || row;
+  }
   try {
     // The photos are still on their way (a phone on a slow connection can take minutes for the first one): wait 5 minutes, not 90 seconds, for photos that have not arrived. Every photo that arrives restarts the wait.
     if (row.status === "starting" && Date.now() - row.updatedAt > 90 * 1000 && Date.now() - row.updatedAt <= PHOTO_WAIT_MS && row.kind.startsWith("studio-")) {
@@ -964,7 +972,7 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
       const manifest = QUEUE_KINDS.has(row.kind) ? await loadManifest(env, row.id) : null;
       const finalUrl = manifest?.finalUrl || (JSON.parse(row.segmentUrls || "[]") as string[])[0];
       if (!finalUrl) throw new Error("The finished video could not be recovered for storage.");
-      if (finalUrl.startsWith("composer:")) { if (Date.now() - row.updatedAt > 20 * 1000) await saveComposedFilm(env, row, finalUrl.slice("composer:".length), { token, origin: webhookUrl ? new URL(webhookUrl).origin : "" }); return getRenderJob(env, row.id); }
+      if (finalUrl.startsWith("composer:")) { if (Date.now() - row.updatedAt > 20 * 1000) await saveComposedFilm(env, row, finalUrl.slice("composer:".length), { token, origin: webhookUrl ? new URL(webhookUrl).origin : "" }); const fresh = await getRenderJob(env, row.id); if (fresh?.status === "succeeded") await advanceEditQueue(env, fresh, token, webhookUrl).catch(() => undefined); return getRenderJob(env, row.id); }
       try { await saveFinishedJob(env, row, finalUrl); }
       catch (error) {
         // The engine keeps finished files for about an hour: keep trying to
@@ -975,6 +983,9 @@ export async function advanceRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }
   } catch (error) {
     await failRenderJob(env, row, error instanceof Error ? error.message : "The video job could not be completed.");
   }
+  const fresh = await getRenderJob(env, row.id);
+  // A film that just finished or stopped: a line of edits waiting on it starts (or is held).
+  if (fresh && ["succeeded", "failed"].includes(fresh.status)) await advanceEditQueue(env, fresh, token, webhookUrl).catch(() => undefined);
   return getRenderJob(env, row.id);
 }
 
@@ -1127,6 +1138,300 @@ export async function upscaleFinal(env: { DB: D1Database; BUCKET: R2Bucket }, ro
     return result;
   }
   return { ok: true, cents };
+}
+
+/* ---- Edit a finished film (shared by the Edit route and the submission queue) ----
+   Change a finished film's listing cards, music, voiceover and sound effects,
+   or make single scenes again with a new camera movement. The scenes that are
+   kept are not made again (nothing is charged for them); only a scene made
+   again costs. The caller passes the provider token (or null when the engine
+   is not connected) and the webhook URL the provider calls back on. */
+export type FilmEditBody = {
+  cards?: unknown;
+  music?: unknown;
+  voice?: { mode?: unknown; voiceId?: unknown; lines?: unknown; film?: unknown } | null;
+  sfx?: { on?: unknown; prompts?: unknown } | null;
+  scenes?: { scene?: unknown; prompt?: unknown; photoMove?: unknown; photo?: unknown }[];
+  /** Edit the same scenes with a MotionWren template ("wren:…"), from the scenes listed in useScenes (all when left out). */
+  template?: unknown;
+  useScenes?: unknown;
+  /** Cinematic titles: an object to set them, null to remove them. */
+  titles?: unknown;
+  /** Cut the finished film to 16:9 or vertical ("made" goes back to the frame it was made at). Nothing is made again. */
+  frame?: unknown;
+};
+
+export type FilmEditResult =
+  | { job: Record<string, unknown>; warning?: string }
+  | { error: string; fix?: string; status: number };
+
+const editText = (value: unknown, max: number) => typeof value === "string" ? value.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+export async function applyFilmEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, body: FilmEditBody, token: string | null, webhookUrl?: string): Promise<FilmEditResult> {
+  const id = row.id;
+  if (!token) return { error: "The video engine is not connected yet.", status: 503 };
+  const manifest = await loadManifest(env, id);
+  if (!manifest) return { error: "This film was made before it could be edited.", status: 409 };
+  const count = manifest.inputs.length;
+  const edit = manifest.edit || (manifest.edit = {});
+  const sound = edit.sound || (edit.sound = {});
+
+  // The kept scenes must still be stored.
+  const redo = new Set((Array.isArray(body.scenes) ? body.scenes : []).map((item) => Number(item.scene)).filter((scene) => Number.isInteger(scene) && scene >= 0 && scene < count));
+  for (let index = 0; index < count; index += 1) {
+    if (redo.has(index) || manifest.photoMoves?.[index]) continue;
+    if (!await env.BUCKET.head(outputKey(id, index))) return { error: "This film's scenes are no longer stored, so it can't be edited. Make it again from its photos.", status: 409 };
+  }
+
+  // A MotionWren template applied to the kept scenes (nothing is made again, so nothing is charged).
+  if (typeof body.template === "string" && body.template) {
+    if (!isWrenId(body.template)) return { error: "Unknown template.", status: 400 };
+    const wren = await getRecipe(env, body.template);
+    if (!wren) return { error: "That template is no longer available.", status: 400 };
+    const chosen = Array.isArray(body.useScenes) ? [...new Set((body.useScenes as unknown[]).map(Number))].filter((index) => Number.isInteger(index) && index >= 0 && index < count && !manifest.photoMoves?.[index]) : [];
+    const used = chosen.length ? chosen : Array.from({ length: count }, (_, index) => index);
+    if (used.length < 2) return { error: "Choose at least two clips.", status: 400 };
+    if (used.length < count && (sound.voice || sound.sfx)) return { error: "This film has a voice or scene sounds, which belong to all of its scenes. Edit it with every clip, or turn them off first.", status: 400 };
+    const recipe = recipeFor(wren, used.length);
+    edit.recipe = recipe; edit.crossfade = 0; edit.useScenes = used.length < count ? used : undefined;
+    delete edit.grade; delete edit.subtitles;
+    if (recipe.audio?.sfx?.length) {
+      try { const cutfx = await makeCutEffects(env, id, recipe.audio, joinTimes(recipe)); if (cutfx) sound.cutfx = cutfx; else delete sound.cutfx; } catch { delete sound.cutfx; }
+    } else delete sound.cutfx;
+  }
+
+  // Cut to another frame: the stored clips are re-framed at the final edit, so nothing is made again and nothing is charged.
+  if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "made") {
+    if (body.frame === "made" || body.frame === row.aspect) delete edit.reframe; else edit.reframe = body.frame;
+  }
+
+  if (body.titles !== undefined) { const titles = body.titles === null ? undefined : cleanFilmTitles(body.titles); if (titles) edit.titles = titles; else delete edit.titles; }
+
+  // Sound first: if a voice or effect can't be made, nothing else changes.
+  try {
+    if (body.voice !== undefined) {
+      const mode = body.voice?.mode;
+      if (mode === "off" || body.voice === null) delete sound.voice;
+      else if (mode === "scene" || mode === "film") {
+        const voiceId = editText(body.voice?.voiceId, 64);
+        if (!voiceId) return { error: "Choose a voice.", status: 400 };
+        const lines = Array.isArray(body.voice?.lines) ? (body.voice!.lines as unknown[]).map((line) => editText(line, 400)) : [];
+        sound.voice = await makeVoice(env, id, { mode, voiceId, lines: Array.from({ length: count }, (_, index) => lines[index] || ""), film: editText(body.voice?.film, 4000) }, count);
+      }
+    }
+    if (body.sfx !== undefined) {
+      if (!body.sfx || body.sfx.on !== true) delete sound.sfx;
+      else {
+        const prompts = Array.isArray(body.sfx.prompts) ? (body.sfx.prompts as unknown[]).map((prompt) => editText(prompt, 140)) : [];
+        const made = await makeSfx(env, id, Array.from({ length: count }, (_, index) => prompts[index] || ""), Math.min(edit.shareSeconds || manifest.sceneSeconds, 12));
+        if (made) sound.sfx = made; else { delete sound.sfx; return { error: "None of the scenes has a sound to add. Describe one, or turn sound effects off.", status: 400 }; }
+      }
+    }
+  } catch (error) {
+    if (error instanceof ElevenLabsMissingKey) return { error: "The ElevenLabs key is not added yet.", fix: "elevenlabs", status: 503 };
+    const message = error instanceof Error ? error.message : "The sound could not be made.";
+    return { error: message, fix: /402|paid_plan|payment_required|quota/i.test(message) ? "elevenlabs" : undefined, status: 502 };
+  }
+
+  if (body.cards !== undefined) {
+    // "keep" in the logo field means: the closing card keeps the logo it already has.
+    const incoming = body.cards as { closing?: { logo?: unknown } | null } | null;
+    if (incoming?.closing && incoming.closing.logo === "keep") incoming.closing.logo = manifest.cards?.closing?.logo || "";
+    const cards = body.cards === null ? undefined : cleanCards(body.cards); if (cards) manifest.cards = cards; else delete manifest.cards;
+  }
+  if (typeof body.music === "string" && body.music !== "keep") {
+    if (body.music === "none") sound.noMusic = true;
+    else {
+      const template = musicTemplate(body.music);
+      if (!template) return { error: "Unknown music.", status: 400 };
+      delete sound.noMusic;
+      edit.music = { prompt: template.prompt }; // a new prompt: the old saved track is not reused
+    }
+  }
+  // A camera movement changed for a scene: that scene is made again.
+  for (const item of Array.isArray(body.scenes) ? body.scenes : []) {
+    const scene = Number(item.scene);
+    if (!redo.has(scene)) continue;
+    if (!manifest.photoMoves?.[scene] && item.photo && typeof item.photo === "object" && typeof (item.photo as { queuedPhoto?: unknown }).queuedPhoto === "string") {
+      // A queued edit's new photo, waiting in R2 since it was submitted: move it onto the scene's photo now.
+      const queuedKey = (item.photo as { queuedPhoto: string }).queuedPhoto;
+      const stored = await env.BUCKET.get(queuedKey);
+      if (!stored?.body) return { error: `The new photo for scene ${scene + 1} could not be found. Submit the edit again.`, status: 409 };
+      const bytes = new Uint8Array(await new Response(stored.body).arrayBuffer());
+      const key = manifest.photos?.[scene]?.key || frameKey(id, scene);
+      await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+      await env.BUCKET.delete(queuedKey).catch(() => undefined);
+      if (manifest.photos?.[scene]) manifest.photos[scene].file = undefined;
+    } else if (!manifest.photoMoves?.[scene] && typeof item.photo === "string" && /^data:image\/jpeg;base64,/.test(item.photo) && item.photo.length <= 10_400_000) {
+      // A new photo for this scene: it replaces the stored one, and the engine is handed the new file.
+      const bytes = Uint8Array.from(atob(item.photo.slice(item.photo.indexOf(",") + 1)), (char) => char.charCodeAt(0));
+      const key = manifest.photos?.[scene]?.key || frameKey(id, scene);
+      await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+      if (manifest.photos?.[scene]) manifest.photos[scene].file = undefined;
+    }
+    if (manifest.photoMoves?.[scene] && (PHOTO_MOVE_KEYS as readonly string[]).includes(String(item.photoMove))) manifest.photoMoves[scene] = String(item.photoMove);
+    else if (typeof item.prompt === "string" && item.prompt.trim().length >= 20 && typeof manifest.inputs[scene].prompt === "string") manifest.inputs[scene] = { ...manifest.inputs[scene], prompt: item.prompt.trim().slice(0, 6000) };
+  }
+  await saveManifest(env, id, manifest);
+
+  let current = row; let failure = "";
+  const scenesToMake = [...redo].filter((scene) => !manifest.photoMoves?.[scene] ? true : false);
+  if (scenesToMake.length) {
+    for (const scene of scenesToMake) {
+      const result = await runJobAction(env, current, "regenerate-scene", scene, token, webhookUrl);
+      if ("error" in result) { failure = result.error; break; }
+      current = (await getRenderJob(env, id)) || current;
+    }
+  }
+  if (!scenesToMake.length || failure) {
+    const result = await runJobAction(env, current, "reassemble", null, token, webhookUrl);
+    if ("error" in result) return { error: failure || result.error, status: 409 };
+  }
+  const fresh = await getRenderJob(env, id);
+  return { job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh), cardsNote: await jobCardsNote(env, fresh) } : {}, ...(failure ? { warning: failure } : {}) };
+}
+
+/* ---- Submission queue: edits that wait in line ----
+   An edit submitted while its film is busy (generating, stitching, saving) is
+   accepted and waits in line on the film's manifest, then runs automatically
+   in submission order when the film before it finishes — no "wait until
+   complete", no manual re-submit. The line is pumped by advanceRenderJob
+   (below): the heartbeat, webhooks and page views all drive it, so no new
+   scheduler is needed. A queued edit is never dropped silently: if the film
+   it waits on stops, the line is held with the reason; if the queued edit
+   itself cannot run, it fails loudly (notification) and the line moves on. */
+export type QueuedEditSummary = { id: string; label: string; status: "waiting" | "held"; position: number; holdReason?: string; submittedAt: number };
+
+/** Plain-language summary of an edit for the line ("Cut to 16:9 · New music"). */
+export function editQueueLabel(body: FilmEditBody): string {
+  const parts: string[] = [];
+  if (body.frame === "horizontal") parts.push("Cut to 16:9");
+  else if (body.frame === "vertical") parts.push("Cut to 9:16");
+  else if (body.frame === "made") parts.push("Back to the original frame");
+  if (typeof body.template === "string" && body.template) parts.push("Apply a template");
+  if (typeof body.music === "string" && body.music !== "keep") parts.push(body.music === "none" ? "Remove the music" : "New music");
+  if (body.voice !== undefined && body.voice !== null) parts.push(body.voice?.mode === "off" ? "Remove the voiceover" : "New voiceover");
+  if (body.sfx !== undefined && body.sfx !== null) parts.push(body.sfx?.on === true ? "New scene sounds" : "Remove the scene sounds");
+  if (body.cards !== undefined) parts.push("New listing cards");
+  if (body.titles !== undefined) parts.push("New titles");
+  const remade = Array.isArray(body.scenes) ? body.scenes.map((item) => Number(item.scene)).filter((scene) => Number.isInteger(scene)) : [];
+  if (remade.length === 1) parts.push(`Remake scene ${remade[0] + 1}`);
+  else if (remade.length > 1) parts.push(`Remake ${remade.length} scenes`);
+  return parts.slice(0, 3).join(" · ") || "Edit the film";
+}
+
+/** What the Studio shows for the line. A film that has stopped holds the whole line: entries wait (never dropped) until the film runs again. */
+export function queueSummary(manifest: ProductionManifest | null | undefined, row?: { status: string; error?: string | null } | null): QueuedEditSummary[] {
+  if (!manifest?.editQueue?.length) return [];
+  return manifest.editQueue.map((entry, index) => {
+    const held = entry.status === "held" || (row?.status === "failed" && entry.status === "waiting");
+    return { id: entry.id, label: entry.label, status: held ? "held" : "waiting", position: index + 1, ...(held ? { holdReason: entry.holdReason || (row?.error ? `The film stopped: ${customerSafeError(row.error).slice(0, 200)}` : "The film stopped.") } : {}), submittedAt: entry.submittedAt };
+  });
+}
+
+/** Accept an edit while its film is busy: it waits in line instead of being refused. New photos are moved to R2 at once (queue keys), so the queued body never carries photo bytes. */
+export async function enqueueEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, body: FilmEditBody): Promise<{ entry: QueuedEdit; position: number; queue: QueuedEditSummary[] } | { error: string }> {
+  const manifest = await loadManifest(env, row.id);
+  if (!manifest) return { error: "This film was made before it could be edited." };
+  const count = manifest.inputs.length;
+  const redo = new Set((Array.isArray(body.scenes) ? body.scenes : []).map((item) => Number(item.scene)).filter((scene) => Number.isInteger(scene) && scene >= 0 && scene < count));
+  // No kept-scenes check here: while the film is still being made its scenes do not exist yet. applyFilmEdit checks them again at run time, once the film has finished.
+  // Fail fast on an edit that could never run, so it never sits in line and fails later.
+  if (typeof body.template === "string" && body.template) {
+    if (!isWrenId(body.template)) return { error: "Unknown template." };
+    const wren = await getRecipe(env, body.template);
+    if (!wren) return { error: "That template is no longer available." };
+    const chosen = Array.isArray(body.useScenes) ? [...new Set((body.useScenes as unknown[]).map(Number))].filter((index) => Number.isInteger(index) && index >= 0 && index < count && !manifest.photoMoves?.[index]) : [];
+    const used = chosen.length ? chosen : Array.from({ length: count }, (_, index) => index);
+    if (used.length < 2) return { error: "Choose at least two clips." };
+  }
+  if (typeof body.music === "string" && body.music !== "keep" && body.music !== "none" && !musicTemplate(body.music)) return { error: "Unknown music." };
+  if (body.voice !== undefined && body.voice !== null && (body.voice?.mode === "scene" || body.voice?.mode === "film") && !editText(body.voice?.voiceId, 64)) return { error: "Choose a voice." };
+  if (body.frame !== undefined && !["horizontal", "vertical", "made"].includes(String(body.frame))) return { error: "Unknown frame." };
+  const queueId = crypto.randomUUID();
+  const storedBody = JSON.parse(JSON.stringify(body)) as FilmEditBody;
+  for (const item of Array.isArray(storedBody.scenes) ? storedBody.scenes : []) {
+    const scene = Number(item.scene);
+    if (!redo.has(scene)) continue;
+    if (!manifest.photoMoves?.[scene] && typeof item.photo === "string" && /^data:image\/jpeg;base64,/.test(item.photo) && item.photo.length <= 10_400_000) {
+      const bytes = Uint8Array.from(atob(item.photo.slice(item.photo.indexOf(",") + 1)), (char) => char.charCodeAt(0));
+      const key = queuedPhotoKey(row.id, queueId, scene);
+      await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
+      (item as { photo?: unknown }).photo = { queuedPhoto: key };
+    } else if (typeof item.photo === "string") delete (item as { photo?: unknown }).photo; // a photo that could not be used: the scene is remade without it, as a direct edit would
+  }
+  const entry: QueuedEdit = { id: queueId, body: storedBody as unknown as Record<string, unknown>, label: editQueueLabel(body), status: "waiting", submittedAt: Date.now() };
+  manifest.editQueue = [...(manifest.editQueue || []), entry];
+  await saveManifest(env, row.id, manifest);
+  return { entry, position: manifest.editQueue.length, queue: queueSummary(manifest, row) };
+}
+
+/** Take one edit out of the line (a new photo waiting for it is dropped with it). */
+export async function cancelQueuedEdit(env: { DB: D1Database; BUCKET: R2Bucket }, jobId: string, queueId: string): Promise<{ queue: QueuedEditSummary[] } | { error: string }> {
+  const manifest = await loadManifest(env, jobId);
+  if (!manifest?.editQueue?.length) return { error: "There is no edit in line to cancel." };
+  const entry = manifest.editQueue.find((item) => item.id === queueId);
+  if (!entry) return { error: "That edit is no longer in line." };
+  for (const item of Array.isArray((entry.body as FilmEditBody).scenes) ? (entry.body as FilmEditBody).scenes! : []) {
+    const key = (item.photo as { queuedPhoto?: unknown } | undefined)?.queuedPhoto;
+    if (typeof key === "string") await env.BUCKET.delete(key).catch(() => undefined);
+  }
+  manifest.editQueue = manifest.editQueue.filter((item) => item.id !== queueId);
+  await saveManifest(env, jobId, manifest);
+  const row = await getRenderJob(env, jobId);
+  return { queue: queueSummary(manifest, row) };
+}
+
+async function notifyEditFailed(env: { DB: D1Database }, row: RenderJobRow, entry: QueuedEdit, error: string) {
+  const now = Date.now();
+  await env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'edit_failed', 'An edit in line could not run', ?, NULL, ?)`).bind(`${entry.id}:edit-failed`, row.ownerId, `${entry.label}: ${customerSafeError(error).slice(0, 300)}`, now).run().catch(() => undefined);
+}
+
+/** Pump the line. Called by advanceRenderJob whenever a job is looked at (heartbeat, webhooks, page views, after an action): no new scheduler.
+    - The film finished: the next edit in line starts (in submission order). A film that runs again un-holds the line first.
+    - The film stopped: the whole line is held with the reason — never dropped, never run against a failed film.
+    - Otherwise (the film is still busy): nothing to do; the line waits.
+    A queued edit that cannot run fails loudly (notification) and the line moves on — unless the engine itself is unreachable, in which case the line waits for the next advance. */
+export async function advanceEditQueue(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, token: string, webhookUrl?: string): Promise<{ started: boolean; held?: number; failed?: { id: string; error: string }[] }> {
+  if (!row) return { started: false };
+  if (row.status === "failed") {
+    const manifest = await loadManifest(env, row.id).catch(() => null);
+    if (!manifest?.editQueue?.length) return { started: false };
+    const reason = `The film stopped: ${customerSafeError(row.error || "The film stopped.").slice(0, 200)}`;
+    let held = 0;
+    for (const entry of manifest.editQueue) if (entry.status === "waiting") { entry.status = "held"; entry.holdReason = reason; held += 1; }
+    if (held) await saveManifest(env, row.id, manifest);
+    return { started: false, held };
+  }
+  if (row.status !== "succeeded") return { started: false };
+  const manifest = await loadManifest(env, row.id).catch(() => null);
+  if (!manifest?.editQueue?.length) return { started: false };
+  let changed = false;
+  for (const entry of manifest.editQueue) if (entry.status === "held") { entry.status = "waiting"; delete entry.holdReason; changed = true; }
+  if (changed) await saveManifest(env, row.id, manifest);
+  if (!token) return { started: false };
+  const failed: { id: string; error: string }[] = [];
+  // In submission order, until one edit starts (or the line is empty). Bounded by the line's length.
+  for (let guard = 0; guard < manifest.editQueue.length; guard += 1) {
+    const live = await getRenderJob(env, row.id);
+    if (!live || live.status !== "succeeded") break; // the film stopped or started again: the line waits (a stop holds it on the next advance)
+    const current = await loadManifest(env, row.id).catch(() => null);
+    if (!current?.editQueue?.length) break;
+    const entry = current.editQueue[0];
+    const result = await applyFilmEdit(env, live, entry.body as unknown as FilmEditBody, token, webhookUrl);
+    if ("job" in result) {
+      const done = await loadManifest(env, row.id).catch(() => null);
+      if (done?.editQueue) { done.editQueue = done.editQueue.filter((item) => item.id !== entry.id); await saveManifest(env, row.id, done); }
+      return { started: true, failed: failed.length ? failed : undefined };
+    }
+    const transient = /not connected|being updated right now|try again/i.test(result.error);
+    const gone = await loadManifest(env, row.id).catch(() => null);
+    if (gone?.editQueue) { gone.editQueue = gone.editQueue.filter((item) => item.id !== entry.id); await saveManifest(env, row.id, gone); }
+    failed.push({ id: entry.id, error: result.error });
+    await notifyEditFailed(env, row, entry, result.error);
+    if (transient) break; // the engine is unreachable: the rest of the line waits for the next advance
+  }
+  return { started: false, failed: failed.length ? failed : undefined };
 }
 
 export async function runJobAction(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, action: JobAction, scene: number | null, token: string, webhookUrl?: string) {

@@ -672,5 +672,135 @@ const stitchCreates = () => P.stitchInputs.length;
   check("24f totals include the review", agg.reviewCents === 3 && agg.totalCents === 180 + 8 + 1 + 3, JSON.stringify(agg));
 }
 
+/* ---------- 27. Submission queue: edits wait in line ---------- */
+/* A film still being made accepts edits instead of refusing them; each one
+   runs on its own, in the order it was sent, when the film before it
+   finishes. Nothing here calls applyFilmEdit by hand after queueing — the
+   queue is driven only by the normal advance path (the finishing advance,
+   the heartbeat and page views), exactly as in production. */
+const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM generation_history WHERE owner_id='owner-1'").get().n;
+
+/* 27a. An edit sent while the film is being made is accepted and waits in line — the film keeps going */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27a" });
+  await start(env, id);
+  const running = await row(env, id);
+  const queued = await lib.enqueueEdit(env, running, { frame: "vertical" });
+  check("27a an edit while the film is being made is accepted, first in line", !("error" in queued) && queued.position === 1 && queued.queue.length === 1 && queued.entry.label === "Cut to 9:16", JSON.stringify(queued).slice(0, 200));
+  const still = await row(env, id);
+  check("27a2 the film keeps being made (the edit does not interrupt it)", still.status === "generating", still.status);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("27a3 the queued edit runs on its own when the film finishes — a vertical version lands in History", end.status === "succeeded" && versionsOf(env) === 2 && spec?.width === 720 && spec?.height === 1280, `${end.status} versions=${versionsOf(env)} ${spec?.width}x${spec?.height}`);
+  const m = await lib.loadManifest(env, id);
+  check("27a4 the line is empty after the edit runs", (m.editQueue || []).length === 0, JSON.stringify(m.editQueue));
+}
+
+/* 27b. Two edits wait in line and run in the order they were sent */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27b" });
+  await start(env, id);
+  const running = await row(env, id);
+  const first = await lib.enqueueEdit(env, running, { frame: "vertical" });
+  const second = await lib.enqueueEdit(env, running, { music: "luxe" });
+  check("27b two edits wait in line in order", !("error" in first) && !("error" in second) && first.position === 1 && second.position === 2 && second.queue.length === 2, `${first.position}/${second.position}`);
+  const end = await runToEnd(env, id);
+  const luxePrompt = lib.musicTemplate("luxe").prompt;
+  check("27b2 the first edit runs first (vertical), the second runs after it (new music, still vertical)", end.status === "succeeded" && versionsOf(env) === 3 && C.specs[1]?.spec?.height === 1280 && !C.specs[1]?.spec?.music?.prompt && C.specs[2]?.spec?.music?.prompt === luxePrompt && C.specs[2]?.spec?.height === 1280, `${end.status} versions=${versionsOf(env)} specs=${C.specs.map((s) => `${s.spec.width}x${s.spec.height}:${s.spec.music?.prompt || "-"}`).join(" | ")}`);
+}
+
+/* 27c. A queued edit on a finished film starts on the next advance (a page view or callback) — no manual call */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27c" });
+  await start(env, id);
+  const done = await runToEnd(env, id);
+  const queued = await lib.enqueueEdit(env, done, { frame: "vertical" });
+  check("27c the edit is accepted onto the finished film's line", !("error" in queued) && queued.position === 1, JSON.stringify(queued).slice(0, 120));
+  await advance(env, id);
+  check("27c2 one advance starts the queued edit — no manual apply call", C.starts.length === 2, `edits=${C.starts.length}`);
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("27c3 the queued edit finishes — a vertical version lands in History", end.status === "succeeded" && versionsOf(env) === 2 && spec?.width === 720 && spec?.height === 1280, `${end.status} versions=${versionsOf(env)} ${spec?.width}x${spec?.height}`);
+}
+
+/* 27d. A queued edit can be cancelled — it never runs */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27d" });
+  await start(env, id);
+  const running = await row(env, id);
+  const queued = await lib.enqueueEdit(env, running, { frame: "vertical" });
+  const cancelled = await lib.cancelQueuedEdit(env, id, queued.entry.id);
+  check("27d cancelling takes the edit out of the line", !("error" in cancelled) && cancelled.queue.length === 0, JSON.stringify(cancelled));
+  const end = await runToEnd(env, id);
+  check("27d2 the cancelled edit never runs — only the film lands in History", end.status === "succeeded" && versionsOf(env) === 1 && C.starts.length === 1, `${end.status} versions=${versionsOf(env)} edits=${C.starts.length}`);
+}
+
+/* 27e. If the film stops, the line is held (not dropped); resuming the film runs it */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27e" });
+  P.script.set(0, ["fail", "fail", "fail"]);
+  await start(env, id);
+  const running = await row(env, id);
+  await lib.enqueueEdit(env, running, { frame: "vertical" });
+  const stopped = await runToEnd(env, id);
+  const held = lib.queueSummary(await lib.loadManifest(env, id), stopped);
+  check("27e the film stopped — the queued edit is held with the reason, not dropped", stopped.status === "failed" && held.length === 1 && held[0].status === "held" && /stopped/i.test(held[0].holdReason || ""), `${stopped.status} ${JSON.stringify(held)}`);
+  P.script.set(0, ["ok"]);
+  const resumed = await lib.runJobAction(env, stopped, "resume", null, "r8_test", "https://x.test/hook");
+  const end = await runToEnd(env, id);
+  const spec = C.specs.at(-1)?.spec;
+  check("27e2 resuming the film runs the held edit — a vertical version lands in History", !("error" in resumed) && end.status === "succeeded" && versionsOf(env) === 2 && spec?.width === 720 && spec?.height === 1280, `${end.status} versions=${versionsOf(env)} ${spec?.width}x${spec?.height}`);
+}
+
+/* 27f. A queued edit that cannot run fails loudly and the line moves on */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27f" });
+  await start(env, id);
+  const running = await row(env, id);
+  // A voiceover edit: accepted at once (the voice is only made when the edit runs), but there is no voice engine here, so it fails at run time.
+  const bad = await lib.enqueueEdit(env, running, { voice: { mode: "scene", voiceId: "voice-1", lines: ["A calm walk through the home.", ""] } });
+  const good = await lib.enqueueEdit(env, running, { frame: "vertical" });
+  check("27f both edits wait in line", !("error" in bad) && !("error" in good) && good.position === 2, `${bad.position}/${good.position}`);
+  const end = await runToEnd(env, id);
+  const notes = env.DB.raw.prepare("SELECT COUNT(*) AS n FROM notifications WHERE type = 'edit_failed'").get().n;
+  const spec = C.specs.at(-1)?.spec;
+  check("27f2 the edit that could not run fails loudly (not silently), is dropped, and the next edit still runs", end.status === "succeeded" && notes === 1 && versionsOf(env) === 2 && spec?.width === 720 && spec?.height === 1280, `${end.status} notes=${notes} versions=${versionsOf(env)} ${spec?.width}x${spec?.height}`);
+  const m = await lib.loadManifest(env, id);
+  check("27f3 the line is empty after both entries are settled", (m.editQueue || []).length === 0, JSON.stringify(m.editQueue));
+}
+
+/* 27g. The same edit twice is two edits in line — no deduplication */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s27g" });
+  await start(env, id);
+  const running = await row(env, id);
+  const first = await lib.enqueueEdit(env, running, { frame: "vertical" });
+  const second = await lib.enqueueEdit(env, running, { frame: "vertical" });
+  check("27g the same edit twice is accepted twice, in order", !("error" in first) && !("error" in second) && first.position === 1 && second.position === 2, `${first.position}/${second.position}`);
+  const end = await runToEnd(env, id);
+  check("27g2 both run — three versions in History, the line empty", end.status === "succeeded" && versionsOf(env) === 3 && C.starts.length === 3, `${end.status} versions=${versionsOf(env)} edits=${C.starts.length}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
