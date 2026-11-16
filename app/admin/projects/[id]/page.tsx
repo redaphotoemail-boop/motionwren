@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChangeEvent, FormEvent, use, useCallback, useEffect, useState } from "react";
 import { Icon } from "../../../ui-icon";
 import { StatusPill, money } from "../../ui";
+import { aspectLabel } from "../../../aspect-label";
 
 type Asset = { id: string; fileName: string; sizeBytes: number; sortOrder: number };
 type Project = { music?: string | null; id: string; ownerId: string; title: string; status: string; listingUrl?: string; listingAddress?: string; beds?: string; baths?: string; squareFeet?: string; price?: string; shortMessage?: string; aspect: string; resolution: string; targetDuration?: number; agentName?: string; agentEmail?: string; agentPhone?: string; customerEmail?: string; customerName?: string; finalHistoryId?: string; assets: Asset[] };
@@ -59,7 +60,7 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
     ["Customer", project.customerName ? `${project.customerName} · ${project.customerEmail || ""}` : project.customerEmail || "—"],
     ["Property", [project.beds && `${project.beds} beds`, project.baths && `${project.baths} baths`, project.squareFeet && `${Number(project.squareFeet).toLocaleString()} sq ft`].filter(Boolean).join(" · ") || "—"],
     ["Package price", project.price ? money(Number(project.price)) : "—"],
-    ["Final video", `${project.targetDuration ? `${project.targetDuration} seconds` : "Automatic length"} · ${project.resolution} · ${project.aspect}`],
+    ["Final video", `${project.targetDuration ? `${project.targetDuration} seconds` : "Automatic length"} · ${project.resolution} · ${aspectLabel(project.aspect)}`],
     ["Music", project.music ? `${project.music} (chosen by the client)` : "Matched to the video (no choice made)"],
     ["Opening message", project.shortMessage || "—"],
     ["Agent", [project.agentName, project.agentEmail, project.agentPhone].filter(Boolean).join(" · ") || "—"],

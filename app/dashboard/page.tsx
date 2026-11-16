@@ -6,6 +6,7 @@ import { Icon } from "../ui-icon";
 import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
 import SaveVideo from "../components/save-video";
+import { aspectLabel } from "../aspect-label";
 import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
 
 /* The client's workspace: every order in one place, each with all of its
@@ -68,10 +69,6 @@ function KindIcon({ kind }: { kind: DeliverableKind }) {
 /* A calm, determinate bar for a video being made; it moves as scenes finish. */
 function ProgressBar({ percent, label }: { percent: number; label: string }) {
   return <span className="mw-progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><i style={{ width: `${percent}%` }} /></span>;
-}
-
-function aspectLabel(aspect: string) {
-  return aspect === "vertical" ? "9:16" : aspect === "horizontal" ? "16:9" : aspect;
 }
 
 export default function CustomerDashboard() {

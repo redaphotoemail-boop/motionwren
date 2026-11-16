@@ -11,6 +11,7 @@ import {
   parseTemplateRecipe, planTemplateScenes, templateDuration, templateShotArgs,
   templateEditArgs, templateQualityCheck, makeCallBanner, sampleRampCurve,
   isStillImage, prepareTemplateInputs, rampSourceSeconds, stillToClip,
+  snapRecipeToBeatGrid,
 } from "../../composer/template-recipe.mjs";
 import { sampleFrames, sharpness } from "../../composer/qc.mjs";
 
@@ -23,8 +24,8 @@ const throws = (fn) => { try { fn(); return ""; } catch (error) { return String(
 
 const recipeJson = fs.readFileSync(new URL("../../composer/templates/house-calling-v1.json", import.meta.url), "utf8");
 const recipe = parseTemplateRecipe(recipeJson);
-check("house-calling-v1 parses", recipe.template_id === "house-calling-v1" && recipe.scenes.length === 9, `${recipe.scenes.length} scenes`);
-check("the film is 14.9s", Math.abs(templateDuration(recipe) - 14.9) < 0.001, `${templateDuration(recipe)}s`);
+check("house-calling-v1 parses", recipe.template_id === "house-calling-v1" && recipe.scenes.length === 8, `${recipe.scenes.length} scenes`);
+check("the film is 14.5s", Math.abs(templateDuration(recipe) - 14.5) < 0.001, `${templateDuration(recipe)}s`);
 
 const bad = (mutate, label) => {
   const copy = JSON.parse(recipeJson);
@@ -38,18 +39,19 @@ bad((r) => { r.scenes[3].start_s = 6.5; }, "scene gap");
 bad((r) => { r.scenes[0].grade = "teal_orange"; }, "unknown grade");
 bad((r) => { r.scenes[0].captions[0].style = "fancy_script"; }, "caption style not defined");
 bad((r) => { r.text_styles.neon = { font: "neon", size: "large" }; r.scenes[0].captions[0].style = "neon"; }, "caption style the composer cannot draw");
-bad((r) => { r.scenes.splice(1, 1); }, "flash transition without its flash scene");
+bad((r) => { r.scenes[1].transition_in = "white_flash"; }, "white_flash transition is refused");
+bad((r) => { r.scenes[1].type = "white_flash"; }, "white_flash scene is refused");
 bad((r) => { r.duration_s = 15.5; }, "duration mismatch");
 bad((r) => { r.speed_ramps = [{ scene: "S1", points: [[0, 0.5], [0.5, 9], [1, 1]] }]; }, "ramp speed out of range");
 bad((r) => { r.scenes[5].duration_s = 0.4; r.scenes[5].transition_in = "crossfade"; }, "scene too short for its dissolve");
 bad((r) => { r.scenes[0].captions[0].text = ""; }, "empty caption");
 bad((r) => { r.recipe_version = "2.0"; }, "wrong recipe version");
 
-/* Planning: 7 clips feed 9 scenes; the night exterior serves twice. */
+/* Planning: 7 clips feed 8 scenes; the night exterior serves twice (S2 and S4). */
 const picks = planTemplateScenes(recipe, [6, 6, 6, 6, 6, 6, 6]);
-check("scenes map to their slots in order", picks.map((p) => p.clip).join(",") === "0,0,1,2,1,3,4,5,6", picks.map((p) => p.clip).join(","));
-check("a shared clip gives each scene a different moment", picks[2].start === 0 && picks[4].start > 0, `S2@${picks[2].start}s, S4@${picks[4].start}s`);
-check("the flash continues the previous scene's footage", picks[1].flash === true && picks[1].clip === 0 && Math.abs(picks[1].start - 5) < 0.01, `clip ${picks[1].clip} @ ${picks[1].start}s`);
+check("scenes map to their slots in order", picks.map((p) => p.clip).join(",") === "0,1,2,1,3,4,5,6", picks.map((p) => p.clip).join(","));
+check("a shared clip gives each scene a different moment", picks[1].start === 0 && picks[3].start > 0, `S2@${picks[1].start}s, S4@${picks[3].start}s`);
+check("the recipe has no white flash (standing rule)", recipe.scenes.every((scene) => scene.type !== "white_flash" && scene.transition_in !== "white_flash"), "no white_flash scene or transition");
 check("a short clip fails loudly instead of stretching", throws(() => planTemplateScenes(recipe, [6, 6, 6, 6, 6, 6, 0.5])).startsWith("Template recipe:"), "living clip 0.5s");
 
 /* Ramps: bezier easing honours the endpoints and stays smooth. */
@@ -65,15 +67,21 @@ const s1Graph = s1.join(" ");
 check("S1 carries the exact caption text and window", s1Graph.includes("THIS HOUSE") && s1Graph.includes("between(t,0,2.7)") && s1Graph.includes("CALLING") && s1Graph.includes("GOTCHA!"), "THIS HOUSE 0-2.7, CALLING, GOTCHA!");
 check("S1 carries its grade LUT", s1Graph.includes("bright-warm-day.cube") && s1Graph.includes("lut3d"), "lut3d bright-warm-day");
 check("a push-in uses zoompan", s1Graph.includes("zoompan"), "zoompan in S1");
-const s5 = templateShotArgs({ recipe, scene: recipe.scenes[4], input: "in.mp4", output: "out.mp4", width: 360, height: 640, fps: 30, start: 0 });
+const s5 = templateShotArgs({ recipe, scene: recipe.scenes[4], input: "in.mp4", output: "out.mp4", width: 360, height: 640, fps: 30, start: 0, available: 6 });
 check("a tilt-down uses an animated crop", s5.join(" ").includes("crop=720:1280"), "animated crop in S5");
-const join = templateEditArgs({ recipe, sceneFiles: recipe.scenes.map((_, i) => `scene-${i}.mp4`), width: 360, height: 640, fps: 30, duration: 14.9, output: "film.mp4" });
+// Timing-only: a ramped scene rendered for speed measurement carries no blur — tmix is a trailing
+// average, so it delays the picture and reads as the ramp playing slow. The blur is verified
+// separately, from a detailed still.
+const s5Timed = templateShotArgs({ recipe, scene: recipe.scenes[4], input: "in.mp4", output: "out.mp4", width: 360, height: 640, fps: 30, start: 0, available: 6, timingOnly: true });
+check("a timing-only ramp carries no tmix or minterpolate", !s5Timed.join(" ").includes("tmix") && !s5Timed.join(" ").includes("minterpolate"), "no blur filters");
+check("a normal ramp still carries its blur", s5.join(" ").includes("tmix") || s5.join(" ").includes("minterpolate"), "blur present");
+const join = templateEditArgs({ recipe, sceneFiles: recipe.scenes.map((_, i) => `scene-${i}.mp4`), width: 360, height: 640, fps: 30, duration: 14.5, output: "film.mp4" });
 check("the join has the whip blur, not a hard cut", join.join(" ").includes("tmix=frames=5") && join.join(" ").includes("concat"), "tmix + concat");
-const joinVo = templateEditArgs({ recipe, sceneFiles: recipe.scenes.map((_, i) => `scene-${i}.mp4`), music: "music.mp3", voiceover: "vo.mp3", width: 360, height: 640, fps: 30, duration: 14.9, output: "film.mp4" });
+const joinVo = templateEditArgs({ recipe, sceneFiles: recipe.scenes.map((_, i) => `scene-${i}.mp4`), music: "music.mp3", voiceover: "vo.mp3", width: 360, height: 640, fps: 30, duration: 14.5, output: "film.mp4" });
 check("music ducks under a voiceover (sidechain)", joinVo.join(" ").includes("sidechaincompress"), "sidechaincompress");
-const joinNoVo = templateEditArgs({ recipe, sceneFiles: recipe.scenes.map((_, i) => `scene-${i}.mp4`), music: "music.mp3", width: 360, height: 640, fps: 30, duration: 14.9, output: "film.mp4" });
+const joinNoVo = templateEditArgs({ recipe, sceneFiles: recipe.scenes.map((_, i) => `scene-${i}.mp4`), music: "music.mp3", width: 360, height: 640, fps: 30, duration: 14.5, output: "film.mp4" });
 check("no voiceover, no ducking", !joinNoVo.join(" ").includes("sidechaincompress"), "music only");
-check("the join cuts to the exact length", join.join(" ").includes("-t 14.900"), "-t 14.900");
+check("the join cuts to the exact length", join.join(" ").includes("-t 14.500"), "-t 14.500");
 // A filter label may only feed one filter: reusing one silently routes the
 // wrong frames (a whip join once showed the first scene's footage in the
 // last scene's slot). Every label in the graph must be consumed at most
@@ -108,16 +116,10 @@ const W = 360, H = 640, FPS = 30;
 const s1Out = path.join(dir, "s1.mp4");
 ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe, scene: recipe.scenes[0], input: clip, output: s1Out, width: W, height: H, fps: FPS, start: 0, bannerFile: banner })]);
 check("S1 renders to its 5.0s", Math.abs(dur(s1Out) - 5) < 0.15, `${dur(s1Out).toFixed(2)}s`);
-const flashOut = path.join(dir, "flash.mp4");
-ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe, scene: recipe.scenes[1], input: clip, output: flashOut, width: W, height: H, fps: FPS, start: 5 })]);
-check("the flash renders to its 0.4s", Math.abs(dur(flashOut) - 0.4) < 0.1, `${dur(flashOut).toFixed(2)}s`);
-// The flash peaks white: sample the frame at 5.2s into the flash scene's own timeline (0.2s).
-{
-  const frames = await sampleFrames(flashOut, { width: 80, height: 45, fps: 10 });
-  const mean = (f) => { let s = 0; for (let i = 0; i < f.length; i += 1) s += f[i]; return s / f.length; };
-  const peak = mean(frames[2]);
-  check("the flash is blown out at its peak", peak > 230, `mean luma ${peak.toFixed(0)} at 0.2s`);
-}
+// The old white flash is gone: S2 now enters by hard cut from the night exterior.
+const s2Out = path.join(dir, "s2.mp4");
+ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe, scene: recipe.scenes[1], input: clip, output: s2Out, width: W, height: H, fps: FPS, start: 0 })]);
+check("S2 renders to its 1.0s", Math.abs(dur(s2Out) - 1.0) < 0.1, `${dur(s2Out).toFixed(2)}s`);
 // Whip: two 1s scenes joined with a whip_blur — the boundary frame must be blurred, the neighbours sharp.
 const whipRecipe = parseTemplateRecipe({
   recipe_version: "1.0", template_id: "whip-test", name: "Whip test", aspect: "9:16", resolution: "360x640", fps: 30, duration_s: 2,
@@ -247,11 +249,11 @@ check("a still loops into a clip of the asked length", Math.abs(dur(stillClip) -
   check("tour-flow-v1 parses: 5 scenes, all ramped", tour.scenes.length === 5 && tour.speed_ramps.length === 5, `${tour.scenes.length} scenes, ${tour.speed_ramps.length} ramps`);
   const files = ["exterior", "foyer", "living", "kitchen", "bedroom"].map(() => still);
   const prepared = await prepareTemplateInputs({ recipe: tour, files, durations: files.map(() => 0), width: W, height: H, fps: FPS, dir });
-  check("still inputs loop to the ramp need plus margin", prepared.durations.every((d, i) => Math.abs(d - [4.628, 4.636, 4.636, 4.636, 3.5][i]) < 0.01), prepared.durations.map((d) => d.toFixed(3)).join(","));
+  check("still inputs loop to the ramp need plus margin", prepared.durations.every((d, i) => Math.abs(d - [4.391, 4.399, 4.399, 4.399, 3.3][i]) < 0.01), prepared.durations.map((d) => d.toFixed(3)).join(","));
   const plan = planTemplateScenes(tour, prepared.durations);
   const stillScene = path.join(dir, "still-scene.mp4");
   ff(["-hide_banner", "-loglevel", "error", ...templateShotArgs({ recipe: tour, scene: plan[1].scene, input: prepared.files[plan[1].clip], output: stillScene, width: W, height: H, fps: FPS, start: plan[1].start, available: prepared.durations[plan[1].clip] - plan[1].start })]);
-  check("a ramped scene renders from a still photo", Math.abs(dur(stillScene) - 3.2) < 0.2, `${dur(stillScene).toFixed(2)}s`);
+  check("a ramped scene renders from a still photo", Math.abs(dur(stillScene) - 3.0) < 0.2, `${dur(stillScene).toFixed(2)}s`);
 }
 // The ramp's blur, measured without a caption: a caption is drawn after
 // the ramp, so its sharp text inflates whole-frame sharpness whenever
@@ -298,13 +300,14 @@ check("a still loops into a clip of the asked length", Math.abs(dur(stillClip) -
   badNight((r) => { r.night_slots = ["attic"]; }, "night slot names an unknown scene");
   badNight((r) => { r.night_slots = "S1"; }, "night_slots must be a list");
   const houseJson = JSON.parse(recipeJson);
-  const badFlash = (mutate, label) => {
+  const whiteFlash = (mutate, label) => {
     const copy = JSON.parse(JSON.stringify(houseJson));
     mutate(copy);
     const error = throws(() => parseTemplateRecipe(copy));
-    check(`reader refuses: ${label}`, error.startsWith("Template recipe:"), error.slice(0, 120));
+    check(`reader refuses: ${label}`, error.startsWith("Template recipe:") && /white.flash/i.test(error), error.slice(0, 120));
   };
-  badFlash((r) => { r.night_slots = ["FLASH"]; }, "night slot on the white flash scene");
+  whiteFlash((r) => { r.scenes[1].transition_in = "white_flash"; }, "white_flash transition is refused, naming the rule");
+  whiteFlash((r) => { r.scenes[1].type = "white_flash"; }, "white_flash scene is refused, naming the rule");
   // The graph: a night-slotted scene carries the night LUT, not its own.
   const nightTour = parseTemplateRecipe({ ...tourJson, night_slots: ["S1"] });
   const dayTour = parseTemplateRecipe(tourJson);
@@ -359,6 +362,41 @@ check("a still loops into a clip of the asked length", Math.abs(dur(stillClip) -
   const at = Math.round(1.6 * 30);
   const edgeCorr = corr(edge(dayFrames[at]), edge(nightFrames[at]));
   check("the night grade does not change the house (edges correlate)", edgeCorr > 0.85, `edge correlation ${edgeCorr.toFixed(3)}`);
+}
+
+// Beat-synced cuts: every interior boundary lands on the measured beat grid; the film's
+// total length does not change, and a caption never crosses its scene's new end.
+{
+  const grid120 = { bpm: 120, phase: 0, period: 0.5, beats: Array.from({ length: 30 }, (_, i) => +(i * 0.5).toFixed(3)), confidence: 0.97 };
+  const aligned = snapRecipeToBeatGrid(recipe, grid120);
+  check("a beat-aligned recipe snaps to itself", aligned.moved.length === 0 && aligned.recipe.scenes.every((s, i) => s.start_s === recipe.scenes[i].start_s), `${aligned.moved.length} moved`);
+  const offBeat = JSON.parse(JSON.stringify(recipe));
+  offBeat.scenes[2].start_s = 5.8; offBeat.scenes[2].duration_s = 1.1;
+  offBeat.scenes[3].start_s = 6.9; offBeat.scenes[3].duration_s = 3.1;
+  offBeat.scenes[5].start_s = 11.8; offBeat.scenes[5].duration_s = 0.7;
+  offBeat.scenes[6].start_s = 12.5; offBeat.scenes[6].duration_s = 1.1;
+  offBeat.scenes[7].start_s = 13.6; offBeat.scenes[7].duration_s = 0.9;
+  const snapped = snapRecipeToBeatGrid(offBeat, grid120);
+  check("off-beat cuts snap to the nearest beat", snapped.recipe.scenes.map((s) => s.start_s).join(",") === "0,5,6,7,10,12,12.5,13.5", snapped.recipe.scenes.map((s) => s.start_s).join(","));
+  check("snapping does not change the film's length", Math.abs(templateDuration(snapped.recipe) - 14.5) < 0.01, `${templateDuration(snapped.recipe)}s`);
+  check("the snapped grid becomes the recipe's cut points", snapped.recipe.music.cut_points_s.join(",") === "5,6,7,10,12,12.5,13.5", snapped.recipe.music.cut_points_s.join(","));
+  check("captions stay inside their scene after snapping", snapped.recipe.scenes[0].captions.every((c) => c.end_s <= 5.0), JSON.stringify(snapped.recipe.scenes[0].captions.map((c) => c.end_s)));
+  const noGrid = snapRecipeToBeatGrid(recipe, null);
+  check("no beat grid leaves the recipe unchanged", noGrid.moved.length === 0 && noGrid.recipe === recipe, "null grid");
+  const tight = parseTemplateRecipe({
+    recipe_version: "1.0", template_id: "tight", name: "Tight", aspect: "9:16", resolution: "360x640", fps: 30, duration_s: 4,
+    inputs: [{ slot: "a", type: "image_or_video", required: true }],
+    scenes: [
+      { id: "S1", start_s: 0, duration_s: 1.4, input: "a", camera: { move: "push_in", speed: "constant" }, transition_in: "open" },
+      { id: "S2", start_s: 1.4, duration_s: 0.3, input: "a", camera: { move: "push_in", speed: "constant" }, transition_in: "hard_cut" },
+      { id: "S3", start_s: 1.7, duration_s: 2.3, input: "a", camera: { move: "push_in", speed: "constant" }, transition_in: "hard_cut" },
+    ],
+    text_styles: {}, grades: {},
+  });
+  const tightSnapped = snapRecipeToBeatGrid(tight, grid120);
+  check("a snap never collapses a scene under 0.3s", tightSnapped.recipe.scenes.every((s) => s.duration_s >= 0.3), tightSnapped.recipe.scenes.map((s) => s.duration_s).join(","));
+  check("two cuts near one beat do not land on it together", tightSnapped.recipe.scenes.map((s) => s.start_s).join(",") === "0,1.5,2", tightSnapped.recipe.scenes.map((s) => s.start_s).join(","));
+  check("a snap never moves a cut by 0.6s or more", tightSnapped.moved.every((m) => Math.abs(m.to - m.from) < 0.6), JSON.stringify(tightSnapped.moved));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

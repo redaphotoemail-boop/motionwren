@@ -23,19 +23,20 @@ export default function Variants({ jobId, count, onStarted }: { jobId: string; c
   const toggle = (id: string) => setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   async function make() {
     setBusy(true); setNote("");
-    let last: StudioJob | null = null; let made = 0; const failed: string[] = [];
+    const jobs: StudioJob[] = []; let made = 0; const failed: string[] = [];
     for (const id of picked) {
       const tpl = templates.find((item) => item.id === id);
       if (tpl && !ready(tpl)) { failed.push(`${tpl.name}: needs at least ${need(tpl).least} scenes`); continue; }
       try {
         const response = await fetch("/api/studio/production/from-clips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upscale: false, clips: Array.from({ length: count }, (_, scene) => ({ jobId, scene })), template: { wren: id }, music: "", label: tpl?.name || "Version" }) });
         const data = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string };
-        if (!response.ok || !data.job) failed.push(`${tpl?.name || "A template"}: ${data.error || "could not start"}`); else { made += 1; last = data.job; }
+        if (!response.ok || !data.job) failed.push(`${tpl?.name || "A template"}: ${data.error || "could not start"}`); else { made += 1; jobs.push(data.job); }
       } catch { failed.push(`${tpl?.name || "A template"}: connection problem`); }
     }
     setBusy(false);
     if (failed.length) setNote(`${made ? `${made} started. ` : ""}Not started: ${failed.join(" · ")}`);
-    if (made) { setPicked([]); onStarted(last, `${made} ${made === 1 ? "version is" : "versions are"} being edited from your film's own scenes. Each will appear in History in a minute or two.`); }
+    // Every version's job is tracked in the background, not just the last one — each lands in History on its own.
+    if (made) { setPicked([]); jobs.slice(0, -1).forEach((job) => onStarted(job, "")); onStarted(jobs[jobs.length - 1], `${made} ${made === 1 ? "version is" : "versions are"} being edited from your film's own scenes. Each will appear in History in a minute or two.`); }
   }
   return <section className="fin-section var-section">
     <header><strong>Make versions</strong><small>Cut this film&apos;s own scenes into other templates. No new generation: only the editing. Versions stay at the engine&apos;s own quality; upscale to 1080p only once you approve one.</small></header>

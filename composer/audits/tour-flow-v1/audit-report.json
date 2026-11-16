@@ -1,0 +1,59 @@
+{
+  "template": "tour-flow-v1",
+  "rounds": 0,
+  "filmDuration_s": 15,
+  "inputs": "/home/hatch/workspace/tour-flow-test/inputs-photos",
+  "checks": [
+    {
+      "id": "freeze",
+      "pass": true,
+      "status": "pass",
+      "detail": "no run >= 0.2s under threshold 0.5",
+      "fix": null
+    },
+    {
+      "id": "smoothness",
+      "pass": true,
+      "status": "pass",
+      "detail": "S1: energy 0.66/0.55/1.45/1.09/1.45 vs speed 0.57/0.7/0.94/1.54/2.2; S2: energy 2.4/0.93/0.93/1.72/2.42 vs speed 1.75/0.76/0.5/0.9/1.97; S3: energy 2.39/1.11/1.01/2.09/2.54 vs speed 1.75/0.76/0.5/0.9/1.97; S4: energy 1.18/0.54/0.51/0.95/1.16 vs speed 1.75/0.76/0.5/0.9/1.97; S5: energy 1.74/0.58/0.7/0.73/0.64 vs speed 1.75/0.76/0.44/0.6/0.53",
+      "fix": null
+    },
+    {
+      "id": "whip-blur",
+      "pass": true,
+      "status": "pass",
+      "detail": "S1: sharp fast 109.9 vs slow 312.9 (2.85x, calibration); S2: sharp fast 40.8 vs slow 223.2 (5.47x, calibration); S3: sharp fast 40.8 vs slow 223.2 (5.47x, calibration); S4: sharp fast 40.8 vs slow 223.2 (5.47x, calibration); S5: sharp fast 79.7 vs slow 288.2 (3.62x, calibration)",
+      "fix": null
+    },
+    {
+      "id": "no-whoosh",
+      "pass": true,
+      "status": "pass",
+      "detail": "no whoosh or flash accent in the recipe",
+      "fix": null
+    },
+    {
+      "id": "story",
+      "pass": true,
+      "status": "pass",
+      "detail": "inputs in order: exterior → foyer → living → kitchen → bedroom",
+      "fix": null
+    },
+    {
+      "id": "coherence",
+      "pass": true,
+      "status": "pass",
+      "detail": "9 §5a checks passed",
+      "fix": null
+    },
+    {
+      "id": "beat",
+      "pass": null,
+      "status": "skip",
+      "detail": "no steady beat in the film's music track (ambient); nothing to sync to",
+      "fix": null
+    }
+  ],
+  "frozen": [],
+  "auditedAt": "2026-11-16"
+}

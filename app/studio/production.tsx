@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import QualityTab from "./quality-tab";
+import { aspectLabel } from "../aspect-label";
 import { explainSend, loadSendLog, saveSendLog, type SendLog } from "./send-log";
 import { clearPending, savePending, type PendingUpload } from "./pending-upload";
 export { loadPending, clearPending, type PendingUpload } from "./pending-upload";
@@ -336,7 +337,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
     <header className="prod-head">
       <div>
         <span className="prod-eyebrow">{active ? <><i className="prod-dot" />In production</> : job.status === "succeeded" ? "Ready" : "Stopped"}</span>
-        <strong>{title}</strong><small className="video-ref">{videoRef(job.id)}</small>
+        <strong>{title}</strong><small>{aspectLabel(job.aspect)}</small><small className="video-ref">{videoRef(job.id)}</small>
         {(() => { const moves = [...new Set((job.scenes || []).map((scene) => scene.motion).filter(Boolean))]; const label = moves.length > 1 ? `Mixed — ${moves.join(", ")}` : moves[0] || job.motion; return label ? <small className="prod-motion">Movement: {label}</small> : null; })()}
         {job.cardsNote && <small className={`prod-motion${job.cardsNote.startsWith("not") ? " prod-reason" : ""}`}>Listing cards: {job.cardsNote}</small>}
         <small className={active || job.status === "succeeded" ? "" : "prod-reason"}>{active ? `${clock((now - job.createdAt) / 1000)} elapsed · usually 3–10 minutes` : job.status === "succeeded" ? "Saved to History." : stoppedMessage(job)}</small>

@@ -1,0 +1,126 @@
+{
+  "template": "house-calling-v1",
+  "rounds": 0,
+  "filmDuration_s": 14.5,
+  "inputs": "/home/hatch/workspace/verify-house-calling/inputs",
+  "checks": [
+    {
+      "id": "freeze",
+      "pass": false,
+      "status": "fail",
+      "detail": "frozen 0.03-0.5s (0.5s), 1.03-2s (1s), 2.53-2.77s (0.27s), 2.83-3.77s (0.97s), 3.83-4.97s (1.17s), 5.03-5.97s (0.97s), 6.03-6.97s (0.97s), 7.03-9.37s (2.37s), 9.43-9.77s (0.37s), 10.67-11.17s (0.53s), 11.3-11.53s (0.27s), 12.7-12.97s (0.3s), 13.03-13.27s (0.27s)",
+      "fix": "soften-ramp"
+    },
+    {
+      "id": "smoothness",
+      "pass": false,
+      "status": "fail",
+      "detail": "S4: energy 0.11/0.1/0.22/0.18/0.21 vs speed 0.57/0.7/0.94/1.54/2.2; S5: energy 0.98/0.51/0.25/0.41/0.71 vs speed 1.75/0.76/0.5/0.9/1.97; S6: energy 0.53/0.6/0.19/0.59/0.43 vs speed 1.75/0.76/0.5/0.9/1.97; S7: energy 0.38/0.31/0.54/0.37/0.09 vs speed 1.75/0.76/0.5/0.9/1.97; S8: energy 0.69/1.01/0.95/0.81/0.33 vs speed 1.75/0.76/0.44/0.6/0.53",
+      "fix": "soften-ramp"
+    },
+    {
+      "id": "whip-blur",
+      "pass": true,
+      "status": "pass",
+      "detail": "S4: sharp fast 109.9 vs slow 312.9 (2.85x, calibration); S5: sharp fast 47.5 vs slow 361.2 (7.60x, calibration); S6: sharp fast 102.5 vs slow 355.7 (3.47x, calibration); S7: sharp fast 60.4 vs slow 359.3 (5.95x, calibration); S8: sharp fast 54.6 vs slow 279 (5.11x, calibration)",
+      "fix": null
+    },
+    {
+      "id": "no-whoosh",
+      "pass": true,
+      "status": "pass",
+      "detail": "no whoosh or flash accent in the recipe",
+      "fix": null
+    },
+    {
+      "id": "story",
+      "pass": true,
+      "status": "pass",
+      "detail": "inputs in order: exterior_day → exterior_night → exterior_day_low → dining → dining_alt → kitchen → living",
+      "fix": null
+    },
+    {
+      "id": "coherence",
+      "pass": true,
+      "status": "pass",
+      "detail": "9 §5a checks passed",
+      "fix": null
+    },
+    {
+      "id": "beat",
+      "pass": null,
+      "status": "skip",
+      "detail": "no steady beat in the film's music track (ambient); nothing to sync to",
+      "fix": null
+    }
+  ],
+  "frozen": [
+    {
+      "start_s": 0.03,
+      "end_s": 0.5,
+      "length_s": 0.5
+    },
+    {
+      "start_s": 1.03,
+      "end_s": 2,
+      "length_s": 1
+    },
+    {
+      "start_s": 2.53,
+      "end_s": 2.77,
+      "length_s": 0.27
+    },
+    {
+      "start_s": 2.83,
+      "end_s": 3.77,
+      "length_s": 0.97
+    },
+    {
+      "start_s": 3.83,
+      "end_s": 4.97,
+      "length_s": 1.17
+    },
+    {
+      "start_s": 5.03,
+      "end_s": 5.97,
+      "length_s": 0.97
+    },
+    {
+      "start_s": 6.03,
+      "end_s": 6.97,
+      "length_s": 0.97
+    },
+    {
+      "start_s": 7.03,
+      "end_s": 9.37,
+      "length_s": 2.37
+    },
+    {
+      "start_s": 9.43,
+      "end_s": 9.77,
+      "length_s": 0.37
+    },
+    {
+      "start_s": 10.67,
+      "end_s": 11.17,
+      "length_s": 0.53
+    },
+    {
+      "start_s": 11.3,
+      "end_s": 11.53,
+      "length_s": 0.27
+    },
+    {
+      "start_s": 12.7,
+      "end_s": 12.97,
+      "length_s": 0.3
+    },
+    {
+      "start_s": 13.03,
+      "end_s": 13.27,
+      "length_s": 0.27
+    }
+  ],
+  "note": "Film rendered from the synthetic test clips in verify-house-calling/inputs (flat colour cards with a label, not real footage). Freeze and smoothness read the film as seen on those inputs — a flat dark card shows almost no visible motion even when the ramp moves correctly, so those two checks fail here. The ramp itself is proven by the verifier calibration (check 8 in the coherence report: every ramped scene cal ok). Re-run the audit on real photos or clips for a meaningful freeze/smoothness verdict.",
+  "auditedAt": "2026-11-16"
+}

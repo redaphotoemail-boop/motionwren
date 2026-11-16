@@ -81,6 +81,8 @@ export type ProductionManifest = {
      the scene's own prompt in `inputs` is never edited. round counts re-makes (at most MAX_FIX_ROUNDS). */
   /** A film made from clips of earlier films (Studio "Use saved clips"): no engine was used, so the quality check never re-makes anything. */
   fromClips?: { jobId: string; scene: number }[];
+  /** When every clip came from one film ("Make versions" in Edit film): that film's job id, so History can group the version with its original. */
+  sourceFilmId?: string;
   /** History ids of the later versions of this film (each edit saves a new one); the first version keeps the job's own id. */
   versions?: string[];
   /** "Original photo shape": the film is made at this shape (width ÷ height), the shape of the photos themselves. */
