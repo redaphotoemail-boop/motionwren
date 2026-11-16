@@ -8,11 +8,11 @@
    What this module does:
      - parseTemplateRecipe: loads and validates a recipe. The closed lists
        (camera.move, transition_in) are enforced here: an unsupported value
-       is a loud failure, never a silent substitution.
+       is a loud failure, never a silent substitution. White flash is not
+       in the lists at all — standing rule (spec §1): no white flash in
+       any template, ever.
      - planTemplateScenes: maps each scene to a source clip and a start
-       offset in it. A white_flash scene with no input continues the
-       previous scene's footage (so text stays faintly visible through
-       the flash, as in the reference) and fades it to white.
+       offset in it.
      - templateShotArgs: one scene rendered on its own, at its exact
        length — camera move, grade (eq + true LUT), captions, call banner.
      - templateEditArgs: the join — hard cuts at exact frames, white
@@ -42,7 +42,13 @@ const isNum = (value) => typeof value === "number" && Number.isFinite(value);
 /* ---------- closed lists (spec §1) ---------- */
 
 export const TEMPLATE_CAMERA_MOVES = ["push_in", "glide_lateral", "glide", "tilt_down_glide", "whip_in_then_push_in", "static"];
-export const TEMPLATE_TRANSITIONS = ["open", "hard_cut", "white_flash", "whip_blur", "crossfade"];
+export const TEMPLATE_TRANSITIONS = ["open", "hard_cut", "whip_blur", "crossfade"];
+
+// A ramped shot trims needed + 0.1s from the clip, and the ramp check
+// below (rampNeeds) demands the ramp's source need leave 3% of the
+// remaining clip unused. The planner spreads shared clips with the
+// same headroom, or a ramped last occurrence could never be planned.
+export const RAMP_HEADROOM = 0.97;
 export const TEMPLATE_GRADES = ["bright_warm_day", "night_warm_windows", "warm_evening_interior"];
 /* Text styles the composer can actually draw. A caption that names any
    other style fails at load time — the film is never made with a look
@@ -136,10 +142,8 @@ export function parseTemplateRecipe(value) {
   for (const name of Object.keys(recipe.grades)) if (!TEMPLATE_GRADES.includes(name)) fail(`grade "${name}" is not one the composer can draw (${TEMPLATE_GRADES.join(", ")}).`);
 
   if (!Array.isArray(recipe.scenes) || recipe.scenes.length < 1 || recipe.scenes.length > 20) fail("scenes needs 1 to 20 scenes.");
-  // Normalized copy (the caller's object is never mutated): a white_flash
-  // scene with no transition_in enters by hard cut — the flash itself is
-  // the transition, so the cut into it is plain.
-  const scenes = recipe.scenes.map((scene) => ({ ...scene, transition_in: scene.transition_in ?? (scene.type === "white_flash" ? "hard_cut" : scene.transition_in) }));
+  // Normalized copy (the caller's object is never mutated).
+  const scenes = recipe.scenes.map((scene) => ({ ...scene }));
   const seen = new Set();
   let cursor = 0;
   for (const [index, scene] of scenes.entries()) {
@@ -150,25 +154,17 @@ export function parseTemplateRecipe(value) {
     checkRange(scene.duration_s, 0.3, 30, `scene "${scene.id}" duration_s`);
     if (Math.abs(scene.start_s - cursor) > 0.001) fail(`scene "${scene.id}" starts at ${scene.start_s}s but the previous scene ends at ${round(cursor)}s — scenes must tile with no gaps.`);
     cursor = scene.start_s + scene.duration_s;
-    if (scene.type !== undefined && scene.type !== "white_flash") fail(`scene "${scene.id}" has an unknown type "${scene.type}".`);
-    if (scene.type === "white_flash") {
-      if (scene.input !== undefined) fail(`scene "${scene.id}" is a white flash and takes no input.`);
-      checkRange(scene.peak_s, scene.start_s, scene.start_s + scene.duration_s, `scene "${scene.id}" peak_s`);
-      if (index === 0) fail(`scene "${scene.id}" is a white flash and cannot be the first scene.`);
-    } else {
-      if (typeof scene.input !== "string" || !slots.has(scene.input)) fail(`scene "${scene.id}" names an unknown input slot "${scene.input}".`);
-    }
-    if (scene.type !== "white_flash") {
-      if (!scene.camera || !TEMPLATE_CAMERA_MOVES.includes(scene.camera.move)) fail(`scene "${scene.id}" has an unknown camera move "${scene.camera?.move}" (${TEMPLATE_CAMERA_MOVES.join(", ")}).`);
-      if (scene.camera.amount !== undefined) checkRange(scene.camera.amount, 1, 1.6, `scene "${scene.id}" camera amount`);
-      if (scene.camera.speed !== undefined && scene.camera.speed !== "constant") fail(`scene "${scene.id}" camera speed must be "constant" in v1.`);
-    }
+    // Standing rule (spec §1): no white flash in any template, ever. A
+    // scene with a type is a white flash by the only type that ever
+    // existed, and "white_flash" is not an allowed transition_in — both
+    // are refused here, loudly, before any rendering starts.
+    if (scene.type !== undefined) fail(`scene "${scene.id}" has a type "${scene.type}" — white flash scenes are not allowed (standing rule: no white flash in any template, ever).`);
+    if (typeof scene.input !== "string" || !slots.has(scene.input)) fail(`scene "${scene.id}" names an unknown input slot "${scene.input}".`);
+    if (!scene.camera || !TEMPLATE_CAMERA_MOVES.includes(scene.camera.move)) fail(`scene "${scene.id}" has an unknown camera move "${scene.camera?.move}" (${TEMPLATE_CAMERA_MOVES.join(", ")}).`);
+    if (scene.camera.amount !== undefined) checkRange(scene.camera.amount, 1, 1.6, `scene "${scene.id}" camera amount`);
+    if (scene.camera.speed !== undefined && scene.camera.speed !== "constant") fail(`scene "${scene.id}" camera speed must be "constant" in v1.`);
     if (!TEMPLATE_TRANSITIONS.includes(scene.transition_in)) fail(`scene "${scene.id}" has an unknown transition_in "${scene.transition_in}" (${TEMPLATE_TRANSITIONS.join(", ")}).`);
     if (index === 0 && scene.transition_in !== "open") fail(`the first scene must open with transition_in "open".`);
-    if (scene.transition_in === "white_flash") {
-      const prev = scenes[index - 1];
-      if (!prev || prev.type !== "white_flash") fail(`scene "${scene.id}" enters with a white flash but the previous scene is not a white_flash scene — a flash transition needs its flash scene.`);
-    }
     if (scene.grade !== undefined) {
       if (!TEMPLATE_GRADES.includes(scene.grade)) fail(`scene "${scene.id}" has an unknown grade "${scene.grade}" (${TEMPLATE_GRADES.join(", ")}).`);
       if (!(scene.grade in recipe.grades)) fail(`scene "${scene.id}" uses grade "${scene.grade}" which the recipe's grades map does not describe.`);
@@ -219,7 +215,6 @@ export function parseTemplateRecipe(value) {
     const byId = new Map(scenes.map((scene) => [scene.id, scene]));
     for (const ramp of recipe.speed_ramps) {
       if (!ramp || typeof ramp.scene !== "string" || !byId.has(ramp.scene)) fail(`a speed ramp names an unknown scene "${ramp?.scene}".`);
-      if (byId.get(ramp.scene).type === "white_flash") fail(`a speed ramp cannot be put on the white flash scene "${ramp.scene}".`);
       if (ramp.points === undefined) continue; // a note only: constant speed
       if (!Array.isArray(ramp.points) || ramp.points.length < 2 || ramp.points.length > 16) fail(`speed ramp for scene "${ramp.scene}" needs 2 to 16 points.`);
       let prevT = -1;
@@ -239,8 +234,7 @@ export function parseTemplateRecipe(value) {
   // change at all, only the light and colour. The night grade is a
   // composer built-in, so it does not need to be in the recipe's grades
   // map (a template author cannot predict which slot a user will want
-  // at night). Each entry must name a real scene or input slot, and a
-  // white flash takes no grade, so it cannot be night-graded.
+  // at night). Each entry must name a real scene or input slot.
   if (recipe.night_slots !== undefined) {
     if (!Array.isArray(recipe.night_slots)) fail("night_slots must be a list.");
     const byId = new Map(scenes.map((scene) => [scene.id, scene]));
@@ -248,7 +242,6 @@ export function parseTemplateRecipe(value) {
       if (typeof slot !== "string" || !slot) fail("night_slots entries must be scene ids or input slot names.");
       const scene = byId.get(slot) || scenes.find((s) => s.input === slot);
       if (!scene) fail(`a night slot names an unknown scene or input slot "${slot}".`);
-      if (scene.type === "white_flash") fail(`a night slot cannot be put on the white flash scene "${scene.id}".`);
     }
   }
   if (recipe.music !== undefined) {
@@ -269,6 +262,62 @@ export function templateDuration(recipe) {
     - parsed.scenes.filter((scene) => scene.transition_in === "crossfade").length * CROSSFADE_S);
 }
 
+/* Beat-synced cuts: move every interior scene boundary to the nearest beat of the music's
+   measured grid (tempo + phase, from composer/wrenaudio.mjs). The first scene still starts
+   at 0 and the last still ends at duration_s, so the film's total length does not change —
+   only the cuts move, by at most half a beat each. Captions and the call banner move with
+   their scene (a caption never crosses its scene's new end). A boundary that would collapse
+   its scene under 0.3s keeps its original time instead of snapping. Without a grid (no
+   music, or an ambient track with no steady beat) the recipe is returned unchanged.
+   The recipe's own beat_map_s / cut_points_s are the DECLARED grid; this enforces the
+   MEASURED one, and the measured one wins when they disagree. Returns { recipe, moved }. */
+export function snapRecipeToBeatGrid(recipe, grid) {
+  const parsed = recipe._width ? recipe : parseTemplateRecipe(recipe);
+  if (!grid || !Array.isArray(grid.beats) || !grid.beats.length) return { recipe: parsed, moved: [], grid: null };
+  const nearest = (t) => {
+    let best = grid.beats[0], bestD = Math.abs(t - best);
+    for (const b of grid.beats) { const d = Math.abs(t - b); if (d < bestD) { best = b; bestD = d; } }
+    return best;
+  };
+  const next = JSON.parse(JSON.stringify(parsed));
+  const moved = [];
+  const starts = next.scenes.map((scene) => scene.start_s);
+  const snapped = [0];
+  for (let i = 1; i < next.scenes.length; i += 1) {
+    let want = nearest(starts[i]);
+    // Never collapse a scene under 0.3s: if the nearest beat is too close to the previous
+    // boundary, take the next beat after it instead. If even that moves the cut too far
+    // (>= 0.6s), keep the original time — a bad snap is worse than an off-beat cut.
+    if (want <= snapped[i - 1] + 0.3) {
+      const after = grid.beats.find((b) => b > snapped[i - 1] + 0.3);
+      want = after !== undefined ? after : starts[i];
+    }
+    snapped.push(Math.abs(want - starts[i]) < 0.6 ? +want.toFixed(3) : starts[i]);
+  }
+  for (let i = 0; i < next.scenes.length; i += 1) {
+    const scene = next.scenes[i];
+    const delta = +(snapped[i] - scene.start_s).toFixed(3);
+    const end = i + 1 < next.scenes.length ? snapped[i + 1] : parsed.duration_s;
+    if (delta !== 0 || end - snapped[i] !== scene.duration_s) {
+      if (delta !== 0) moved.push({ scene: scene.id, from: scene.start_s, to: snapped[i] });
+      scene.start_s = snapped[i];
+      scene.duration_s = +(end - snapped[i]).toFixed(3);
+      for (const caption of scene.captions || []) {
+        caption.start_s = +(caption.start_s + delta).toFixed(3);
+        caption.end_s = +Math.min(caption.end_s + delta, end).toFixed(3);
+        if (Array.isArray(caption.fade_out_s)) caption.fade_out_s = caption.fade_out_s.map((t) => +(Math.min(t + delta, end)).toFixed(3));
+      }
+      if (scene.overlay) {
+        for (const key of ["slide_in_s", "visible_s", "slide_out_s"]) {
+          if (Array.isArray(scene.overlay[key])) scene.overlay[key] = scene.overlay[key].map((t) => +(t + delta).toFixed(3));
+        }
+      }
+    }
+  }
+  if (next.music) next.music.cut_points_s = next.scenes.slice(1).map((scene) => scene.start_s);
+  return { recipe: next, moved, grid: { bpm: grid.bpm, phase: grid.phase, confidence: grid.confidence } };
+}
+
 /* ---------- planning: which clip, and where in it, each scene uses ---------- */
 
 /* clipDurations are in the recipe's inputs order: clip i is inputs[i].
@@ -284,34 +333,44 @@ export function planTemplateScenes(recipe, clipDurations) {
   const slotIndex = new Map(parsed.inputs.map((input, i) => [input.slot, i]));
   const uses = parsed.inputs.map(() => 0);
   const totalUses = parsed.inputs.map(() => 0);
-  for (const scene of parsed.scenes) if (scene.type !== "white_flash") totalUses[slotIndex.get(scene.input)] += 1;
-  return parsed.scenes.map((scene, index) => {
-    if (scene.type === "white_flash") {
-      // No input of its own: the previous scene's footage continues
-      // under the flash, fading to white at peak_s.
-      const prev = parsed.scenes[index - 1];
-      return { scene, clip: slotIndex.get(prev.input), start: null, flash: true };
-    }
+  // A scene's source need: its own duration, or the ramp's source need
+  // when the ramp runs slow (a ramped scene needs more footage than its
+  // output length). The spread room for a shared clip is set by the
+  // LONGEST need among its scenes — spreading by duration alone would
+  // push a ramped last occurrence past the end of the clip.
+  const needOf = (scene) => {
+    const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
+    return ramp ? Math.max(rampSourceSeconds(ramp.points, scene.duration_s), scene.duration_s) : scene.duration_s;
+  };
+  const maxNeed = parsed.inputs.map(() => 0);
+  const maxRampSource = parsed.inputs.map(() => 0);
+  for (const scene of parsed.scenes) {
+    const clip = slotIndex.get(scene.input);
+    totalUses[clip] += 1;
+    maxNeed[clip] = Math.max(maxNeed[clip], needOf(scene));
+    const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
+    if (ramp) maxRampSource[clip] = Math.max(maxRampSource[clip], rampSourceSeconds(ramp.points, scene.duration_s));
+  }
+  return parsed.scenes.map((scene) => {
     const clip = slotIndex.get(scene.input);
     const occurrence = uses[clip]++;
-    const room = Math.max(0, clipDurations[clip] - scene.duration_s - 0.05);
+    // The spread leaves the ramp headroom too: the last occurrence sits
+    // at room, so the clip left after it is maxNeed + 0.05 — and a ramped
+    // scene needs its source to be at most RAMP_HEADROOM of what is left
+    // (see rampNeeds). Without the / RAMP_HEADROOM a ramped last
+    // occurrence on a shared clip could never be planned, however long
+    // the clip, because the spread always packs it to the end.
+    const room = Math.max(0, clipDurations[clip] - 0.05 - Math.max(maxNeed[clip], maxRampSource[clip] / RAMP_HEADROOM));
     const start = totalUses[clip] > 1 ? round(room * (occurrence / (totalUses[clip] - 1))) : 0;
     const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
-    // A scene needs at least its own duration of footage — the white-flash
-    // continuation starts at start + duration_s — even when its ramp
-    // consumes less than that by running slow.
+    // A scene needs at least its own duration of footage, even when its
+    // ramp consumes less than that by running slow.
     const need = ramp ? Math.max(rampSourceSeconds(ramp.points, scene.duration_s), scene.duration_s) : scene.duration_s;
     if (clipDurations[clip] + 0.05 < start + need) {
       fail(`scene "${scene.id}" needs ${round(start + need)}s of "${scene.input}" but the clip is ${round(clipDurations[clip])}s.`);
     }
     if (ramp) rampNeeds(ramp.points, scene.duration_s, clipDurations[clip] - start, scene.id);
     return { scene, clip, start };
-  }).map((plan, index, all) => {
-    // The flash scene continues the previous scene's footage from where
-    // that scene left off.
-    if (!plan.flash) return plan;
-    const prev = all[index - 1];
-    return { ...plan, start: round(prev.start + prev.scene.duration_s) };
   });
 }
 
@@ -370,7 +429,7 @@ export function rampSourceSeconds(points, d) {
    a ramp that would have run at full speed is never failed here. */
 export function rampNeeds(points, d, available, sceneId) {
   const needed = rampSourceSeconds(points, d);
-  if (Number.isFinite(available) && needed > available * 0.97) {
+  if (Number.isFinite(available) && needed > available * RAMP_HEADROOM) {
     fail(`scene "${sceneId}" needs ${needed}s of footage for its speed ramp but only ${round(available)}s is left in the clip — use a longer clip or ease the ramp.`);
   }
   return needed;
@@ -413,26 +472,18 @@ export async function stillToClip({ input, output, width, height, fps, seconds }
 /* Replace any still-photo inputs with looped clips of the length the
    recipe needs, and return the files and durations the planner uses.
    A slot's loop length is the longest its scenes need: a ramped scene
-   needs rampSourceSeconds, an unramped scene its own duration. A white
-   flash continues the previous scene's footage, so its duration is
-   added to that scene's slot as well. Video inputs pass through
-   untouched. */
+   needs rampSourceSeconds, an unramped scene its own duration. Video
+   inputs pass through untouched. */
 export async function prepareTemplateInputs({ recipe, files, durations, width, height, fps, dir }) {
   const parsed = recipe._width ? recipe : parseTemplateRecipe(recipe);
   const slotIndex = new Map(parsed.inputs.map((input, i) => [input.slot, i]));
   const need = parsed.inputs.map(() => 0);
   for (let i = 0; i < parsed.scenes.length; i += 1) {
     const scene = parsed.scenes[i];
-    if (scene.type === "white_flash") {
-      const prev = parsed.scenes[i - 1];
-      if (prev) need[slotIndex.get(prev.input)] += scene.duration_s;
-      continue;
-    }
     const slot = slotIndex.get(scene.input);
     const ramp = (parsed.speed_ramps || []).find((item) => item.scene === scene.id && Array.isArray(item.points));
-    // At least the scene's own duration (see planTemplateScenes: the
-    // white-flash continuation starts at start + duration_s), and the
-    // ramp's source need when that is longer.
+    // At least the scene's own duration, and the ramp's source need
+    // when that is longer.
     const seconds = ramp ? Math.max(rampSourceSeconds(ramp.points, scene.duration_s), scene.duration_s) : scene.duration_s;
     need[slot] = Math.max(need[slot], seconds);
   }
@@ -456,7 +507,14 @@ const escText = (text) => String(text).replace(/\\/g, "\\\\").replace(/'/g, "\\'
    that ends at label `moved`. `d` is the scene's length, `t` is the
    time inside the scene (0 at its first frame). All moves run at
    constant speed unless the scene has a ramp (handled before this). */
-function moveChain({ move, amount, d, fps, width, height, src }) {
+/* A ramped scene's move has to be big enough that its SLOWEST point still visibly moves: a 0.4x settle
+   on a 1.06 move drifts ~6px/s on a still photo, which reads as the film freezing. A ramped glide gets a
+   1.2 zoom (about 3x the travel) and a ramped push-in at least a 1.15 amount, so the slowest point still
+   drifts ~20px/s. Unramped scenes keep the 1.06 framing — a bigger move there would make a short scene pan
+   too fast. */
+const RAMPED_GLIDE_ZOOM = 1.2;
+const RAMPED_PUSH_AMOUNT = 1.15;
+function moveChain({ move, amount, d, fps, width, height, src, zoom = 1.06 }) {
   const W = width, H = height;
   const total = Math.max(2, Math.round(d * fps));
   if (move === "static") {
@@ -484,7 +542,7 @@ function moveChain({ move, amount, d, fps, width, height, src }) {
   // glide, glide_lateral, tilt_down_glide: a slow animated crop over a
   // slightly enlarged picture (the recipeChain pattern, proven in the
   // WrenCut path). The zoom stays fixed so the frame never shows an edge.
-  const zoom = 1.06;
+  // `zoom` is 1.06 unless the caller is ramping the scene (see above).
   const u = `(t/${d.toFixed(3)})`;
   const x = move === "tilt_down_glide" ? `(in_w-${W * 2})*0.25*${u}` : `(in_w-${W * 2})*${u}`;
   const y = move === "tilt_down_glide" ? `(in_h-${H * 2})*${u}` : `(in_h-${H * 2})/2`;
@@ -499,7 +557,7 @@ function moveChain({ move, amount, d, fps, width, height, src }) {
    scene's source clip (a video file) and, for a call-banner scene, the
    banner PNG made by makeCallBanner. Returns the full ffmpeg argv, in
    the same shape as wrencut's shotArgs. */
-export function templateShotArgs({ recipe, scene, input, output, width, height, fps, start, bannerFile, lutDir, available }) {
+export function templateShotArgs({ recipe, scene, input, output, width, height, fps, start, bannerFile, lutDir, available, timingOnly = false }) {
   const parsed = recipe._width ? recipe : parseTemplateRecipe(recipe);
   const d = scene.duration_s;
   const filters = [];
@@ -517,8 +575,10 @@ export function templateShotArgs({ recipe, scene, input, output, width, height, 
     const needed = rampNeeds(ramp.points, d, available, scene.id);
     const sampled = sampleRampCurve(ramp.points);
     filters.push(`[0:v]trim=start=${start.toFixed(3)}:duration=${(needed + 0.1).toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=1[src]`);
-    filters.push(...moveChain({ move: scene.camera.move, amount: scene.camera.amount || 1.06, d: needed, fps, width, height, src: "src" }));
-    const built = rampHead({ index: 0, speed: sampled, d, start: 0, fps, strength: 1, src: "moved" });
+    // A ramped move is enlarged (see moveChain): the slowest ramp point must still visibly move on a still.
+    const glide = ["glide", "glide_lateral", "tilt_down_glide"].includes(scene.camera.move);
+    filters.push(...moveChain({ move: scene.camera.move, amount: Math.max(scene.camera.amount || 1.06, RAMPED_PUSH_AMOUNT), d: needed, fps, width, height, src: "src", ...(glide ? { zoom: RAMPED_GLIDE_ZOOM } : {}) }));
+    const built = rampHead({ index: 0, speed: sampled, d, start: 0, fps, strength: 1, src: "moved", blur: !timingOnly });
     filters.push(...built.lines);
     src = built.label;
     filters.push(`[${src}]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS[ramped]`);
@@ -526,14 +586,6 @@ export function templateShotArgs({ recipe, scene, input, output, width, height, 
   } else {
     filters.push(`[0:v]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=3,trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS[src]`);
     src = "src";
-  }
-  if (scene.type === "white_flash") {
-    // The previous scene's footage continues, fading to white with its
-    // peak at peak_s — so the last caption stays faintly visible
-    // through the start of the flash, as in the reference.
-    const peakOff = round(scene.peak_s - scene.start_s, 3);
-    filters.push(`[${src}]fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},fade=t=out:st=0:d=${peakOff.toFixed(3)}:color=white,setsar=1,format=yuv420p[flashed]`);
-    return ["-hide_banner", "-y", "-nostdin", "-i", input, "-filter_complex", filters.join(";"), "-map", "[flashed]", "-t", d.toFixed(3), "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "10", "-pix_fmt", "yuv420p", "-r", String(fps), output];
   }
   // A ramped scene already had its move applied before the ramp (above);
   // every other scene gets its move here. A ramped scene's picture is

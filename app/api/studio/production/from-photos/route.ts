@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../../_lib/account";
 import { cleanFilmTitles } from "../../../../titles";
-import { UPSCALE_PER_SECOND, engineUpscales, nativeResolution, type StudioResolution } from "../../../../engine-catalog";
+import { type StudioResolution } from "../../../../engine-catalog";
 import { ENGINE_ENDPOINTS } from "../../../../engine-providers";
 import { advanceRenderJob, getRenderJob, publicJob } from "../../../_lib/render-jobs";
 import { frameKey, newManifest, saveManifest, storeFrame } from "../../../_lib/production";
@@ -65,11 +65,12 @@ export async function POST(request: Request) {
     // empty keeps the join using the photo links as the clips, which is
     // what the composer's template branch expects (it loops stills).
     for (let index = 0; index < count; index += 1) { manifest.states[index] = "ready"; manifest.attempts[index] = 1; }
-    const keepNative = body.upscale === false && engineUpscales(engine, resolution);
-    const upscales = !keepNative && engineUpscales(engine, resolution);
-    const rowResolution = keepNative ? nativeResolution(engine, resolution) : resolution;
-    const costCents = upscales ? Math.round(UPSCALE_PER_SECOND * duration * 100) : 0; // only the 1080p upscale of the new film, if any
-    if (upscales) manifest.upscale = { to: "1080p" };
+    // A template film is rendered by the composer at the recipe's own
+    // resolution (1080x1920) — there is no separate upscale step, and
+    // setting one would drop the edit to 720p, which the composer's
+    // template branch refuses ("The template recipe's size must match
+    // the film"). So no upscale is ever charged or set here.
+    const costCents = 0;
     const picked = musicTemplate(body.music);
     manifest.edit = { shareSeconds: sceneSeconds, crossfade: 0, music: { prompt: picked ? picked.prompt : musicPrompt({ aspect, duration }) }, templateRecipe: withNight, templateName: entry.name };
     if (body.music === "none") manifest.edit.sound = { noMusic: true };
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
     // The segments are the photos themselves: the composer loops stills
     // into clips, so a photo URL is a valid "clip" for the template.
     await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'studio-series', 'generating', ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`)
-      .bind(id, ownerId, JSON.stringify(recipe.inputs.map((_, index) => `photo-${index + 1}`)), JSON.stringify(recipe.inputs.map((_, index) => photoLink(index))), `Template film: ${entry.name}`, `Studio · ${label}`, rowResolution, aspect, duration, costCents, webhookToken, now, now).run();
+      .bind(id, ownerId, JSON.stringify(recipe.inputs.map((_, index) => `photo-${index + 1}`)), JSON.stringify(recipe.inputs.map((_, index) => photoLink(index))), `Template film: ${entry.name}`, `Studio · ${label}`, resolution, aspect, duration, costCents, webhookToken, now, now).run();
     const token = (await studioToken()) || "";
     const row = await getRenderJob(env, id);
     if (row) await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${id}?token=${webhookToken}`);

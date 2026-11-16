@@ -17,7 +17,7 @@ export type TemplateRecipeJson = {
   fps: number;
   duration_s: number;
   inputs: { slot: string; type: string; required: boolean }[];
-  scenes: { id: string; start_s: number; duration_s: number; input?: string; grade?: string; type?: string }[];
+  scenes: { id: string; start_s: number; duration_s: number; input?: string; grade?: string }[];
   grades: Record<string, unknown>;
   [key: string]: unknown;
 };

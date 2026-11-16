@@ -483,7 +483,10 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     : manifest.edit?.recipe ? recipeSeconds(manifest.edit.recipe)
     : Math.round((count * share - (count - 1) * crossfade) * 1000) / 1000;
   // An upscaled film is edited at the engine's own 720p; the upscaler then makes the 1080p (stretching it first would waste it).
-  const height = row.resolution === "1080p" && !manifest.upscale ? 1080 : row.resolution === "480p" ? 480 : 720;
+  // A template recipe film is the exception: the composer renders it at the recipe's own resolution and refuses any other
+  // size, so the edit height comes from the recipe — an upscale flag on the manifest must never drop it to 720p.
+  const recipeHeight = (() => { const parts = String(manifest.edit?.templateRecipe?.resolution || "").split("x").map(Number); return parts.length === 2 && parts.every((n) => Number.isFinite(n) && n >= 240 && n <= 4320) ? parts[1] : null; })();
+  const height = recipeHeight ?? (row.resolution === "1080p" && !manifest.upscale ? 1080 : row.resolution === "480p" ? 480 : 720);
   const wide = Math.round(height * 16 / 9 / 2) * 2;
   // The frame the film is saved at: the one it was cut to in Edit, else the one it was made at. A film made at the photo's own
   // shape is edited at that shape. A cut keeps the floor when height has to go (see anchorY).

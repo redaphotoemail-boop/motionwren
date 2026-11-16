@@ -18,22 +18,24 @@ const sharpOne = analyzePixels(checker, size, size), flatOne = analyzePixels(fla
 check("sharpness tells detail from blur", sharpOne.sharp > 1000 && flatOne.sharp < 1, `${sharpOne.sharp} vs ${flatOne.sharp}`);
 check("brightness", Math.abs(flatOne.bright - 120) < 0.5 && analyzePixels(checker, size, size).hash.length === 16);
 
-// Template 1 in the wrong order is arranged day, night, dining, kitchen, living
-const t1 = spec("house-calling");
-const shuffled = [p("living.jpg", "living", "day", { hash: "5a5a5a5aa5a5a5a5" }), p("night.jpg", "exterior", "night", { hash: "0f0f0f0ff0f0f0f0" }), p("kitchen.jpg", "kitchen", "day", { hash: "aaaaaaaa55555555" }), p("day.jpg", "exterior", "day", { hash: "f0f0f0f00f0f0f0e" }), p("dining.jpg", "dining", "day", { hash: "123456789abcdef0" })];
-const arranged = arrangePhotos(t1, shuffled);
-check("template 1: photos land in story order", arranged.used.map((i) => shuffled[i].name).join() === "day.jpg,night.jpg,dining.jpg,kitchen.jpg,living.jpg", arranged.used.map((i) => shuffled[i].name).join());
-const report = checkSocialPhotos(t1, shuffled);
-check("template 1: says it will reorder", report.reordered && report.findings.some((f) => /order/i.test(f.text)));
-check("template 1: no fixes for a good set", report.findings.every((f) => f.level !== "fix"), JSON.stringify(report.findings.filter((f) => f.level === "fix")));
+// Template 10 in the wrong order is arranged dusk, night. Landscape photos:
+// the film is horizontal, so portrait photos would be flagged as a fix.
+const t10 = spec("never-always-night");
+const shuffled = [p("night.jpg", "exterior", "night", { w: 2400, h: 1600, hash: "0f0f0f0ff0f0f0f0" }), p("dusk.jpg", "exterior", "dusk", { w: 2400, h: 1600, hash: "f0f0f0f00f0f0f0e" })];
+const arranged = arrangePhotos(t10, shuffled);
+check("template 10: photos land in story order", arranged.used.map((i) => shuffled[i].name).join() === "dusk.jpg,night.jpg", arranged.used.map((i) => shuffled[i].name).join());
+const report = checkSocialPhotos(t10, shuffled);
+check("template 10: says it will reorder", report.reordered && report.findings.some((f) => /order/i.test(f.text)));
+check("template 10: no fixes for a good set", report.findings.every((f) => f.level !== "fix"), JSON.stringify(report.findings.filter((f) => f.level === "fix")));
 
-// Missing night photo
-const noNight = [p("day.jpg", "exterior", "day"), p("dining.jpg", "dining", "day", { hash: "123456789abcdef0" }), p("kitchen.jpg", "kitchen", "day", { hash: "aaaaaaaa55555555" }), p("living.jpg", "living", "day", { hash: "0123012301230123" })];
-const missing = checkSocialPhotos(t1, noNight);
-check("template 1: asks for the night photo", missing.findings.some((f) => f.level === "fix" && /night/i.test(f.text)), JSON.stringify(missing.findings.filter((f) => f.level === "fix").map((f) => f.text)));
+// Missing night photo: the night act gets a daylight photo instead, so the
+// template asks for the night shot by name.
+const noNight = [p("dusk.jpg", "exterior", "dusk", { w: 2400, h: 1600, hash: "f0f0f0f00f0f0f0e" }), p("day.jpg", "exterior", "day", { w: 2400, h: 1600, hash: "0f0f0f0ff0f0f0f0" })];
+const missing = checkSocialPhotos(t10, noNight);
+check("template 10: asks for the night photo", missing.findings.some((f) => f.level === "fix" && /night/i.test(f.text)), JSON.stringify(missing.findings.filter((f) => f.level === "fix").map((f) => f.text)));
 
 // Too few photos
-const few = checkSocialPhotos(t1, [p("a.jpg", "exterior", "day")]);
+const few = checkSocialPhotos(t10, [p("a.jpg", "exterior", "day", { w: 2400, h: 1600 })]);
 check("too few photos is a fix", few.verdict === "fix" && few.findings.some((f) => /at least/.test(f.text)));
 
 // Too many photos: extras are left out and say they are not charged
@@ -58,7 +60,7 @@ check("a kitchen where the front of the house is wanted is a fix", wrong.finding
 const pairBad = checkSocialPhotos(spec("never-always-night"), [p("a.jpg", "exterior", "dusk", { hash: "ffffffff00000000" }), p("b.jpg", "exterior", "night", { hash: "0000000000ffffff" })]);
 check("day and night that are not the same view get a tip", pairBad.findings.some((f) => /same (view|spot)/.test(f.text)));
 // unknown classification keeps upload order
-const unknown = arrangePhotos(t1, [1, 2, 3, 4, 5].map((i) => ({ name: `${i}`, w: 1600, h: 2400, hash: `${i}`.repeat(16) })));
-check("when photos cannot be read the upload order is kept", unknown.used.join() === "0,1,2,3,4");
+const unknown = arrangePhotos(t10, [1, 2].map((i) => ({ name: `${i}`, w: 2400, h: 1600, hash: `${i}`.repeat(16) })));
+check("when photos cannot be read the upload order is kept", unknown.used.join() === "0,1");
 console.log(`${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

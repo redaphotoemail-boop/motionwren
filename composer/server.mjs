@@ -215,11 +215,12 @@ async function getMusic(spec, dir, job) {
 }
 
 import { DEPTH_MOVES, renderParallaxClip } from "./parallax.mjs";
-import { analyzeVideo, assignClips, coverCrop, recipeChain, shotArgs, recipeDuration, validRecipe } from "./wrencut.mjs";
+import { analyzeVideo, assignClips, coverCrop, recipeChain, shotArgs, recipeDuration, snapWrenToBeatGrid, validRecipe } from "./wrencut.mjs";
 import { cardGraph, planCards, vignetteArgs } from "./cards.mjs";
 import { planTitles, titleGraph } from "./titles.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
-import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, prepareTemplateInputs, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
+import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, prepareTemplateInputs, snapRecipeToBeatGrid, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
+import { analyzeBeats } from "./wrenaudio.mjs";
 
 /* The depth of a photo, as true distances in metres, from Depth Anything 3 Metric-Large (Apache-2.0, so it may be used commercially).
    Used by every photo move. The earlier Depth Anything v2 model was removed: its larger weights are non-commercial. */
@@ -641,6 +642,27 @@ async function compose(key, spec) {
     const infos = await Promise.all(files.map(probe));
     infos.forEach((info, i) => { if (!info.hasVideo || info.duration < 0.5) throw new Error(`Scene ${i + 1} is not a usable video.`); });
     const fps = [24, 25, 30].reduce((best, value) => Math.abs(value - infos[0].fps) < Math.abs(best - infos[0].fps) ? value : best, 30);
+    // The music is fetched BEFORE the scenes are rendered (not after, as it used to be):
+    // a template's cuts snap to the music's measured beat grid, and the grid has to exist
+    // before the first scene is cut. A film whose scenes fail still pays for the music, but
+    // the clips are already downloaded by now, so a scene failure after this point is rare —
+    // and a film cut off-beat costs more than a wasted track.
+    job.stage = "music";
+    const music = await getMusic(spec, dir, job);
+    // Beat-synced cuts: measure the track's tempo AND phase, then snap whichever template
+    // this film uses (recipe template, or wren/library) to that grid. Generated music is
+    // measured the same way — an ElevenLabs track has no guaranteed tempo either. Without a
+    // steady beat (ambient track) the cuts stay on the recipe's grid.
+    let beatGrid = null;
+    if (music && (spec.templateRecipe || spec.recipe)) {
+      try { beatGrid = await analyzeBeats(music); }
+      catch (error) { console.warn(`beat grid: could not measure the music (${String(error?.message || error).slice(0, 200)}); cuts stay on the recipe's grid.`); }
+    }
+    if (beatGrid) {
+      if (spec.templateRecipe) spec.templateRecipe = snapRecipeToBeatGrid(parseTemplateRecipe(spec.templateRecipe), beatGrid).recipe;
+      else if (spec.recipe) spec.recipe = snapWrenToBeatGrid(spec.recipe, beatGrid).recipe;
+      job.beatGrid = { bpm: beatGrid.bpm, phase: beatGrid.phase, confidence: beatGrid.confidence };
+    }
     // A WrenCut template: the clips are spread over the recipe's shots (a clip can fill more than one).
     let editFiles = files, recipeInput = {};
     if (spec.recipe) {
@@ -689,10 +711,9 @@ async function compose(key, spec) {
       }
       templateInput = { template, sceneFiles };
     }
+    // The music was already fetched above (before the scenes, so the template could snap
+    // its cuts to the measured beat grid). `music` here is that same file, or null.
     const editDuration = templateInput ? templateDuration(templateInput.template) : spec.recipe ? recipeDuration(spec.recipe) : spec.duration;
-
-    job.stage = "music";
-    const music = await getMusic(spec, dir, job);
     // Studio Ads: a voiceover track to mix over the music, and subtitle
     // lines to burn in. A bad voiceover fails the film (it was asked for);
     // bad subtitles never do — the film is made without them.

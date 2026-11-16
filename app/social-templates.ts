@@ -47,31 +47,12 @@ export type SocialSpec = {
   approx: string[];
 };
 
-const SOUND = "airy filtered-noise whoosh, rising then falling, no metallic ring";
 const GENERAL_RULES = ["All photos from the same property, shot the same day, with the same lens and colour.", "Keep verticals straight and the horizon level.", "Leave people, cars and clutter out of frame: the film moves only the camera."];
 const GENERAL_AVOID = ["Photos with heavy filters or HDR halos.", "Phone screenshots or photos with borders and watermarks.", "Two near-identical photos of the same view."];
 
 const cut: Join = "c";
 
 export const SOCIAL_SPECS: SocialSpec[] = [
-  {
-    key: "house-calling", number: 1, name: "This House Is Calling", summary: "A day-to-night hook with a white flash, then a fast walk through the best rooms. Made for the first three seconds of a Reel.",
-    frame: "vertical", canvas: "9:16", bpm: 120, music: "cinematic pop, confident and warm, piano and strings with light drums, 120 BPM",
-    bounds: [0, 5.5, 6, 7.5, 10.5, 12, 13, 14, 15], joins: ["f", cut, cut, cut, cut, cut, cut], use: [0, 1, 0, 1, 2, 2, 3, 4],
-    acts: [
-      { role: "exterior", light: "day", label: "The house, daytime", hint: "Front of the house in full daylight, wide, with some lawn in front.", essential: true, move: "Slow push toward the house" },
-      { role: "exterior", light: "night", label: "The same house, at night", hint: "The same angle at dusk or night with the windows lit.", essential: true, move: "Slow push toward the house" },
-      { role: "dining", light: "any", label: "Dining room", hint: "Dining table with a feature light above. Leave space above the table.", move: "Tilts down from the light into the room", depth: true },
-      { role: "kitchen", light: "any", label: "Kitchen", hint: "The kitchen from the doorway, counters visible.", move: "Glides in" , depth: true },
-      { role: "living", light: "any", label: "Living room", hint: "The tallest, brightest living space, shot from its entrance.", essential: true, move: "Whips in, then slows to show the room", depth: true },
-    ],
-    ramps: [{ slot: 0, out: true, peak: 3 }, { slot: 1, in: "settle", peak: 2.5 }, { slot: 4, in: "entry", peak: 3.5, slow: 0.3 }, { slot: 7, in: "entry", peak: 3.5, slow: 0.3 }],
-    pairs: [[0, 1]], grade: { warmth: 0.04, saturation: 1.12 },
-    rules: [...GENERAL_RULES, "The day photo and the night photo must show the same house from nearly the same angle: that is the whole hook."],
-    avoid: [...GENERAL_AVOID, "A night photo with no lit windows (the change from day looks flat)."],
-    words: ["Incoming call · The Perfect House", "THIS HOUSE IS CALLING", "Open house · Saturday 11–2"],
-    approx: ["The incoming-call banner and the big captions are not drawn by the template: add them in Titles.", "The day-to-night change is a white flash between your two exterior photos."],
-  },
   {
     key: "grand-foyer", number: 2, name: "The Grand Foyer", summary: "A premium tour that opens on the entrance and keeps finding the next beautiful detail. Fast, elegant, on the beat.",
     frame: "vertical", canvas: "9:16", bpm: 120, music: "elegant modern classical, piano and strings, 120 BPM",
@@ -331,18 +312,15 @@ export function keptActs(spec: SocialSpec, count: number): number[] {
   return all.filter((index) => !dropped.has(index));
 }
 
-/* The recipe: shots on the beat-aligned times, each tied to its photo (by position in `kept`), with ramps and whooshes. */
+/* The recipe: shots on the beat-aligned times, each tied to its photo (by position in `kept`), with ramps. No whoosh sound: standing rule — never in any template. */
 export function buildSocialRecipe(spec: SocialSpec, kept: number[] = spec.acts.map((_, index) => index)): WrenRecipe {
   const slotCount = spec.bounds.length - 1;
   const overlaps = spec.joins.map(overlapOf);
-  const whoosh = new Set<number>();
   const slots: WrenRecipe["slots"] = Array.from({ length: slotCount }, (_, i) => {
     const dur = round3(spec.bounds[i + 1] - spec.bounds[i] + (overlaps[i - 1] || 0) / 2 + (overlaps[i] || 0) / 2);
     const ramps = spec.ramps.filter((ramp) => ramp.slot === i);
     const merged: Ramp | null = ramps.length ? ramps.reduce((sum, ramp) => ({ ...sum, ...ramp, in: sum.in || ramp.in, out: sum.out || ramp.out }), { slot: i } as Ramp) : null;
     const speed = merged ? speedCurve(dur, merged) : undefined;
-    if (merged?.in && i > 0) whoosh.add(i - 1);
-    if (merged?.out && i < slotCount - 1) whoosh.add(i);
     const slot: WrenRecipe["slots"][number] & { photo?: number } = { dur, zoom: [1, 1], pan: [0, 0], ...(speed ? { speed } : {}) };
     const act = spec.use[i] ?? 0;
     const at = kept.indexOf(act);
@@ -350,9 +328,9 @@ export function buildSocialRecipe(spec: SocialSpec, kept: number[] = spec.acts.m
     return slot;
   });
   const joins = spec.joins.map(joinOf);
-  const sfx = [...whoosh].sort((a, b) => a - b).map((join) => ({ join, kind: "whoosh" as const, lead: 0.25, prompt: SOUND }));
   const seconds = round3(slots.reduce((sum, slot) => sum + slot.dur, 0) - joins.reduce((sum, join) => sum + (join.type === "cut" ? 0.04 : join.type === "flash" ? 0.16 : join.dur), 0));
-  const audio: NonNullable<WrenRecipe["audio"]> = { ...(spec.music ? { music: { ...(spec.bpm ? { bpm: spec.bpm } : {}), prompt: spec.music } } : {}), ...(sfx.length ? { sfx } : {}) };
+  // Music only, never a whoosh: standing rule — no whoosh sound in any template, ever.
+  const audio: NonNullable<WrenRecipe["audio"]> = { ...(spec.music ? { music: { ...(spec.bpm ? { bpm: spec.bpm } : {}), prompt: spec.music } } : {}) };
   return { version: 1, duration: seconds, fps: 30, aspect: spec.canvas === "9:16" ? "vertical" : "horizontal", slots, joins, ...(spec.grade ? { grade: spec.grade } : {}), ...(Object.keys(audio).length ? { audio } : {}) };
 }
 

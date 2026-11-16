@@ -6,7 +6,8 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { assText, editArgs } from "../../composer/server.mjs";
-import { analyzeVideo, assignClips, recipeDuration, shotArgs, validRecipe } from "../../composer/wrencut.mjs";
+import { analyzeVideo, assignClips, recipeDuration, shotArgs, snapWrenToBeatGrid, validRecipe } from "../../composer/wrencut.mjs";
+import { analyzeBeats, nearestBeat } from "../../composer/wrenaudio.mjs";
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { if (ok) pass += 1; else fail += 1; console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); };
@@ -35,15 +36,48 @@ ff([...refParts.flatMap((f) => ["-i", f]), "-filter_complex", "[0][1][2]concat=n
 const read = await analyzeVideo(ref, { duration: 4.5, fps: 30, width: 360, height: 640 });
 check("the analyzer finds the three shots", read.slots.length === 3, `${read.slots.length} shots`);
 check("the analyzer's recipe is valid", validRecipe(read) === "", validRecipe(read));
-// Sound: a 120 BPM bed with a whoosh building into the cut at 1.5 s.
+// Sound: a 120 BPM bed with a swell building into the cut at 1.5 s. The tempo is found — but no whoosh is ever emitted (standing rule).
 const audio = path.join(dir, "a.wav"), sound = path.join(dir, "sound-ref.mp4"), silent = path.join(dir, "silent.mp4");
 ff(["-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*80*t)*exp(-14*mod(t\\,0.5)):s=16000:d=6", "-f", "lavfi", "-i", "anoisesrc=d=0.4:c=white:a=0.5:r=16000,afade=t=in:d=0.4,adelay=1100|1100,apad=whole_dur=6", "-filter_complex", "amix=inputs=2:duration=first:normalize=0", "-t", "6", audio]);
 ff(["-i", ref, "-i", audio, "-c:v", "copy", "-c:a", "aac", "-shortest", sound]);
 const heard = await analyzeVideo(sound, { duration: 4.5, fps: 30, width: 360, height: 640 });
 check("the music's tempo is found", heard.audio?.music?.bpm >= 115 && heard.audio.music.bpm <= 125, `bpm ${heard.audio?.music?.bpm}`);
-check("a whoosh into the first cut is found", heard.audio?.sfx?.some((item) => item.join === 0 && item.kind === "whoosh"), JSON.stringify(heard.audio?.sfx));
+check("no whoosh is emitted, even when the reference swells into the cut", !(heard.audio?.sfx || []).some((item) => item.kind === "whoosh" || item.kind === "flash"), JSON.stringify(heard.audio?.sfx));
 check("the sound is only prompts and numbers", !JSON.stringify(heard.audio).includes(dir));
 check("a silent reference has no sound plan", (await analyzeVideo(ref, { duration: 4.5, fps: 30, width: 360, height: 640 })).audio === undefined);
+// Beat grid: tempo AND phase, fitted to the track's own onsets. The 120 BPM bed above
+// measures at its tempo with its first beat at 0; a phased click track (kicks at 0.37 +
+// 0.6s, i.e. 100 BPM) measures at 100 BPM with phase 0.37; an ambient bed has no beat.
+const bedGrid = await analyzeBeats(audio);
+check("the beat grid finds the bed's tempo and phase", bedGrid !== null && bedGrid.bpm >= 115 && bedGrid.bpm <= 125 && Math.abs(bedGrid.phase) < 0.1 && bedGrid.confidence >= 0.6, bedGrid ? `${bedGrid.bpm} BPM, phase ${bedGrid.phase}, conf ${bedGrid.confidence}` : "null");
+const phased = path.join(dir, "phased.wav");
+ff(["-f", "lavfi", "-i", "aevalsrc=0.05*sin(2*PI*220*t)+0.9*sin(2*PI*55*t)*exp(-25*mod(t+0.23\\,0.6)):s=16000:d=8", phased]);
+const phasedGrid = await analyzeBeats(phased);
+check("a phased track measures its own phase", phasedGrid !== null && phasedGrid.bpm >= 98 && phasedGrid.bpm <= 102 && Math.abs(phasedGrid.phase - 0.37) < 0.06, phasedGrid ? `${phasedGrid.bpm} BPM, phase ${phasedGrid.phase}` : "null");
+check("a cut snaps to the nearest beat of the grid", phasedGrid !== null && nearestBeat(1.0, phasedGrid)?.beat === 0.97 && (nearestBeat(1.0, phasedGrid)?.offBy ?? 9) < 0.06, phasedGrid ? `cut at 1.0s → beat ${nearestBeat(1.0, phasedGrid)?.beat}` : "null");
+const ambient = path.join(dir, "ambient.wav");
+ff(["-f", "lavfi", "-i", "aevalsrc=0.05*sin(2*PI*220*t)+0.03*sin(2*PI*330*t):s=16000:d=8", ambient]);
+check("an ambient track has no beat grid to snap to", (await analyzeBeats(ambient)) === null, "ambient");
+// Beat-synced wren cuts: a 4-shot recipe with 3.2s shots (boundaries 3.16/6.32/9.48 once the
+// 0.04s cut joins are counted) snaps to a 100 BPM grid — every boundary on a beat, the film's
+// total length unchanged, and the recipe still valid.
+{
+  const wren = {
+    version: 1, duration: 12.68, fps: 30, aspect: "vertical",
+    slots: [3.2, 3.2, 3.2, 3.2].map((dur) => ({ dur, zoom: [1, 1.1], pan: [0, 0] })),
+    joins: [{ type: "cut", dur: 0.04 }, { type: "cut", dur: 0.04 }, { type: "cut", dur: 0.04 }],
+    grade: { warmth: 0, saturation: 1 },
+  };
+  const grid100 = { bpm: 100, phase: 0, period: 0.6, beats: Array.from({ length: 25 }, (_, i) => +(i * 0.6).toFixed(3)), confidence: 0.95 };
+  const snapped = snapWrenToBeatGrid(wren, grid100);
+  const boundaries = [];
+  let at = 0;
+  for (let i = 0; i < snapped.recipe.slots.length - 1; i += 1) { at += snapped.recipe.slots[i].dur - 0.04; boundaries.push(+at.toFixed(3)); }
+  check("wren cuts snap to the beat grid", boundaries.every((b) => Math.abs(b / 0.6 - Math.round(b / 0.6)) < 0.001), `boundaries ${boundaries.join(", ")}`);
+  check("a wren snap does not change the film's length", Math.abs(recipeDuration(snapped.recipe) - 12.68) < 0.01, `${recipeDuration(snapped.recipe)}s`);
+  check("the snapped wren recipe is still valid", validRecipe(snapped.recipe) === "", validRecipe(snapped.recipe));
+  check("no beat grid leaves a wren recipe unchanged", snapWrenToBeatGrid(wren, null).moved.length === 0, "null grid");
+}
 void silent;
 // Text: a reference with titles is read for everything EXCEPT its text — nothing about the words is analysed or kept.
 const font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";

@@ -1,7 +1,8 @@
 /* WrenCut sound: "hears" a reference by measuring it, never by keeping it. From
-   the audio it takes the tempo, the energy and tone of the music bed, and the
-   accents on the cuts (a rising whoosh into the cut, or a hit on it). Only a
-   few numbers and two text prompts come out; the audio itself is not kept. */
+   the audio it takes the tempo, the energy and tone of the music bed. Only a
+   few numbers and one text prompt come out; the audio itself is not kept.
+   Standing rule: no whoosh sound in any template, ever — so no cut accent
+   is detected or emitted here (a whoosh used to be the accent). */
 
 import { spawn } from "node:child_process";
 
@@ -54,16 +55,94 @@ export function tempo(rms) {
   return Math.round(best.bpm);
 }
 
+/* The beat grid: tempo AND phase. The tempo says how far apart the beats are; the phase says
+   where the first one falls, so a cut can land ON a beat instead of merely a beat-length away
+   from one. Fitted to the track's own onsets (not a blind grid search): the period is the
+   median gap between strong onsets near the coarse tempo, and the phase is where those onsets
+   fall modulo the period — so a 119-vs-120 rounding error cannot drag the grid off the beats.
+   Returns { bpm, phase, period, beats, confidence } or null when there is no steady beat
+   worth syncing to (an ambient track has no beat — the grid would be arbitrary, so snapping
+   to it would move cuts for nothing). Confidence is the share of strong onsets the grid
+   explains (within 0.05s); a real beat explains nearly all of them. */
+export function beatGrid(rms) {
+  const coarse = tempo(rms);
+  if (!coarse) return null;
+  const coarsePeriod = 60 / coarse;
+  const flux = new Float32Array(rms.length);
+  for (let i = 1; i < rms.length; i += 1) flux[i] = Math.max(0, Math.log(rms[i] + 1e-6) - Math.log(rms[i - 1] + 1e-6));
+  const avg = mean(flux);
+  for (let i = 0; i < flux.length; i += 1) flux[i] = Math.max(0, flux[i] - avg);
+  // Strong onsets: local peaks of the flux, well above its mean. Keep only the strongest peak
+  // in each half-period window (non-maximum suppression): a decaying kick and the sine's own
+  // cycles both ring after the beat, and those echoes must not count as beats.
+  const sorted = [...flux].sort((a, b) => a - b);
+  const threshold = sorted[Math.floor(sorted.length * 0.9)] || 0;
+  const candidates = [];
+  for (let i = 1; i < flux.length - 1; i += 1) {
+    if (flux[i] > threshold && flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1]) candidates.push({ t: i * FRAME, s: flux[i] });
+  }
+  candidates.sort((a, b) => b.s - a.s);
+  const onsets = [];
+  for (const c of candidates) {
+    if (onsets.every((t) => Math.abs(t - c.t) > coarsePeriod * 0.5)) onsets.push(c.t);
+  }
+  onsets.sort((a, b) => a - b);
+  if (onsets.length < 4) return null;
+  // Period: the median gap between onsets that are near the coarse period (one beat apart).
+  const gaps = [];
+  for (let i = 1; i < onsets.length; i += 1) { const g = onsets[i] - onsets[i - 1]; if (Math.abs(g - coarsePeriod) < coarsePeriod * 0.15) gaps.push(g); }
+  if (!gaps.length) return null;
+  gaps.sort((a, b) => a - b);
+  const period = gaps[Math.floor(gaps.length / 2)];
+  const bpm = 60 / period;
+  if (bpm < 70 || bpm > 180) return null;
+  // Phase: where the onsets fall modulo the period (circular median, so a wrap does not split them).
+  const residues = onsets.map((t) => ((t % period) + period) % period).sort((a, b) => a - b);
+  let phase = residues[Math.floor(residues.length / 2)];
+  // The median can sit in the gap if the cluster wraps around 0 — re-centre on the densest window.
+  let bestCount = 0;
+  for (const r of residues) {
+    const count = residues.filter((x) => { const d = Math.abs(x - r); return Math.min(d, period - d) < 0.05; }).length;
+    if (count > bestCount) { bestCount = count; phase = r; }
+  }
+  const duration = rms.length * FRAME;
+  const beats = [];
+  for (let t = phase; t < duration; t += period) beats.push(+t.toFixed(3));
+  if (phase > period / 2) beats.unshift(+(phase - period).toFixed(3));
+  const explained = onsets.filter((t) => { const d = Math.abs(t - phase - Math.round((t - phase) / period) * period); return d < 0.05; }).length;
+  const confidence = explained / onsets.length;
+  if (confidence < 0.6) return null;
+  return { bpm: +bpm.toFixed(1), phase: +phase.toFixed(3), period: +period.toFixed(4), beats, confidence: +confidence.toFixed(2) };
+}
+
+/* Nearest beat to a time, and how far off it is. */
+export function nearestBeat(t, grid) {
+  if (!grid || !grid.beats.length) return null;
+  let best = grid.beats[0], bestD = Math.abs(t - best);
+  for (const b of grid.beats) { const d = Math.abs(t - b); if (d < bestD) { best = b; bestD = d; } }
+  return { beat: best, offBy: +bestD.toFixed(3) };
+}
+
+/* The beat grid of a whole audio file (music track or finished film). Null when no steady beat. */
+export async function analyzeBeats(file) {
+  let samples;
+  try { samples = await pcm(file); } catch { return null; }
+  const { rms } = envelopes(samples);
+  if (mean(rms.map((value) => db(value))) < -55) return null; // silent
+  return beatGrid(rms);
+}
+
 export function toneWords({ meanDb, ratio }) {
   const energy = meanDb > -20 ? "driving, full of energy" : meanDb > -28 ? "moderate energy, confident" : "soft, calm and spacious";
   const tone = ratio < 0.35 ? "warm and deep" : ratio < 0.7 ? "balanced" : "bright and crisp";
   return { energy, tone };
 }
 
+// Only "hit" is left: the whoosh and flash prompts are gone (standing rule:
+// no whoosh sound in any template, ever). No template path produces a hit
+// either — this stays as the generic prompt builder for a non-whoosh accent.
 const SFX_PROMPTS = {
-  whoosh: (tone) => `Short cinematic whoosh transition sound effect, ${tone === "bright and crisp" ? "airy, crisp swish" : tone === "warm and deep" ? "deep, smooth sweep" : "smooth swish"}, about one second, no music, no voices`,
   hit: (tone) => `Short soft cinematic impact hit, ${tone === "warm and deep" ? "deep sub thump" : "tight clean thud"}, very brief, no music, no voices`,
-  flash: (tone) => `Bright camera-flash transition: a quick shimmering whoosh with a soft hit, ${tone === "warm and deep" ? "warm" : "crisp"}, about one second, no music, no voices`,
 };
 export const sfxPrompt = (kind, tone) => (SFX_PROMPTS[kind] || SFX_PROMPTS.hit)(tone);
 
@@ -79,16 +158,12 @@ export async function analyzeAudio(file, { duration, joins }) {
   const words = toneWords({ meanDb, ratio });
   const at = (seconds) => Math.max(0, Math.min(rms.length - 1, Math.round(seconds / FRAME)));
   const window = (from, to) => { const values = []; for (let i = at(from); i <= at(to); i += 1) values.push(rms[i]); return values; };
-  // Accents on the cuts: a build-up before a join is a whoosh, a sudden peak on it is a hit.
+  // No cut accents: standing rule — no whoosh sound in any template, ever.
+  // (A build-up before a join used to become a whoosh here; that is gone.
+  // The tempo and music bed below are still measured — the beat-sync work
+  // reuses the tempo detector.)
   const sfx = [];
-  joins.forEach((join, index) => {
-    const before = mean(window(join.at - 0.4, join.at - 0.08)), earlier = mean(window(join.at - 1.0, join.at - 0.55));
-    const peak = Math.max(...window(join.at - 0.05, join.at + 0.25)), around = median(window(join.at - 1.5, join.at + 1.5));
-    const built = before > earlier * 1.8 && before > around * 1.2;
-    const struck = peak > around * 2.2;
-    // Only whooshes: an impact or "hit" sound reads as metal clanging on a real-estate film.
-    if (built || (join.type === "flash" && struck)) sfx.push({ join: index, kind: "whoosh", lead: join.type === "flash" ? 0.2 : 0.3 });
-  });
+  void joins;
   const bpm = tempo(rms);
   // A music bed: steady loudness between the accents, with a beat or at least sustained energy.
   const seconds = Math.floor(rms.length * FRAME);

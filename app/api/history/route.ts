@@ -28,28 +28,37 @@ export async function GET() {
     const same = music ? known.filter((item) => item.music === music) : [];
     return same.length === 1 ? same[0].name : known.length === 1 ? known[0].name : "Template";
   };
-  const made = await Promise.all(result.results.map(async (item) => {
-    const jobId = (item as { jobId?: string | null }).jobId;
-    if (!jobId) return { template: null as string | null, fromClips: false, quality: null as QualityState | null, upscaleCents: 0 };
-    try {
-      const manifest = await loadManifest(env, jobId);
-      const template = manifest?.edit?.templateName || (manifest?.edit?.recipe ? nameOf(manifest.edit.recipe as { audio?: { music?: { prompt?: string } } }) : manifest?.edit?.grade === "warm" ? "Library template" : null);
-      return { template, fromClips: Boolean(manifest?.fromClips), quality: manifest && !manifest.fromClips ? qualityState(manifest) : null, upscaleCents: manifest?.fromClips && !manifest.upscale && engineUpscales(manifest.engine as never, "1080p") && item.resolution !== "1080p" ? Math.round(UPSCALE_PER_SECOND * Number(item.duration || 0) * 100) : 0 };
-    } catch { return { template: null, fromClips: false, quality: null, upscaleCents: 0 }; }
-  }));
-  // Versions of one film: the first (its history id is the job's id) is the original; each edit saved a later one.
+  // Which film each row belongs to, before anything else reads it: the job it came from, the film its
+  // versions list names, or — for a "Make versions" output — the film its clips came from (sourceFilmId).
   type Row = Record<string, unknown> & { id: string; createdAt: number; jobId?: string | null; originJobId?: string | null };
   const rows = result.results as Row[];
   const filmOf = new Map<string, string>();
   const order = new Map<string, string[]>();
+  const manifests = new Map<string, Awaited<ReturnType<typeof loadManifest>>>();
   await Promise.all(rows.map(async (item) => {
     if (item.jobId) {
       filmOf.set(item.id, item.jobId);
       const manifest = await loadManifest(env, item.jobId).catch(() => null);
-      if (manifest?.versions?.length) { order.set(item.jobId, manifest.versions); for (const version of manifest.versions) filmOf.set(version, item.jobId); }
+      manifests.set(item.jobId, manifest);
+      if (manifest?.sourceFilmId) filmOf.set(item.id, manifest.sourceFilmId);
+      else if (manifest?.versions?.length) { order.set(item.jobId, manifest.versions); for (const version of manifest.versions) filmOf.set(version, item.jobId); }
     }
     if (item.originJobId) filmOf.set(item.id, item.originJobId);
   }));
+  const made = await Promise.all(result.results.map(async (item) => {
+    const row = item as { jobId?: string | null; originJobId?: string | null; id: string };
+    // The job this card can be edited through: the latest version's job, else the job this row came from,
+    // else the film it belongs to. A row with none of these was saved from an upload, not made in Studio.
+    const film = filmOf.get(row.id) || null;
+    const editJobId = row.jobId || row.originJobId || film;
+    let manifest: Awaited<ReturnType<typeof loadManifest>> = null;
+    if (editJobId) manifest = manifests.get(editJobId) || await loadManifest(env, editJobId).catch(() => null);
+    if (!editJobId) return { template: null as string | null, fromClips: false, quality: null as QualityState | null, upscaleCents: 0, frameRatio: null as number | null, editJobId: null as string | null, editable: false, editBlockedReason: "This video was saved outside Studio, so it can't be edited here.", versionKind: null as "edit" | "version" | null };
+    if (!manifest) return { template: null as string | null, fromClips: false, quality: null as QualityState | null, upscaleCents: 0, frameRatio: null as number | null, editJobId, editable: false, editBlockedReason: "This film was made before it could be edited.", versionKind: null as "edit" | "version" | null };
+    const template = manifest?.edit?.templateName || (manifest?.edit?.recipe ? nameOf(manifest.edit.recipe as { audio?: { music?: { prompt?: string } } }) : manifest?.edit?.grade === "warm" ? "Library template" : null);
+    return { template, fromClips: Boolean(manifest?.fromClips), quality: manifest && !manifest.fromClips ? qualityState(manifest) : null, upscaleCents: manifest?.fromClips && !manifest.upscale && engineUpscales(manifest.engine as never, "1080p") && item.resolution !== "1080p" ? Math.round(UPSCALE_PER_SECOND * Number(item.duration || 0) * 100) : 0, frameRatio: manifest?.frame?.ratio || null, editJobId, editable: true, editBlockedReason: null as string | null, versionKind: (manifest?.sourceFilmId ? "version" : "edit") as "edit" | "version" };
+  }));
+  // Versions of one film: the first (its history id is the job's id) is the original; each edit saved a later one.
   const items = rows.map((item, index) => {
     const film = filmOf.get(item.id) || null;
     const listed = film ? order.get(film) : undefined;
@@ -60,7 +69,7 @@ export async function GET() {
       else if (listed && listed.includes(item.id)) version = listed.indexOf(item.id) + 1;
       else version = siblings.filter((other) => other.id !== film && other.createdAt <= item.createdAt).length;
     }
-    return { ...item, filmId: film, version, template: made[index].template, fromClips: made[index].fromClips, quality: made[index].quality, upscaleCents: made[index].upscaleCents, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` };
+    return { ...item, filmId: film, version, versionKind: made[index].versionKind, template: made[index].template, fromClips: made[index].fromClips, quality: made[index].quality, upscaleCents: made[index].upscaleCents, frameRatio: made[index].frameRatio, editJobId: made[index].editJobId, editable: made[index].editable, editBlockedReason: made[index].editBlockedReason, videoUrl: `/api/history/${item.id}/video`, downloadUrl: `/api/history/${item.id}/video?download=1` };
   });
   // Keep every film's versions together: the original first, then its edits in order, placed where the film's newest version is.
   const placed = new Set<string>(); const sorted: typeof items = [];

@@ -181,6 +181,49 @@ export function recipeDuration(recipe) {
   const overlap = recipe.joins.reduce((sum, join) => sum + joinOverlap(join), 0);
   return round(recipe.slots.reduce((sum, slot) => sum + slot.dur, 0) - overlap);
 }
+
+/* Beat-synced cuts for a WrenCut recipe: move each interior shot boundary to the nearest beat
+   of the music's measured grid, by adjusting the shot before it. A boundary is the film time
+   where the next shot starts (cumulative shot lengths, less the join overlaps before it).
+   The film's total length is unchanged — the last shot absorbs the interior shift. No shot
+   goes under 0.3s or under its joins' overlap, and no boundary moves 0.6s or more. Without a
+   grid (or when the snap would break the last shot) the recipe is returned unchanged. */
+export function snapWrenToBeatGrid(recipe, grid) {
+  if (!grid?.beats?.length) return { recipe, moved: [] };
+  const beats = [...grid.beats].sort((a, b) => a - b);
+  const nearest = (t) => beats.reduce((best, b) => (Math.abs(b - t) < Math.abs(best - t) ? b : best), beats[0]);
+  const next = JSON.parse(JSON.stringify(recipe));
+  const overlap = next.joins.map(joinOverlap);
+  const originalTotal = recipeDuration(next);
+  const moved = [];
+  let elapsed = 0; // film time at the start of the current shot, with snapped boundaries so far
+  for (let i = 0; i < next.slots.length - 1; i += 1) {
+    const boundary = elapsed + next.slots[i].dur - overlap[i];
+    let want = nearest(boundary);
+    // Never collapse a shot under 0.3s: if the nearest beat is too close to the previous
+    // boundary, take the next beat after it instead.
+    if (want <= elapsed + 0.3) {
+      const after = beats.find((b) => b > elapsed + 0.3);
+      want = after !== undefined ? after : boundary;
+    }
+    const delta = Math.abs(want - boundary) < 0.6 ? +(+want.toFixed(3) - boundary) : 0;
+    const newDur = +(next.slots[i].dur + delta).toFixed(3);
+    const fitsJoins = newDur > overlap[i] && (i === 0 || newDur > overlap[i - 1]);
+    if (delta && newDur >= 0.3 && fitsJoins) {
+      next.slots[i].dur = newDur;
+      moved.push({ shot: i + 1, from: +boundary.toFixed(3), to: +want.toFixed(3) });
+      elapsed = want;
+    } else {
+      elapsed = boundary;
+    }
+  }
+  const last = next.slots.length - 1;
+  const rest = next.slots.slice(0, last).reduce((sum, slot) => sum + slot.dur, 0) - overlap.reduce((sum, o) => sum + o, 0);
+  const lastDur = +(originalTotal - rest).toFixed(3);
+  if (lastDur < 0.3 || lastDur <= overlap[last - 1]) return { recipe, moved: [] };
+  next.slots[last].dur = lastDur;
+  return { recipe: next, moved };
+}
 const joinOverlap = (join) => join.type === "cut" ? 0.04 : join.type === "flash" ? 0.16 : join.dur;
 
 export function validRecipe(recipe) {
@@ -200,8 +243,19 @@ export function validRecipe(recipe) {
 }
 
 /* The slices of a ramped shot. speed = [[u, s], …]: s is how fast the source runs at u (0..1 along the shot); strength
-   blends toward steady (1 = as read). Fast slices are blurred by blending neighbouring frames; slow ones are
-   smoothed by making in-between frames, so slow motion does not stutter.
+   blends toward steady (1 = as read). Every slice is smoothed or blurred, and the blur is placed AFTER the
+   output rate is established, never before it:
+   - a slice at or below 1.12x gets in-between frames made for it (minterpolate), so the fps filter never has
+     to duplicate a frame to hold the rate — a duplicated frame reads as the film stuttering;
+   - a fast slice is blurred by blending the frames AFTER fps= (tmix after the rate is set): each output frame
+     then smears across the motion the whip actually plays (several source frames per output frame). Blending
+     before the retiming only smears across neighbouring source frames, which on a still photo differ by a
+     fraction of a pixel — which is why the whip showed no blur at all. (An earlier attempt put tmix right
+     after setpts; it changed nothing, because setpts only retimes — it does not change the frame sequence
+     tmix blends. The blur has to sit after fps=.)
+   Every slice gets a look-ahead past its end, so the interpolator always has a next frame to work toward.
+   The tpad at the end of each slice is only a length backstop (the join places every cut by these lengths);
+   it must never be the thing filling a slice.
    src: the filter label the slices come from (default: the file input
    `${index}:v`). The template path passes its moved picture here, so
    the ramp re-times the camera move as well as the footage. */
@@ -212,7 +266,7 @@ export function coverCrop(w, h, anchorY) {
   const a = Number.isFinite(anchorY) ? Math.min(1, Math.max(0, anchorY)) : 0.5;
   return a === 0.5 ? `crop=${w}:${h}` : `crop=${w}:${h}:(in_w-${w})/2:(in_h-${h})*${a.toFixed(3)}`;
 }
-export function rampHead({ index, speed, d, start, fps, strength = 1, avail, src }) {
+export function rampHead({ index, speed, d, start, fps, strength = 1, avail, src, blur = true }) {
   const total = d + 0.2;
   const at = (u) => {
     const pts = speed;
@@ -221,34 +275,63 @@ export function rampHead({ index, speed, d, start, fps, strength = 1, avail, src
     return pts[pts.length - 1][1];
   };
   const lines = [], labels = [];
-  const sliceLen = total / SLICES;
+  // Slice lengths are whole frames. An equal slice of (d+0.2)/8 is
+  // 2.625 frames on a 0.5s scene, and trim=duration=outLen then drops
+  // the frame that would carry the slice's tail source — every slice
+  // loses ~0.04s of source and holds a frame instead, so the ramp
+  // plays ~30% slow on short scenes (a 3.0s scene is 96 frames, 12
+  // per slice, which is why it never showed). The scene's frames are
+  // spread over the slices as evenly as possible instead: the first
+  // slices get one extra frame, the total stays exact, and every
+  // slice ends on a frame boundary, so no source is ever skipped.
+  // The frame count rounds UP: rounding down would leave the output
+  // short of total, and the shot-by-shot path pads that shortfall with
+  // a cloned frame while the single-pass path does not — the two
+  // renders then diverge (PSNR 33 dB instead of >34). The concat
+  // trims the excess (at most one frame, off the headroom tail) back
+  // to exactly total.
+  const totalFrames = Math.max(SLICES, Math.ceil(total * fps));
+  const baseFrames = Math.floor(totalFrames / SLICES);
+  const extraFrames = totalFrames % SLICES;
   let source = 0;
   const parts = [];
+  let outStart = 0;
   for (let k = 0; k < SLICES; k += 1) {
-    const raw = at(Math.min(1, ((k + 0.5) * sliceLen) / d));
+    const frames = baseFrames + (k < extraFrames ? 1 : 0);
+    const outLen = frames / fps;
+    const raw = at(Math.min(1, (outStart + outLen / 2) / d));
     const s = 1 + (raw - 1) * strength;
-    parts.push({ s, from: source, to: source + sliceLen * s });
-    source += sliceLen * s;
+    parts.push({ s, outLen, from: source, to: source + outLen * s });
+    source += outLen * s;
+    outStart += outLen;
   }
   // The clip is only so long: when the shot would use more footage than there is, the whole ramp is played slower instead of
   // running out (a held last frame reads as the film freezing).
   if (Number.isFinite(avail) && avail > 0.5 && source > avail * 0.97) {
     const f = (avail * 0.97) / source;
     let from = 0;
-    parts.forEach((part) => { part.s = Math.max(0.12, part.s * f); part.from = from; part.to = from + sliceLen * part.s; from = part.to; });
+    parts.forEach((part) => { part.s = Math.max(0.12, part.s * f); part.from = from; part.to = from + part.outLen * part.s; from = part.to; });
     source = from;
   }
   const pre = `[${src || `${index}:v`}]trim=start=${start.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${Math.ceil(source + 1)},split=${SLICES}${parts.map((_, k) => `[rp${index}_${k}]`).join("")}`;
   lines.push(pre);
   parts.forEach((part, k) => {
-    const blur = part.s > 1.12 ? `,tmix=frames=${Math.min(8, Math.max(3, Math.round(part.s * 2.4)))}` : ""; // motion blur: fast parts smear across neighbouring frames
-    const smooth = part.s < 0.75 ? `,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1:scd=none` : "";
-    // A slow slice is only a couple of source frames: the interpolator returns fewer frames than asked for when it has nothing after
-    // the last one, so the shot came out short (and everything after it was lost at the join). Give it one frame more to look
-    // ahead and cut it to the exact length it must fill.
-    const outLen = (part.to - part.from) / part.s;
-    const lookahead = part.s < 0.75 ? 0.12 : 0;
-    lines.push(`[rp${index}_${k}]trim=start=${part.from.toFixed(4)}:end=${(part.to + lookahead).toFixed(4)},setpts=PTS-STARTPTS${blur},setpts=PTS/${part.s.toFixed(4)}${smooth},fps=${fps},tpad=stop_mode=clone:stop_duration=1,trim=duration=${outLen.toFixed(4)},setpts=PTS-STARTPTS[rq${index}_${k}]`);
+    // Slow and middle slices get in-between frames made (minterpolate), so no frame is ever duplicated to
+    // hold the rate. Fast slices get their blur AFTER fps= : each output frame then smears across the
+    // motion the whip actually plays. The two never overlap: a slice is either smoothed or blurred.
+    // blur: false is a timing-only render (used by the verifier's speed calibration): tmix is a trailing
+    // average, so on a fast slice it delays the picture by up to half its window, and that lag reads as
+    // the ramp playing slow. The blur is a look, not timing — it is verified separately, from a detailed
+    // still — so the speed is measured without it.
+    const blurFilter = blur && part.s > 1.12 ? `,tmix=frames=${Math.min(8, Math.max(3, Math.round(part.s * 2.4)))}` : "";
+    const smooth = blur && part.s <= 1.12 ? `,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1:scd=none` : "";
+    // Every slice gets one frame more to look ahead: the interpolator returns fewer frames than asked for
+    // when it has nothing after the last one, so the shot came out short (and everything after it was lost
+    // at the join) — and a slice that runs short is padded with frozen frames, which reads as the film
+    // freezing. The look-ahead is real footage, not a held frame.
+    const outLen = part.outLen;
+    const lookahead = 0.12;
+    lines.push(`[rp${index}_${k}]trim=start=${part.from.toFixed(4)}:end=${(part.to + lookahead).toFixed(4)},setpts=PTS-STARTPTS,setpts=PTS/${part.s.toFixed(4)}${smooth},fps=${fps}${blurFilter},tpad=stop_mode=clone:stop_duration=1,trim=duration=${outLen.toFixed(4)},setpts=PTS-STARTPTS[rq${index}_${k}]`);
     labels.push(`[rq${index}_${k}]`);
   });
   lines.push(`${labels.join("")}concat=n=${SLICES}:v=1:a=0,trim=duration=${total.toFixed(3)},setpts=PTS-STARTPTS[rr${index}]`);

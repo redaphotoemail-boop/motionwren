@@ -5,8 +5,8 @@ const recipeSeconds = (recipe) => Math.round((recipe.slots.reduce((sum, slot) =>
 const joinTimes = (recipe) => { let acc = recipe.slots[0].dur; return recipe.joins.map((join, index) => { const x = ov(join); const time = acc - x + x / 2; acc += recipe.slots[index + 1].dur - x; return Math.round(time * 1000) / 1000; }); };
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => { if (ok) { pass += 1; console.log(`PASS ${name}${detail ? ` — ${detail}` : ""}`); } else { fail += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ""}`); } };
-check("thirteen templates", SOCIAL_SPECS.length === 13);
-check("unique keys and numbers", new Set(SOCIAL_SPECS.map((spec) => spec.key)).size === 13 && new Set(SOCIAL_SPECS.map((spec) => spec.number)).size === 13);
+check("twelve templates", SOCIAL_SPECS.length === 12);
+check("unique keys and numbers", new Set(SOCIAL_SPECS.map((spec) => spec.key)).size === 12 && new Set(SOCIAL_SPECS.map((spec) => spec.number)).size === 12);
 for (const spec of SOCIAL_SPECS) {
   const recipe = buildSocialRecipe(spec);
   check(`${spec.number} ${spec.name}: editor accepts the recipe`, validRecipe(recipe) === "", validRecipe(recipe));
@@ -18,7 +18,7 @@ for (const spec of SOCIAL_SPECS) {
   check(`${spec.number}: every shot uses a real photo`, spec.use.every((act) => act >= 0 && act < spec.acts.length) && spec.acts.every((_, act) => spec.use.includes(act)));
   check(`${spec.number}: no smoothness break (speed within 0.3–3.5, eased)`, recipe.slots.every((slot) => !slot.speed || (slot.speed.length <= 8 && slot.speed.every(([, s]) => s >= 0.3 && s <= 3.5) && slot.speed.every((point, i) => i === 0 || point[0] > slot.speed[i - 1][0]))));
   check(`${spec.number}: at most one ramp per shot`, recipe.slots.every((slot) => !slot.speed || slot.speed.length <= 8));
-  check(`${spec.number}: whooshes sit on real joins`, (recipe.audio?.sfx || []).every((item) => item.kind === "whoosh" && item.join >= 0 && item.join < recipe.joins.length));
+  check(`${spec.number}: no whoosh sound in any template (standing rule)`, !(recipe.audio?.sfx || []).some((item) => item.kind === "whoosh" || item.kind === "flash"), JSON.stringify(recipe.audio?.sfx));
   const guide = socialGuide(spec);
   check(`${spec.number}: guide is sane`, guide.best === spec.acts.length && guide.least >= 2 && guide.least <= guide.best, JSON.stringify(guide));
   const need = socialMinScene(spec, spec.acts.length);

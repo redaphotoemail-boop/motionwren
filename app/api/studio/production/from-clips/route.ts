@@ -10,6 +10,7 @@ import { musicPrompt } from "../../../_lib/composer";
 import { makeCutEffects } from "../../../_lib/film-sound";
 import { musicTemplate } from "../../../../music-catalog";
 import { getRecipe, recipeFor } from "../../../_lib/wrencut";
+import { recipeWithNightSlots, templateRecipeById } from "../../../../template-recipes";
 import { socialSpec } from "../../../../social-templates";
 import { isWrenId, joinTimes, recipeSeconds } from "../../../../wrencut";
 
@@ -54,11 +55,25 @@ export async function POST(request: Request) {
     const wren = isWrenId(wrenAsked) ? await getRecipe(env, wrenAsked) : null;
     if (wrenAsked !== undefined && !wren) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
     const recipe = wren ? recipeFor(wren, count) : null;
-    const duration = recipe ? recipeSeconds(recipe) : Math.round((count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS) * 1000) / 1000;
-    // A version made to be looked at first: kept at the engine's own 720p (no upscale yet). The upscale is the last touch, once it is approved ("Upscale to 1080p" in History).
-    const keepNative = body.upscale === false && engineUpscales(engine, resolution);
-    const upscales = !keepNative && engineUpscales(engine, resolution);
-    const rowResolution = keepNative ? nativeResolution(engine, resolution) : resolution;
+    // A template recipe (spec v1) instead of a WrenCut template: the saved
+    // clips are the recipe's inputs, one per slot, in the recipe's inputs
+    // order. Never both at once. The composer renders a recipe film at
+    // the recipe's own resolution, so there is no separate upscale step.
+    const recipeId = typeof body.templateRecipe === "string" ? body.templateRecipe : (typeof body.template === "object" && body.template !== null ? (body.template as { templateRecipe?: unknown }).templateRecipe : undefined);
+    const recipeEntry = typeof recipeId === "string" ? templateRecipeById(recipeId) : null;
+    if (recipeId !== undefined && !recipeEntry) return NextResponse.json({ error: "That template is no longer available. Choose another." }, { status: 400 });
+    if (recipeEntry && wren) return NextResponse.json({ error: "Choose one template: a recipe template or a WrenCut template, not both." }, { status: 400 });
+    const nightSlots = Array.isArray(body.nightSlots) ? (body.nightSlots as unknown[]).filter((s): s is string => typeof s === "string") : [];
+    const templateRecipe = recipeEntry ? recipeWithNightSlots(recipeEntry.recipe, nightSlots) : null;
+    if (templateRecipe && recipeEntry && count !== recipeEntry.recipe.inputs.length) return NextResponse.json({ error: `This template needs ${recipeEntry.recipe.inputs.length} clips, one per slot (${recipeEntry.recipe.inputs.map((i) => i.slot).join(", ")}).` }, { status: 400 });
+    if (templateRecipe && aspect !== "vertical") return NextResponse.json({ error: "This template is vertical (9:16). Choose vertical clips." }, { status: 400 });
+    const duration = templateRecipe && recipeEntry ? recipeEntry.recipe.duration_s : recipe ? recipeSeconds(recipe) : Math.round((count * sceneSeconds - (count - 1) * CROSSFADE_SECONDS) * 1000) / 1000;
+    const filmSceneSeconds = templateRecipe ? Math.round((duration / count) * 1000) / 1000 : sceneSeconds;
+    // A version made to be looked at first: kept at the engine's own 720p (no upscale yet). The upscale is the last touch, once it is approved ("Upscale to 1080p" in History). A recipe film is the exception: it renders at 1080p directly, so no upscale is set or charged.
+    const filmResolution = templateRecipe ? "1080p" as StudioResolution : resolution;
+    const keepNative = !templateRecipe && body.upscale === false && engineUpscales(engine, filmResolution);
+    const upscales = !templateRecipe && !keepNative && engineUpscales(engine, filmResolution);
+    const rowResolution = templateRecipe ? filmResolution : keepNative ? nativeResolution(engine, filmResolution) : filmResolution;
     const costCents = upscales ? Math.round(UPSCALE_PER_SECOND * duration * 100) : 0; // only the 1080p upscale of the new film, if any
 
     const id = crypto.randomUUID();
@@ -79,13 +94,17 @@ export async function POST(request: Request) {
     }
 
     const inputs = sources.map((source, index) => Object.fromEntries(Object.entries(source.prompt).map(([key, value]) => [key, typeof value === "string" && value.includes("/api/job-frames/") ? photoLink(index) : value])));
-    const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, sources.map((_, index) => ({ key: frameKey(id, index), link: photoLink(index) })));
+    const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], filmSceneSeconds, inputs, undefined, sources.map((_, index) => ({ key: frameKey(id, index), link: photoLink(index) })));
     manifest.fromClips = sources.map((item) => ({ jobId: item.jobId, scene: item.scene }));
+    // Every clip from one film ("Make versions"): keep the link, so History groups the version with its original.
+    const sourceJobs = [...new Set(sources.map((item) => item.jobId))];
+    if (sourceJobs.length === 1) manifest.sourceFilmId = sourceJobs[0];
     for (let index = 0; index < count; index += 1) { manifest.states[index] = "ready"; manifest.attempts[index] = 1; manifest.outputs[index] = link(index); manifest.saved[index] = outputKey(id, index); manifest.readyAt[index] = now; }
     if (upscales) manifest.upscale = { to: "1080p" };
     const picked = musicTemplate(body.music);
-    manifest.edit = { shareSeconds: sceneSeconds, crossfade: wren ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : recipe?.audio?.music?.prompt || musicPrompt({ aspect, duration }) } };
+    manifest.edit = { shareSeconds: filmSceneSeconds, crossfade: (wren || templateRecipe) ? 0 : CROSSFADE_SECONDS, music: { prompt: picked ? picked.prompt : recipe?.audio?.music?.prompt || musicPrompt({ aspect, duration }) } };
     if (recipe) { manifest.edit.recipe = recipe; manifest.edit.templateName = wren?.name; }
+    if (templateRecipe && recipeEntry) { manifest.edit.templateRecipe = templateRecipe; manifest.edit.templateName = recipeEntry.name; }
     // A social template has its own canvas: a 16:9 film becomes vertical (or the reverse) with a cut, never a stretch (nothing is made again).
     const canvas = wren?.social ? socialSpec(wren.social)?.frame : undefined;
     if ((canvas === "vertical" || canvas === "horizontal") && (aspect === "vertical" || aspect === "horizontal") && canvas !== aspect) manifest.edit.reframe = canvas;
@@ -96,14 +115,14 @@ export async function POST(request: Request) {
       try { const cutfx = await makeCutEffects(env, id, recipe.audio, joinTimes(recipe)); if (cutfx) manifest.edit.sound = { ...(manifest.edit.sound || {}), cutfx }; } catch { /* made without them */ }
     }
     await saveManifest(env, id, manifest);
-    const label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 60) : `${Math.round(duration)}-second film from saved clips`;
+    const label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 60) : templateRecipe && recipeEntry ? `${recipeEntry.name} · ${Math.round(duration)}-second film from your clips` : `${Math.round(duration)}-second film from saved clips`;
     await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'studio-series', 'generating', ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`)
-      .bind(id, ownerId, JSON.stringify(sources.map((_, index) => `clip-${index + 1}`)), JSON.stringify(sources.map((_, index) => link(index))), String(sources[0].prompt.prompt || "Film from saved clips").slice(0, 6000), `Studio · ${label}`, rowResolution, aspect, duration, costCents, webhookToken, now, now).run();
+      .bind(id, ownerId, JSON.stringify(sources.map((_, index) => `clip-${index + 1}`)), JSON.stringify(sources.map((_, index) => link(index))), templateRecipe && recipeEntry ? `Template film: ${recipeEntry.name}` : String(sources[0].prompt.prompt || "Film from saved clips").slice(0, 6000), `Studio · ${label}`, rowResolution, aspect, duration, costCents, webhookToken, now, now).run();
     const token = (await studioToken()) || "";
     const row = await getRenderJob(env, id);
     if (row) await advanceRenderJob(env, row, token, `${origin}/api/webhooks/replicate/${id}?token=${webhookToken}`);
     const fresh = await getRenderJob(env, id);
-    return NextResponse.json({ job: fresh ? { ...publicJob(fresh), scenes: sources.map(() => ({ state: "ready", attempt: 1 })) } : { id, status: "generating" }, plan: { count, sceneSeconds, duration, costCents } });
+    return NextResponse.json({ job: fresh ? { ...publicJob(fresh), scenes: sources.map(() => ({ state: "ready", attempt: 1 })) } : { id, status: "generating" }, plan: { count, sceneSeconds: filmSceneSeconds, duration, costCents } });
   } catch (error) {
     if (error instanceof Response) return error;
     return jsonError(error);
