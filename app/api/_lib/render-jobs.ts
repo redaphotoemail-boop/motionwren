@@ -15,6 +15,7 @@ import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
 import { recipeSeconds } from "../../wrencut";
 import { shapeSize } from "../../original-shape";
+import { guardCheck } from "./spend-guard";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -433,6 +434,10 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     const stitchId = await startStitch(token, urls, row.resolution, row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio);
     await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(stitchId, Date.now(), row.id).run();
   } catch (error) {
+    if (error instanceof ProviderError && error.kind === "budget") {
+      await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = NULL, updated_at = ? WHERE id = ?`).bind(Date.now(), row.id).run(); // held by the spending guard: tried again by the next step
+      return;
+    }
     if (error instanceof ProviderError && ["throttled", "credit", "transient"].includes(error.kind)) {
       const wait = Math.max(error.retryAfterMs, error.kind === "credit" ? 5 * 60 * 1000 : 10 * 1000);
       await writeProviderState(env, { lastError: error.message.slice(0, 300), lastErrorAt: Date.now(), ...(error.kind === "credit" ? { pausedUntil: Date.now() + wait, lowCredit: true } : { throttledUntil: Date.now() + wait }) });
@@ -625,7 +630,7 @@ async function upscaleFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rende
     } catch (error) {
       const message = error instanceof Error ? error.message : "The upscaler could not be reached.";
       up.lastError = message.slice(0, 200);
-      if (!(error instanceof ProviderError && ["throttled", "credit", "transient"].includes(error.kind))) up.tries = (up.tries || 0) + 1;
+      if (!(error instanceof ProviderError && ["throttled", "credit", "transient", "budget"].includes(error.kind))) up.tries = (up.tries || 0) + 1;
     }
     await persist();
     return null;
@@ -675,7 +680,8 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       for (const flag of qc.flags) if (flag.at !== undefined) found(sceneAt(flag.at), flag.message);
       if (qc.status !== "pass") alertText += qc.flags.map((flag) => flag.message).join(" ");
     }
-    const use = await reviewSettings(env);
+    const configured = await reviewSettings(env);
+    const use = (await guardCheck(env, 0)).ok ? configured : { ...configured, cloudflare: false, claude: false }; // the spending guard: no paid AI quality check at the limit (the free mechanical check still runs)
     if (state.stills && (use.cloudflare || use.claude)) {
       const stills: Uint8Array[] = []; const times: number[] = [];
       for (let n = 1; n <= state.stills; n += 1) {
@@ -785,6 +791,7 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     // top-resolution price, which overstated every re-make.)
     const made = nativeResolution(manifest.engine, row.resolution as never);
     const extra = Math.round((engineCost(manifest.engine, made, seconds) * scenes.length + (engineUpscales(manifest.engine, row.resolution as never) ? UPSCALE_PER_SECOND * row.duration : 0)) * 100);
+    if (!(await guardCheck(env, extra)).ok) return false; // the spending guard: no re-make while a limit is reached or spending is paused
     if (manifest.fix) { const history = [...manifest.fix.history]; const last = history[history.length - 1]; if (last) history[history.length - 1] = { ...last, cents: extra }; manifest.fix = { ...manifest.fix, history }; }
     await saveManifest(env, row.id, manifest);
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
@@ -823,6 +830,8 @@ export async function fixSceneByHand(env: { DB: D1Database; BUCKET: R2Bucket }, 
   const notes = [...(manifest.fix?.notes || Array(count).fill(""))];
   notes[scene] = text;
   const { cents } = fixEstimate(manifest, row);
+  const spend = await guardCheck(env, cents);
+  if (!spend.ok) return { error: spend.message };
   manifest.fix = { ...manifest.fix, round, notes, history: [...(manifest.fix?.history || []), { round, scenes: [scene], why: `Fix this scene (asked by hand): ${issues.join(" ").slice(0, 300)}` }], sent: [...(manifest.fix?.sent || []), { round, scene, text, by: "you" }] };
   if (!await remakeScenes(env, row, manifest, [scene], new Map([[scene, issues]]))) return { error: "This video is being updated right now. Try again in a few seconds." };
   const fresh = await getRenderJob(env, row.id);
@@ -1101,6 +1110,8 @@ export async function upscaleFinal(env: { DB: D1Database; BUCKET: R2Bucket }, ro
   if (!engineUpscales(manifest.engine, "1080p")) return { error: "This film's engine already makes its own resolution." };
   if (row.resolution === "1080p" || manifest.upscale) return { error: "This film is already 1080p." };
   const cents = Math.round(UPSCALE_PER_SECOND * row.duration * 100);
+  const spend = await guardCheck(env, cents);
+  if (!spend.ok) return { error: spend.message };
   manifest.upscale = { to: "1080p" };
   await saveManifest(env, row.id, manifest);
   await env.DB.prepare(`UPDATE render_jobs SET resolution = '1080p', cost_cents = cost_cents + ?, updated_at = ? WHERE id = ?`).bind(cents, Date.now(), row.id).run();

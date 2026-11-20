@@ -4,6 +4,7 @@ import { storyOrder } from "../../_lib/room-order";
 import { cleanFilmTitles } from "../../../titles";
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../../_lib/account";
+import { guardStart } from "../../_lib/spend-guard";
 import { autoFilmSeconds, AUTO_SECONDS_PER_PHOTO, CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, engineCost, engineUpscales, engineDurationOptions, filmSceneDurations, preferredDurationForEngine, sceneTimingSetting, scenePlan, studioEngine, VIDEO_LENGTHS, type StudioResolution } from "../../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, isEngineKey } from "../../../engine-providers";
 import { advanceRenderJob, beginQueue, getRenderJob, publicJob } from "../../_lib/render-jobs";
@@ -94,6 +95,8 @@ export async function POST(request: Request) {
   const scenes = ordered.slice(0, count);
   const seed = Number.isInteger(body.seed) && Number(body.seed) >= 0 ? Number(body.seed) : undefined;
   const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
+  const stopped = await guardStart(env, costCents, { confirmed: body.confirmSpend === true, askAbove: true }); // the spending guard: limits, pause, and a yes above the per-film amount
+  if (stopped) return stopped;
   const label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 60) : mode === "single" ? "Single clip" : `${duration}-second film`;
 
   const id = crypto.randomUUID();

@@ -59,3 +59,10 @@ assert.ok(readFileSync("app/studio/template-strip.tsx", "utf8").includes("Requir
 assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("export async function upscaleFinal") && readFileSync("app/studio/page.tsx", "utf8").includes("Upscale to 1080p"), "Upscale last-touch lost");
 assert.ok(readFileSync("composer/wrencut.mjs", "utf8").includes("shotout") && readFileSync("composer/wrencut.mjs", "utf8").includes("lookahead"), "Template shot length guard lost");
 assert.ok(readFileSync("composer/server.mjs", "utf8").includes("The picture came out"), "Picture-length check lost");
+
+// Spending guard: the Spend page keeps its limits panel, and every engine charge still passes the guard.
+assert.ok(readFileSync("app/admin/replicates/page.tsx", "utf8").includes("SpendGuardPanel"), "The Spend page lost the spending guard");
+assert.ok(readFileSync("app/admin/replicates/spend-guard-panel.tsx", "utf8").includes("Pause all spending"), "The spending guard lost its pause switch");
+assert.ok(readFileSync("app/api/_lib/provider.ts", "utf8").includes("guardAtEngine"), "createPrediction no longer asks the spending guard");
+assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes('"budget"'), "The scene queue no longer holds scenes at the spending limit");
+assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpend"), "Studio lost the per-film confirmation");

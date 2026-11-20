@@ -11,12 +11,17 @@
    - transient — network trouble or a provider 5xx. Back off and retry.
    - rejected  — the provider refused this request (other 4xx). Counts as a
      failed try of that scene.
+   - budget    — OUR spending guard said stop (limit reached or paused). Never
+     sent to the engine; the work is held, not failed, and continues when the
+     limit is raised or the day/month rolls over.
 
    Shared provider state (rate-limit wait, pause, last error) and the
    configured concurrency live in platform_settings, so every request,
    callback and the minute heartbeat see the same picture. */
 
-export type ProviderErrorKind = "throttled" | "credit" | "transient" | "rejected";
+import { guardAtEngine } from "./spend-guard";
+
+export type ProviderErrorKind = "throttled" | "credit" | "transient" | "rejected" | "budget";
 
 export class ProviderError extends Error {
   kind: ProviderErrorKind;
@@ -59,6 +64,8 @@ export function classify(status: number, detail: string, response?: Response): P
 /* Creates one prediction. One call, no internal retry: the queue decides
    when to try again, so waits are persisted and survive restarts. */
 export async function createPrediction(token: string, endpoint: string, input: Record<string, unknown>, webhook?: string): Promise<string> {
+  const stopped = await guardAtEngine(); // the spending guard: the last gate before any engine charge
+  if (stopped) throw new ProviderError("budget", stopped);
   let response: Response;
   try {
     response = await fetch(providerUrl(endpoint), {

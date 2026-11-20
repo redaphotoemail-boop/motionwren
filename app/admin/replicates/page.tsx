@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { Metric, PageHead, cents } from "../ui";
+import { SpendGuardPanel } from "./spend-guard-panel";
 
 type ReplicateData = { spend: { totalCents: number; renderJobsCents: number; historyCents: number; renderJobCount: number; historyCount: number }; token: { configured: boolean }; balance: { available: false; message: string }; billingUrl: string; lowBalanceAlertCents: number | null };
 
@@ -36,6 +37,8 @@ export default function ReplicatesPage() {
     </PageHead>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
     {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
+
+    <SpendGuardPanel />
 
     <section className="panel maintenance">
       <div><strong>What each video costs</strong><small>The full breakdown by video, music and editing now lives on the Finance page.</small></div>

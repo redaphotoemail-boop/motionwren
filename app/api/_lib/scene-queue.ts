@@ -1,6 +1,7 @@
 import { MAX_ATTEMPTS, staleAfterMs, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
 import { engineCost, engineUpscales, filmSceneDurations, type StudioEngineKey } from "../../engine-catalog";
+import { guardCheck } from "./spend-guard";
 import { ProviderError, acquireLease, backoff, createPrediction, maxActive, readProviderState, releaseLease, writeProviderState } from "./provider";
 
 /* The scene queue. Every multi-scene video (client orders and Studio videos)
@@ -180,7 +181,9 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
 
     // 4. Send the next scenes, in order, within the provider's limits.
     const provider = await readProviderState(env);
-    const blocked = provider.pausedUntil > now ? "credit" : provider.throttledUntil > now ? "throttle" : "";
+    // The spending guard: at the limit (or paused) no scene is sent. Scenes are held, not failed, and go out by themselves once the limit is raised or the day/month rolls over.
+    const spend = await guardCheck(env, 0);
+    const blocked = !spend.ok ? "budget" : provider.pausedUntil > now ? "credit" : provider.throttledUntil > now ? "throttle" : "";
     const due = ids.map((id, index) => index).filter((index) => !ids[index] && !segments[index] && ["queued", "retry"].includes(manifest.states[index]) && manifest.nextAt[index] <= now);
     if (blocked) {
       for (const index of due) manifest.reasons[index] = blocked;
@@ -222,6 +225,13 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
                 manifest.nextAt[index] = Date.now() + wait;
                 manifest.reasons[index] = "throttle";
                 await writeProviderState(env, { ...stamp, throttledUntil: Date.now() + wait, lowCredit: provider.lowCredit || /credit/i.test(problem.message) });
+                break;
+              }
+              if (problem.kind === "budget") {
+                // The guard stopped it at the last gate: hold the scene (no failed try is counted) and look again in a minute.
+                manifest.states[index] = "queued";
+                manifest.nextAt[index] = Date.now() + 60 * 1000;
+                manifest.reasons[index] = "budget";
                 break;
               }
               if (problem.kind === "credit") {

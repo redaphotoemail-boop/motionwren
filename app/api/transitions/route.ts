@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { ACTIVE_STATUSES, jobScenes, publicJob, type RenderJobRow } from "../_lib/render-jobs";
 import { jsonError, requireAdmin } from "../_lib/account";
+import { guardStart } from "../_lib/spend-guard";
 
 const AI_ENDPOINT = "https://api.replicate.com/v1/models/wan-video/wan-2.7-i2v/predictions";
 const CLEAN_ENDPOINT = "https://api.replicate.com/v1/models/lucataco/image-to-video-slideshow/predictions";
@@ -54,6 +55,8 @@ export async function POST(request: Request) {
     const pairCount = images.length - 1;
     const duration = mode === "clean" ? images.length * durationPerTransition : pairCount * durationPerTransition;
     const costCents = mode === "clean" ? 1 : Math.round(duration * 15);
+    const stopped = await guardStart(env, costCents, { confirmed: body.confirmSpend === true, askAbove: true }); // the spending guard
+    if (stopped) return stopped;
     const created = Date.now();
     // The job exists before anything starts, so early callbacks find it.
     await env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, ?, 'starting', '[]', '[]', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(id, ownerId, mode === "clean" ? "clean-transition" : "ai-transition", prompt, `${images.length}-frame ${mode === "clean" ? "clean dissolve" : "controlled transition"}`, requestedResolution, typeof body.aspect === "string" ? body.aspect.slice(0, 20) : "horizontal", duration, costCents, webhookToken, created, created).run();
