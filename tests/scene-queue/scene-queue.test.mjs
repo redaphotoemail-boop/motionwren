@@ -29,6 +29,8 @@ function makeDb() {
       try { db.exec(sql); } catch (error) { if (!/already exists|duplicate column/i.test(error.message)) throw new Error(`${file}: ${error.message}`); }
     }
   }
+  // The spending guard is off (no limits) for the queue tests, which run many films; its own tests below turn it on.
+  db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('spend_guard', ?, 0)").run(JSON.stringify({ monthlyCents: 0, dailyCents: 0, perFilmCents: 0, paused: false }));
   const wrap = (sql, values = []) => ({
     bind: (...next) => wrap(sql, next),
     first: async () => db.prepare(sql).get(...values) ?? null,
@@ -800,6 +802,37 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   check("27g the same edit twice is accepted twice, in order", !("error" in first) && !("error" in second) && first.position === 1 && second.position === 2, `${first.position}/${second.position}`);
   const end = await runToEnd(env, id);
   check("27g2 both run — three versions in History, the line empty", end.status === "succeeded" && versionsOf(env) === 3 && C.starts.length === 3, `${end.status} versions=${versionsOf(env)} edits=${C.starts.length}`);
+}
+
+/* 25. The spending guard: at a limit nothing new is sent, scenes are held (not failed), and raising the limit lets the film finish */
+{
+  const setGuard = (env, settings) => env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('spend_guard', ?, 0)").run(JSON.stringify({ monthlyCents: 0, dailyCents: 0, perFilmCents: 0, paused: false, ...settings }));
+  const env = env0();
+  setGuard(env, { dailyCents: 400 }); // the film below is recorded at 400 cents: the day is at 100%
+  const id = await newJob(env, 2);
+  P.creates.length = 0; resetProvider({ burstMs: 0 });
+  await start(env, id);
+  for (let n = 0; n < 6; n += 1) { tick(10_000); await advance(env, id); }
+  const held = lib.normalizeManifest(await lib.loadManifest(env, id));
+  const job = await row(env, id);
+  check("25a at the daily limit no scene is sent to the engine", P.creates.length === 0, `creates=${P.creates.length}`);
+  check("25b the scenes are held by the budget, not failed, and no try is counted", job.status !== "failed" && held.states.every((state) => state === "queued") && held.reasons.every((reason) => reason === "budget") && held.attempts.every((attempt) => attempt === 0), JSON.stringify({ status: job.status, states: held.states, reasons: held.reasons, attempts: held.attempts }));
+
+  setGuard(env, { dailyCents: 400, paused: true });
+  for (let n = 0; n < 3; n += 1) { tick(10_000); await advance(env, id); }
+  check("25c the pause switch holds everything too", P.creates.length === 0);
+
+  setGuard(env, { dailyCents: 10000 }); // limit raised
+  const done = await runToEnd(env, id);
+  check("25d raising the limit lets the held film go out and finish", done.status === "succeeded" && P.creates.length >= 2, `${done.status} creates=${P.creates.length}`);
+
+  // Alerts: one notification per step (50, 80, 100) per period, only once.
+  env.DB.raw.prepare("INSERT INTO users (id, email, display_name, role, created_at, updated_at) VALUES ('admin-1', 'a@x.test', 'Admin', 'admin', 0, 0)").run();
+  const env2 = env;
+  setGuard(env2, { dailyCents: 400 }); // the film cost 400 cents today: 50, 80 and 100 are all reached
+  const guard = await lib.guardCheck(env2, 0); await lib.guardCheck(env2, 0);
+  const alerts = env2.DB.raw.prepare("SELECT title FROM notifications WHERE id LIKE 'spend:%'").all();
+  check("25e alerts at 50%, 80% and the 100% stop are each sent once", !guard.ok && alerts.length === 3 && alerts.some((a) => /stopped/i.test(a.title)), JSON.stringify(alerts.map((a) => a.title)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

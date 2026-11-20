@@ -14,6 +14,7 @@ import { adMusicMood, defaultAdMusicMood } from "../../ads-music-catalog";
 import { CROSSFADE_SECONDS, engineUpscales } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
 import { HttpError } from "./account";
+import { guardCheck } from "./spend-guard";
 import { ElevenLabsMissingKey, listVoices, synthesizeVoiceover } from "./elevenlabs";
 import { newManifest, saveManifest, voiceoverKey } from "./production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
@@ -181,6 +182,8 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
       await env.BUCKET.put(voiceoverKey(jobId), audio, { httpMetadata: { contentType: "audio/mpeg" } });
       voiceoverSaved = true;
     }
+    const spend = await guardCheck(env, costCents); // the spending guard: no new ad while a limit is reached or spending is paused
+    if (!spend.ok) throw new Error(spend.message);
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'ad-series', 'starting', '[]', '[]', NULL, ?, 'ad', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, ownerId, theme, resolution, aspect, plan.totalSeconds, costCents, webhookToken, now, now),
       env.DB.prepare(`UPDATE ad_projects SET status = 'queued', render_job_id = ?, cost_cents = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(jobId, costCents, now, ad.id, ownerId),

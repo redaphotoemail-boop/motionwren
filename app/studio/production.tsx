@@ -15,7 +15,7 @@ export { loadPending, clearPending, type PendingUpload } from "./pending-upload"
 export type SceneInfo = {
   state: "queued" | "submitting" | "creating" | "retry" | "ready" | "failed" | "waiting" | "retrying";
   attempt: number;
-  reason?: "" | "throttle" | "credit" | "retry";
+  reason?: "" | "throttle" | "credit" | "retry" | "budget";
   nextAt?: number;
   error?: string;
   predictionId?: string;
@@ -196,8 +196,15 @@ async function deliverPhotos(job: StudioJob, blobs: Blob[], hooks: SendHooks, on
 }
 
 async function beginFilm(body: Record<string, unknown>, blobs: Blob[], hooks: SendHooks, tab: string): Promise<StudioJob> {
-  const created = await fetch("/api/studio/production", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await created.json().catch(() => ({}));
+  const send = (extra: Record<string, unknown> = {}) => fetch("/api/studio/production", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, ...extra }) });
+  let created = await send();
+  let data = await created.json().catch(() => ({}));
+  // Spending guard: a film that costs more than your per-film amount asks for a yes before anything is charged.
+  if (created.status === 409 && data.needsConfirm) {
+    if (!window.confirm(`This film costs about $${((Number(data.costCents) || 0) / 100).toFixed(2)}. Make it?`)) throw new Error("Cancelled. Nothing was made or charged.");
+    created = await send({ confirmSpend: true });
+    data = await created.json().catch(() => ({}));
+  }
   if (!created.ok || !data.job?.id) throw new Error(data.error || "The video could not start. Please try again.");
   const job = data.job as StudioJob;
   hooks.onCreated?.(job);
@@ -295,6 +302,7 @@ export function sceneLabel(scene: SceneInfo, now: number) {
   if (scene.state === "failed") return "Failed";
   if (scene.state === "submitting") return "Sending";
   if (scene.state === "creating") { const mins = scene.startedAt && now > scene.startedAt ? Math.floor((now - scene.startedAt) / 60000) : 0; return `${scene.attempt > 1 ? `Making · try ${scene.attempt}` : "Making"}${mins >= 1 ? ` · ${mins} min` : ""}`; }
+  if (scene.reason === "budget") return "Held · spending limit";
   if (scene.reason === "credit") return "Paused";
   if (scene.reason === "throttle") return `Engine busy${wait}`;
   if (scene.state === "retry" || scene.state === "retrying") return `Try ${Math.min(3, scene.attempt + 1)} soon${wait}`;
@@ -320,6 +328,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
   const retrying = scenes.filter((scene) => scene.reason === "retry" || scene.state === "retrying" || (scene.state === "creating" && scene.attempt > 1)).length;
   const pacing = scenes.some((scene) => scene.reason === "throttle") || Boolean(job.provider?.waitingUntil && job.provider.waitingUntil > now && !job.provider.paused);
   const paused = Boolean(job.provider?.paused) || scenes.some((scene) => scene.reason === "credit");
+  const heldBySpend = scenes.some((scene) => scene.reason === "budget");
   const inLine = job.status === "generating" && !scenes.some((scene) => ["creating", "submitting"].includes(scene.state));
   const ready = job.status === "generating" ? Math.min(job.completed, scenes.length) : ["stitching", "saving", "succeeded"].includes(job.status) ? scenes.length : 0;
   const percent = percentOf(job, sending);
@@ -373,6 +382,7 @@ export function ProductionView({ job, title, thumbs, onStop, onResume, onStartOv
     </ol>}
     {active && <p className="prod-note">{job.status === "starting" && sending?.id === job.id ? "Keep this page open while the photos are sent — after that you can leave or refresh."
       : offline ? "Reconnecting… your video keeps going on our server."
+      : heldBySpend ? "Held by your spending limit: no more scenes are sent until you raise the limit or resume spending on the Spend page. Nothing is lost."
       : paused ? "Paused: the video engine account needs credit. Everything is kept and continues automatically once credit is added."
       : pacing ? "The engine is pacing requests, so scenes are made one after another. The next one starts automatically — nothing is lost."
       : retrying ? `${retrying === 1 ? "A scene is" : `${retrying} scenes are`} being redone automatically — no need to do anything.`

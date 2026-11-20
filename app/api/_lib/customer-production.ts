@@ -8,6 +8,7 @@ import { musicTemplate } from "../../music-catalog";
 import { PHOTO_MOVE_CYCLE, newManifest, saveManifest } from "./production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
+import { guardCheck } from "./spend-guard";
 
 /* Starts production of a customer's order: plans the scenes from their
    photos, creates the job and puts it in the scene queue. Used by the
@@ -78,6 +79,8 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     const scenes = assets.results.slice(0, plan.count);
     const sceneSeconds = plan.sceneSeconds;
     const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
+    const spend = await guardCheck(env, costCents); // the spending guard: at a limit no new film starts (the owner is alerted)
+    if (!spend.ok) throw new HttpError(503, "We are not starting new films for a short while. Your order is saved; please try again later.");
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO render_jobs (id, owner_id, kind, status, prediction_ids, segment_urls, stitch_prediction_id, prompt, category, resolution, aspect, duration, cost_cents, error, history_id, webhook_token, created_at, updated_at) VALUES (?, ?, 'customer-series', 'starting', '[]', '[]', NULL, ?, 'real estate', ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).bind(jobId, ownerId, STATIC_LOCK, resolution, project.aspect, targetSeconds, costCents, webhookToken, now, now),
       env.DB.prepare(`UPDATE projects SET status = 'queued', generation_engine = ?, resolution = ?, render_job_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(engine, resolution, jobId, now, project.id, ownerId),

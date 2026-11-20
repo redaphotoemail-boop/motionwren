@@ -8,3 +8,4 @@ export { videoCosts, aggregateCosts, musicCentsForSeconds, cardFeeCents } from "
 export { musicPrompt } from "../../app/api/_lib/composer";
 export { saveMusicChoice, readMusicChoice } from "../../app/api/_lib/customer-production";
 export { MUSIC_TEMPLATES, musicTemplate, defaultMusicId } from "../../app/music-catalog";
+export { guardCheck, guardStatus } from "../../app/api/_lib/spend-guard";
