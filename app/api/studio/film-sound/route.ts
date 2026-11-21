@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     const owner = await requireAdmin(env);
     const body = await request.json().catch(() => ({})) as { action?: unknown; target?: unknown; index?: unknown; current?: unknown; lines?: unknown; instruction?: unknown; images?: unknown; jobId?: unknown; sceneSeconds?: unknown; totalSeconds?: unknown };
-    let images: Uint8Array[] = [];
+    const images: Uint8Array[] = [];
     let sceneSeconds = Math.max(2, Math.min(15, Number(body.sceneSeconds) || 5));
     let totalSeconds = Math.max(5, Math.min(120, Number(body.totalSeconds) || 30));
     if (typeof body.jobId === "string" && /^[0-9a-f-]{36}$/i.test(body.jobId)) {

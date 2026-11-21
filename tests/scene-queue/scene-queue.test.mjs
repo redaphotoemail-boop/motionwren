@@ -295,13 +295,15 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
 
 /* 10. Long one-at-a-time film: joining uses our stored copies once the engine's expire */
 {
-  resetProvider({ sceneMs: 20 * 60_000 });
+  // Each scene stays inside the engine stall limit (4 min + 1 min per second of video),
+  // so the film is long because it has many scenes made one at a time, not because one stalls.
+  resetProvider({ sceneMs: 7 * 60_000 });
   const env = env0(); await setLimit(env, 1);
-  const id = await newJob(env, 4, { tag: "s10" });
+  const id = await newJob(env, 8, { tag: "s10" });
   await start(env, id);
   const end = await runToEnd(env, id, { stepMs: 60_000 });
   const csv = P.stitchInputs.at(-1) || "";
-  check("10a an 80-minute one-at-a-time film still finishes", end.status === "succeeded", end.status);
+  check("10a an hour-long one-at-a-time film still finishes", end.status === "succeeded", end.status);
   check("10b joining used our kept copies for scenes older than 45 minutes", csv.includes("/api/job-frames/") && csv.includes("out-01.mp4"), csv.slice(0, 140));
 }
 
@@ -646,8 +648,8 @@ const stitchCreates = () => P.stitchInputs.length;
   const m = await lib.loadManifest(env, id);
   const base = made.filter((c) => c.scene === 1)[0].prompt;
   const fixed = made.filter((c) => c.scene === 1).slice(1);
-  check("22a a film that keeps failing is made 4 times at most (first + 3 fixes: same engine, another engine, Wan 3.0), then delivered", end.status === "succeeded" && C.starts.length === 4 && m.fix?.round === 3, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
-  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 3, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
+  check("22a a film that keeps failing is made 3 times at most (first + MAX_FIX_ROUNDS = 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
+  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 2, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
   check("22c a fix adds an instruction after the scene's own prompt, which is never edited", fixed.every((c) => c.prompt.startsWith(base) && /Fix:/.test(c.prompt)) && !/Fix:/.test(base) && !/Fix:/.test(String(m.inputs[1].prompt)), `${fixed.map((c) => c.prompt.slice(-90)).join(" | ")}`);
   const cost1 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
   check("22d each fix is added to the order's cost", cost1 > cost0, `${cost0} -> ${cost1}`);
