@@ -8,8 +8,10 @@
 
 import { FxChips } from "../fx-chips";
 import { useEffect, useState } from "react";
-import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplatePlan, parseLibraryEnabled, type LibraryTemplateFields, type LibraryTemplateId } from "../library-templates";
+import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_FIELD_DEFS, emptyLibraryTemplateFields, isLibraryTemplateVisible, libraryTemplatePlan, parseLibraryEnabled, type LibraryTemplateFields, type LibraryTemplateId } from "../library-templates";
 import { TEMPLATE_RECIPES, type TemplateRecipeEntry } from "../template-recipes";
+import { jsonFixedRecipe } from "../template-contract";
+import { RecipeSheet } from "../recipe-sheet";
 import type { WrenTemplate } from "../wrencut";
 import { wrenPlan } from "../wrencut";
 import { socialPlan, socialSpec } from "../social-templates";
@@ -21,7 +23,7 @@ import { engineCost, studioEngine, type StudioEngineKey, type StudioResolution }
    "recipe:…" for a template recipe (then `recipe` holds its id and the night slots the user picked). A recipe template is edited by the
    composer straight from the photos — no AI generation of the shots. */
 export type TemplatePick = { on: boolean; id: LibraryTemplateId | string; fields: LibraryTemplateFields; wren?: { seconds: number; photos: number; best?: number; least?: number; hasMusic?: boolean; social?: string }; recipe?: { id: string; nightSlots: string[] }; texts?: string[] };
-export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyRestaurantInteriorFields() });
+export const emptyTemplatePick = (): TemplatePick => ({ on: false, id: "none", fields: emptyLibraryTemplateFields() });
 
 type Props = { value: TemplatePick; onChange: (next: TemplatePick) => void; engine: StudioEngineKey; resolution: StudioResolution; photoCount: number; disabled?: boolean; onEngine?: (engine: StudioEngineKey) => void; photos?: SocialPhoto[]; onFrame?: (frame: "vertical" | "horizontal" | "cinematic") => void; onArrange?: (order: number[]) => void };
 
@@ -103,6 +105,7 @@ export default function TemplateStrip({ value, onChange, engine, resolution, pho
       {chosenRecipe && <div className="tpl-fields">
         {(() => { const best = chosenRecipe.photos, ok = photoCount >= best; return <p className={ok ? "tpl-need ok" : "tpl-need"}><strong>Requirements: {best} photos, one per slot, in this order.</strong> {ok ? `You have ${photoCount} — complete.` : `You have ${photoCount} — add ${best - photoCount} more before you can make this film.`}</p>; })()}
         <p className="tpl-summary"><strong>{chosenRecipe.name}</strong> · {chosenRecipe.seconds} s · edited from your photos, no generation</p>
+        <RecipeSheet recipe={jsonFixedRecipe(chosenRecipe.recipe)} />
         {chosenRecipe.nightEligible.length ? <div className="tpl-night">
           <strong>No night photo?</strong>
           <span>Make a night version from your day photo — the same photo, only the light and colour change. The house does not change at all.</span>

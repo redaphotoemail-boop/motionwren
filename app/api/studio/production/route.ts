@@ -17,7 +17,7 @@ import { getRecipe, recipeFor } from "../../_lib/wrencut";
 import { socialOrder } from "../../_lib/social-read";
 import { socialPlan, socialSpec } from "../../../social-templates";
 import { isWrenId, joinTimes, recipeSeconds, wrenPlan } from "../../../wrencut";
-import { LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, emptyRestaurantInteriorFields, libraryTemplateOverlayLines, libraryTemplatePlan } from "../../../library-templates";
+import { LIBRARY_TEMPLATE_MUSIC_MOOD, cleanLibraryTemplateFields, emptyLibraryTemplateFields, libraryTemplateOverlayLines, libraryTemplatePlan } from "../../../library-templates";
 
 /* Studio production on the server — the same path client videos take.
    1. POST here with the settings and each scene's prompt: the job is created
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const supported = studioEngine(engine).resolutions;
   const resolution: StudioResolution = supported.includes(body.resolution as StudioResolution) ? body.resolution as StudioResolution : supported[supported.length - 1];
   // A library template (optional): its own structure replaces the length choice; the scenes themselves are made exactly as always.
-  const libraryPick = mode === "series" ? cleanLibraryTemplateFields(body.template) : { libraryTemplate: "none" as const, fields: emptyRestaurantInteriorFields() };
+  const libraryPick = mode === "series" ? cleanLibraryTemplateFields(body.template) : { libraryTemplate: "none" as const, fields: emptyLibraryTemplateFields() };
   const templated = libraryPick.libraryTemplate !== "none";
   // A WrenCut template (optional): its recipe decides the film's length, cuts, moves and colour.
   const wrenAsked = mode === "series" && typeof body.template === "object" && body.template !== null ? (body.template as { wren?: unknown }).wren : undefined;

@@ -9,7 +9,7 @@ import { studioEngines, type StudioEngineKey } from "../../engine-catalog";
 import { AD_ASPECTS, AD_DURATIONS, adPlan, estimateAdCost, type AdAspect, type AdDuration } from "../../ads-creative";
 import { AD_TEMPLATES, MASTER_PROMPT_FIELD_DEFS, buildMasterPromptPrompt, emptyMasterPromptFields, parseMasterPromptFields, resolveAdTemplate, resolveTemplateDuration, type AdTemplateId, type MasterPromptFields } from "../../ads-master-prompt";
 import { AD_MUSIC_MOODS } from "../../ads-music-catalog";
-import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_DURATION, LIBRARY_TEMPLATE_FIELD_DEFS, emptyRestaurantInteriorFields, isLibraryTemplateVisible, libraryTemplateEstimate, libraryTemplatePlan, parseLibraryEnabled, parseLibraryTemplateFields, type LibraryTemplateFields, type LibraryTemplateId } from "../../library-templates";
+import { LIBRARY_TEMPLATES, LIBRARY_TEMPLATE_DURATION, LIBRARY_TEMPLATE_FIELD_DEFS, emptyLibraryTemplateFields, isLibraryTemplateVisible, libraryTemplateEstimate, libraryTemplatePlan, parseLibraryEnabled, parseLibraryTemplateFields, type LibraryTemplateFields, type LibraryTemplateId } from "../../library-templates";
 import { PageHead, money } from "../ui";
 
 /* Studio Ads redesign — layout only. Every rule is scoped under
@@ -116,7 +116,7 @@ export default function StudioAdsPage() {
   const [prevDuration, setPrevDuration] = useState<AdDuration>(10);
   const [templateFields, setTemplateFields] = useState<MasterPromptFields>(emptyMasterPromptFields());
   const [libraryTemplate, setLibraryTemplate] = useState<LibraryTemplateId>("none");
-  const [libraryFields, setLibraryFields] = useState<LibraryTemplateFields>(emptyRestaurantInteriorFields());
+  const [libraryFields, setLibraryFields] = useState<LibraryTemplateFields>(emptyLibraryTemplateFields());
   const [libraryEnabled, setLibraryEnabled] = useState<Record<string, boolean>>({});
   const [prevAspect, setPrevAspect] = useState<AdAspect>("vertical");
   const [prevMusicMood, setPrevMusicMood] = useState<string | null>(null);

@@ -126,7 +126,7 @@ export async function startAd(env: Env, ad: AdProjectRow, ownerId: string, origi
      a cinematic ad: first in every scene prompt and as the job's stored
      prompt. A cinematic ad is exactly today's behavior. A library
      template ad is locked to its recorded structure instead — 17 s
-     vertical for Restaurant Interior, its warm golden theme, hard cuts
+     vertical, its warm golden theme, hard cuts
      (crossfade 0), its Luxe & warm music mood, and its text overlays
      burned in over the user's own subtitles. */
   const template: AdTemplateId = resolveAdTemplate(ad.template);

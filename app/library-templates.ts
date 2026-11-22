@@ -1,5 +1,8 @@
 /* Library Studio templates: recorded video templates, rebuilt from
-   CapCut templates Reda picks. A template is a fixed structure — length,
+   templates Reda picks. The list is empty for now: the only recorded
+   template (a restaurant-interior showcase) did not fit a real-estate
+   product and was removed. The machinery stays so a real-estate
+   recording can be added to LIBRARY_TEMPLATES later. A template is a fixed structure — length,
    aspect, photo slots, cuts, grade, music mood — with a few fill-in
    fields per ad. An admin switches a template on in Library Studio and
    it appears as a choice when producing a Studio Ad; off stays hidden.
@@ -14,14 +17,15 @@ import { engineCost, filmSceneDurations, type StudioEngineKey, type StudioResolu
 import type { MasterPromptFields } from "./ads-master-prompt";
 import type { SubtitleLine } from "./ads-creative";
 
-export type LibraryTemplateId = "none" | "restaurant-interior";
+/* "none", or the id of a template in LIBRARY_TEMPLATES. */
+export type LibraryTemplateId = string;
 
 /* A library template is 17 s, like the CapCut original it rebuilds. */
 export const LIBRARY_TEMPLATE_DURATION = 17;
 export const LIBRARY_TEMPLATE_MUSIC_MOOD = "luxe";
 
 export type LibraryTemplate = {
-  id: Exclude<LibraryTemplateId, "none">;
+  id: string;
   name: string;
   blurb: string;
   durationSeconds: number;
@@ -33,21 +37,10 @@ export type LibraryTemplate = {
   previewUrl?: string;
 };
 
-export const LIBRARY_TEMPLATES: LibraryTemplate[] = [
-  {
-    id: "restaurant-interior",
-    name: "Restaurant Interior",
-    blurb: "17 s vertical showcase — 8 photos, hard cuts, title + website. Rebuilt from the CapCut template by Treztive.",
-    durationSeconds: 17,
-    aspect: "vertical",
-    photoSlots: 8,
-    musicMood: "luxe",
-    source: "CapCut template by Treztive",
-  },
-];
+export const LIBRARY_TEMPLATES: LibraryTemplate[] = [];
 
 export function resolveLibraryTemplate(value: unknown): LibraryTemplateId {
-  return value === "restaurant-interior" ? "restaurant-interior" : "none";
+  return typeof value === "string" && value !== "none" && LIBRARY_TEMPLATES.some((item) => item.id === value) ? value : "none";
 }
 
 /* ---------- the 5 fill-in fields ---------- */
@@ -69,14 +62,14 @@ export type LibraryTemplateFieldDef = {
 };
 
 export const LIBRARY_TEMPLATE_FIELD_DEFS: LibraryTemplateFieldDef[] = [
-  { key: "brandName", label: "Brand name", placeholder: "e.g. Treztive — shown top-centre on every scene", maxLength: 60, multiline: false },
-  { key: "titleLine1", label: "Title line 1", placeholder: "e.g. Restaurant", maxLength: 60, multiline: false },
-  { key: "titleLine2", label: "Title line 2", placeholder: "e.g. INTERIOR", maxLength: 60, multiline: false },
+  { key: "brandName", label: "Brand name", placeholder: "e.g. your brand — shown top-centre on every scene", maxLength: 60, multiline: false },
+  { key: "titleLine1", label: "Title line 1", placeholder: "e.g. Modern", maxLength: 60, multiline: false },
+  { key: "titleLine2", label: "Title line 2", placeholder: "e.g. LIVING", maxLength: 60, multiline: false },
   { key: "location", label: "Location", placeholder: "e.g. Street name, City", maxLength: 120, multiline: false },
   { key: "website", label: "Website", placeholder: "e.g. www.example.com", maxLength: 120, multiline: false },
 ];
 
-export function emptyRestaurantInteriorFields(): LibraryTemplateFields {
+export function emptyLibraryTemplateFields(): LibraryTemplateFields {
   return { brandName: "", titleLine1: "", titleLine2: "", location: "", website: "" };
 }
 
@@ -84,7 +77,7 @@ export function emptyRestaurantInteriorFields(): LibraryTemplateFields {
    fields: trim, cap each length, drop anything else. Unknown or missing
    input → no template, empty fields. */
 export function cleanLibraryTemplateFields(value: unknown): { libraryTemplate: LibraryTemplateId; fields: LibraryTemplateFields } {
-  const fields = emptyRestaurantInteriorFields();
+  const fields = emptyLibraryTemplateFields();
   if (typeof value !== "object" || value === null || Array.isArray(value)) return { libraryTemplate: "none", fields };
   const raw = value as Record<string, unknown>;
   const libraryTemplate = resolveLibraryTemplate(raw.libraryTemplate);
@@ -99,7 +92,7 @@ export function parseLibraryTemplateFields(value: string): { libraryTemplate: Li
   try {
     return cleanLibraryTemplateFields(JSON.parse(value || "{}") as unknown);
   } catch {
-    return { libraryTemplate: "none", fields: emptyRestaurantInteriorFields() };
+    return { libraryTemplate: "none", fields: emptyLibraryTemplateFields() };
   }
 }
 
@@ -112,10 +105,10 @@ export function mergeTemplateFields(masterFields: MasterPromptFields, library: {
 
 /* ---------- the template theme ---------- */
 
-/* Warm golden editorial restaurant-interior showcase, rebuilt from the
-   CapCut template by Treztive: static photos, hard cuts, title text and
-   a website end card. No real-estate language anywhere. */
-export const LIBRARY_TEMPLATE_THEME = "Create a warm, golden, editorial restaurant-interior showcase. Hold each photo exactly as shot: a static camera, no pan, no zoom, no movement inside a scene — the cut does the work. Stay true to the supplied photos: the real rooms, the real light, the real details, nothing added or rearranged. Grade it warm and golden, rich contrast, soft warm light, like a high-end interiors editorial. Elegant and premium, calm and unhurried, never childish, never cheesy, never a cartoon, never a meme look.";
+/* The look a recorded template is made with: static photos, hard cuts,
+   title text and a website end card. Used only when a library template
+   is picked (none is recorded today). */
+export const LIBRARY_TEMPLATE_THEME = "Create a warm, golden, editorial property showcase. Hold each photo exactly as shot: a static camera, no pan, no zoom, no movement inside a scene — the cut does the work. Stay true to the supplied photos: the real rooms, the real light, the real details, nothing added or rearranged. Grade it warm and golden, rich contrast, soft warm light, like a high-end interiors editorial. Elegant and premium, calm and unhurried, never childish, never cheesy, never a cartoon, never a meme look.";
 
 /* ---------- plan + estimate ---------- */
 

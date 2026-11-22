@@ -8,6 +8,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { analyzePixels, type SocialCheck } from "../social-check";
 import { socialGuide, socialPlan, type SocialSpec } from "../social-templates";
+import { textSlotLabel } from "../template-contract";
+import { fixedSocialRecipe } from "../template-fixed";
+import { RecipeSheet } from "../recipe-sheet";
 import { engineCost, type StudioEngineKey, type StudioResolution } from "../engine-catalog";
 
 export type SocialPhoto = { name: string; source: string };
@@ -71,7 +74,8 @@ export default function SocialGuide({ spec, photos, engine, resolution, onArrang
       <span className="sg-n">{index + 1}</span>
       <span className="sg-body"><strong>{act.label}{act.essential ? <i className="sg-tag">needed</i> : <i className="sg-tag soft">optional</i>}{act.light !== "any" ? <i className="sg-tag light">{act.light === "day" ? "daylight" : act.light === "dusk" ? "dusk" : "night"}</i> : null}</strong><small>{act.hint}</small><small className="sg-move">Camera: {act.move}</small></span>
     </li>)}</ol>
-    <details className="sg-more"><summary>Rules for the best result</summary><ul>{spec.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>{spec.avoid.length ? <><strong>Avoid</strong><ul>{spec.avoid.map((rule) => <li key={rule}>{rule}</li>)}</ul></> : null}{spec.words.length ? <><strong>Words to add in Titles</strong><ul>{spec.words.map((word) => <li key={word}>{word}</li>)}</ul></> : null}<strong>What is different from the original</strong><ul>{spec.approx.map((note) => <li key={note}>{note}</li>)}</ul></details>
+    <details className="sg-more"><summary>Rules for the best result</summary><ul>{spec.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>{spec.avoid.length ? <><strong>Avoid</strong><ul>{spec.avoid.map((rule) => <li key={rule}>{rule}</li>)}</ul></> : null}{spec.text.length ? <><strong>Words to add in Titles</strong><ul>{spec.text.map((slot) => <li key={`${slot.at}.${slot.line}`}>{textSlotLabel(slot)}</li>)}</ul></> : null}<strong>What is different from the original</strong><ul>{spec.approx.map((note) => <li key={note}>{note}</li>)}</ul></details>
+    <RecipeSheet recipe={fixedSocialRecipe(spec)} />
 
     <div className="sg-check" aria-live="polite">
       <div className="sg-check-head"><strong>Photo check</strong>
