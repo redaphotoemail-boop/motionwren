@@ -387,8 +387,9 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
       const fresh = await getRenderJob(env, row.id);
       if (!fresh || fresh.status !== "generating") return;
       const loadedManifest = segments.length === 1 ? await loadManifest(env, row.id) : null;
-      const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest)));
-      if (segments.length === 1 && !photoSingle && !loadedManifest?.ads) {
+      // A single clip is saved as-is — unless it still needs the composer: a photo move, cards, an upscale, a slow single, or a frame cut.
+      const singleNeedsComposer = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest) || loadedManifest.edit?.reframe));
+      if (segments.length === 1 && !singleNeedsComposer && !loadedManifest?.ads) {
         const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'generating'`).bind(Date.now(), row.id).run();
         if (!claim.meta.changes) return;
         const manifest = await loadManifest(env, row.id);
@@ -410,7 +411,7 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const loaded = await loadManifest(env, row.id);
   const manifest = loaded ? normalizeManifest(loaded) : null;
   const origin = webhookUrl ? new URL(webhookUrl).origin : "";
-  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest) || manifest.edit?.sound?.voice || manifest.edit?.sound?.sfx) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
+  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest) || manifest.edit?.sound?.voice || manifest.edit?.sound?.sfx || manifest.edit?.reframe) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
   // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
@@ -435,7 +436,7 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const urls = segments.filter((value): value is string => Boolean(value));
   if (urls.length < 2) throw new Error("The finished scenes could not be found for joining.");
   try {
-    const stitchId = await startStitch(token, urls, row.resolution, row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio);
+    const stitchId = await startStitch(token, urls, row.resolution, manifest?.edit?.reframe || row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio);
     await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(stitchId, Date.now(), row.id).run();
   } catch (error) {
     if (error instanceof ProviderError && error.kind === "budget") {
@@ -480,7 +481,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const only = manifest.edit?.recipe && manifest.edit.useScenes?.length ? [...new Set(manifest.edit.useScenes)].filter((index) => Number.isInteger(index) && index >= 0 && index < count) : [];
   const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : list;
   const moves = pick(allMoves), speeds = pick(allSpeeds), clips = pick(allClips);
-  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx && !manifest.edit?.reframe) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   let edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
