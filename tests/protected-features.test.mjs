@@ -37,6 +37,20 @@ const studioPage = readFileSync("app/studio/page.tsx", "utf8");
 for (const text of ["Photo shape", "Horizontal", "Social", "Crop-safe"]) assert.ok(studioPage.includes(text), `The Studio frame size lost: ${text}`);
 for (const text of ["arrived and were checked", "Send again", "Checking every photo"]) assert.ok(studioPage.includes(text), `The Studio photo verification lost: ${text}`);
 assert.ok(editFilm.includes("Frame"), "The Edit film panel lost the Frame (cut to 16:9 / vertical) choice");
+// The Frame picker shows on every film, including vertical ones, with all three shapes —
+// a vertical film's dimensions change both ways — and the film's current shape is marked.
+assert.ok(!editFilm.includes('data.aspect !== "vertical"'), "The Frame picker is hidden on vertical films again");
+assert.ok(editFilm.includes('["horizontal", "16:9", "Horizontal"]') && editFilm.includes('["vertical", "9:16", "Vertical"]'), "The Frame picker lost the 16:9 / 9:16 choices");
+assert.ok(editFilm.includes('" · Current"'), "The Frame picker stopped marking the film's current shape");
+// A dimensions-only edit must reach the composer on every path, not just multi-scene films:
+// a single-clip film with a frame cut goes to the composer (not saved as-is), the composer
+// accepts a single clip when a cut is set, the joiner prefers the composer when a cut is set,
+// and the backup joiner cuts to the new frame instead of the film's original one.
+const renderJobs = readFileSync("app/api/_lib/render-jobs.ts", "utf8");
+assert.ok(renderJobs.includes("loadedManifest.edit?.reframe"), "A single-clip film with a frame cut is saved as-is, so the cut never lands");
+assert.ok(renderJobs.includes("manifest.edit?.sound?.sfx || manifest.edit?.reframe"), "The joiner skips the composer for a frame-only edit");
+assert.ok(renderJobs.includes("!manifest.edit?.sound?.sfx && !manifest.edit?.reframe"), "The composer refuses a single-clip frame cut");
+assert.ok(renderJobs.includes("manifest?.edit?.reframe || row.aspect"), "The backup joiner cuts to the film's original frame, not the new one");
 const strip = readFileSync("app/studio/template-strip.tsx", "utf8");
 for (const text of ["Social media", "SocialGuide"]) assert.ok(strip.includes(text), `The Studio template picker lost: ${text}`);
 const socialGuide = readFileSync("app/studio/social-guide.tsx", "utf8");

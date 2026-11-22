@@ -31,6 +31,9 @@ type Props = {
 const prettyMove = (key: string) => key.replace(/-/g, " ").replace(/^./, (letter) => letter.toUpperCase());
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
+/* The shape a film was made at, as the Frame picker shows it: "original" means the film was made at its photos' own shape, so its ratio is shown when known. */
+const madeShapeLabel = (aspect: string, frameRatio?: number | null) => aspect === "vertical" ? "9:16" : aspect === "cinematic" ? "2.39:1" : aspect === "square" ? "1:1" : aspect === "horizontal" ? "16:9" : frameRatio ? shapeLabel(frameRatio) : "16:9";
+
 export default function EditFilm({ jobId, onClose, onStarted, motions, scenePrompt }: Props) {
   const [data, setData] = useState<Data | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -155,11 +158,11 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           {templates.length ? <label className="fin-fields"><span className="label">Edit again with a template</span><select value={wrenId} onChange={(event) => setWrenId(event.target.value)} aria-label="Template"><option value="">Keep the current edit</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
         </FinalSection>}
 
-        {data.aspect !== "vertical" && <FinalSection title="Frame" note={`Cut the finished film to another shape. Nothing is made again, so it costs nothing. The floor stays in the picture; a vertical keeps the middle.`}>
+        <FinalSection title="Frame" note={`Cut the finished film to another shape. Nothing is made again, so it costs nothing. The floor stays in the picture; a vertical keeps the middle.`}>
           <div className="segmented-control frame-control"><div>
-            {([["made", data.aspect === "original" && data.frameRatio ? shapeLabel(data.frameRatio) : "16:9", "As made"], ...(data.aspect === "original" ? [["horizontal", "16:9", "Horizontal"]] : []), ["vertical", "9:16", "Vertical"]] as [typeof frame, string, string][]).map(([key, ratio, note]) => <button type="button" key={key} className={frame === key ? "active" : ""} onClick={() => setFrame(key)} disabled={busy}><strong>{ratio}</strong><small>{note}</small></button>)}
+            {([["made", madeShapeLabel(data.aspect, data.frameRatio), "As made"], ["horizontal", "16:9", "Horizontal"], ["vertical", "9:16", "Vertical"]] as [typeof frame, string, string][]).map(([key, ratio, note]) => <button type="button" key={key} className={frame === key ? "active" : ""} onClick={() => setFrame(key)} disabled={busy} aria-pressed={frame === key}><strong>{ratio}</strong><small>{note}{frame === key ? " · Current" : ""}</small></button>)}
           </div></div>
-        </FinalSection>}
+        </FinalSection>
 
         <FinalSection title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Turn on Recreate for the scenes you want made again, with the same movement or a new one, and optionally a new photo — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}. Scenes you leave off are kept.`}>
           <div className="fin-scenes">{data.scenes.map((scene) => { const on = Boolean(recreate[scene.index]) || Boolean(moves[scene.index]); return <div className={on && !data.photoEngine ? "fin-scene fin-scene-open" : "fin-scene"} key={scene.index}><img src={newPhotos[scene.index] || scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
