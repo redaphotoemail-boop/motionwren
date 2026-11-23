@@ -850,7 +850,7 @@ p { text-wrap: pretty; }
 .token-form button { flex: none; border: 0; border-radius: 999px; background: var(--ink); color: var(--paper); padding: 0 20px; font-weight: 600; font-size: 14px; }
 .token-form button:disabled { opacity: .4; }
 .token-error { grid-column: 1 / -1; margin: 0; color: var(--bad); font-size: 13px; }
-.connected-bar { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin: -8px 0 0; font-size: 13px; color: #1F6B43; }
+.connected-bar { display: flex; align-items: center; justify-content: flex-start; gap: 14px; margin: -8px 0 0; font-size: 13px; color: #1F6B43; }
 .connected-bar span { display: inline-flex; align-items: center; gap: 8px; }
 .connected-bar i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .connected-bar button { border: 0; background: none; color: var(--faint); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
