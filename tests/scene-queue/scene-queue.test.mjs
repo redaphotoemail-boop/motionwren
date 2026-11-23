@@ -30,6 +30,7 @@ function makeDb() {
     }
   }
   // The spending guard is off (no limits) for the queue tests, which run many films; its own tests below turn it on.
+  db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'off', 0)").run(); // the stall switch has its own tests below
   db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('spend_guard', ?, 0)").run(JSON.stringify({ monthlyCents: 0, dailyCents: 0, perFilmCents: 0, paused: false }));
   const wrap = (sql, values = []) => ({
     bind: (...next) => wrap(sql, next),
@@ -850,6 +851,29 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   const sizes = C.specs.map((entry) => `${entry.spec?.width}x${entry.spec?.height}`).slice(-4);
   check("28b each size is made in order at its own dimensions — 1:1, 4:5, 9:16, then the original", end.status === "succeeded" && sizes.join(",") === "720x720,720x900,720x1280,1280x720", `${end.status} ${sizes.join(",")}`);
   check("28c every size lands in History as its own version (five in all with the first)", versionsOf(env) === 5, `versions=${versionsOf(env)}`);
+}
+
+/* 29. A scene that stalls with the engine goes once to the backup engine */
+{
+  resetProvider({ sceneMs: 40 * 60_000 }); // the engine says "processing" for 40 minutes: stalled
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'hailuo23', 0)").run();
+  const id = await newJob(env, 2, { tag: "s29" });
+  await start(env, id);
+  for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); } // fourteen minutes
+  const manifest = await lib.loadManifest(env, id);
+  check("29a a stalled scene moves the film to the backup engine", manifest.engine === "hailuo23" && manifest.endpoint === lib.ENGINE_ENDPOINTS.hailuo23, `${manifest.engine}`);
+  check("29b the scenes still to make are rebuilt for the backup engine", manifest.inputs.every((input) => JSON.stringify(input) !== JSON.stringify(lib.buildEngineInput("wan3", { imageUrl: manifest.photos[0].link, prompt: String(input.prompt || ""), duration: 5, resolution: "720p", aspectRatio: "16:9" }))), "inputs unchanged");
+}
+{
+  resetProvider({ sceneMs: 40 * 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'off', 0)").run();
+  const id = await newJob(env, 2, { tag: "s29off" });
+  await start(env, id);
+  for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); }
+  const manifest = await lib.loadManifest(env, id);
+  check("29d with the backup switched off the film stays on its own engine", manifest.engine === "wan3", `${manifest.engine}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -1,6 +1,6 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
 import { ACTIVE_STATUSES, advanceStaleJobs, jobScenes, providerNote, publicJob, type RenderJobRow } from "../../_lib/render-jobs";
-import { maxActive, readProviderState } from "../../_lib/provider";
+import { backupEngine, maxActive, readProviderState } from "../../_lib/provider";
 import { composerBinding, readEditorState } from "../../_lib/composer";
 import { studioEngine } from "../../../engine-catalog";
 import { isEngineKey } from "../../../engine-providers";
@@ -18,11 +18,12 @@ export async function GET(request: Request) {
     await requireAdmin(env);
     await advanceStaleJobs(env, new URL(request.url).origin, null, 4).catch(() => 0);
     const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
-    const [state, editor, limit, engineRow, rows] = await Promise.all([
+    const [state, editor, limit, engineRow, backup, rows] = await Promise.all([
       readProviderState(env),
       readEditorState(env),
       maxActive(env),
       env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'defaultEngine'`).first<{ value?: string }>(),
+      backupEngine(env),
       env.DB.prepare(`SELECT ${COLUMNS} FROM render_jobs WHERE status IN (${placeholders}) OR updated_at > ? ORDER BY created_at DESC LIMIT 30`).bind(...ACTIVE_STATUSES, Date.now() - 24 * 60 * 60 * 1000).all<RenderJobRow>(),
     ]);
     const owners = [...new Set(rows.results.map((row) => row.ownerId))];
@@ -35,6 +36,7 @@ export async function GET(request: Request) {
       health: {
         engine: studioEngine(engine).name,
         maxActive: limit,
+        backupEngine: backup || "off",
         activeScenes: scenes.filter((scene) => ["creating", "submitting"].includes(scene.state)).length,
         queuedScenes: scenes.filter((scene) => ["queued", "retry"].includes(scene.state)).length,
         activeVideos: jobs.filter((job) => ACTIVE_STATUSES.includes(job.status as never)).length,
@@ -61,7 +63,13 @@ export async function PUT(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     await requireAdmin(env);
-    const body = await request.json().catch(() => ({})) as { maxActive?: unknown };
+    const body = await request.json().catch(() => ({})) as { maxActive?: unknown; backupEngine?: unknown };
+    if (body.backupEngine !== undefined) {
+      const choice = body.backupEngine;
+      if (choice !== "off" && !(isEngineKey(choice) && !studioEngine(choice).unavailable && !studioEngine(choice).photoMove)) return Response.json({ error: "Choose a video engine from the list, or Off." }, { status: 400 });
+      await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(String(choice), Date.now()).run();
+      return Response.json({ backupEngine: choice });
+    }
     const value = Number(body.maxActive);
     if (!Number.isInteger(value) || value < 1 || value > 8) return Response.json({ error: "Choose between 1 and 8 scenes at once." }, { status: 400 });
     await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES ('provider_max_active', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(String(value), Date.now()).run();

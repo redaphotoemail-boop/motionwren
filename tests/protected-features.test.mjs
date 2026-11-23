@@ -77,6 +77,8 @@ assert.ok(readFileSync("composer/server.mjs", "utf8").includes("The picture came
 // Spending guard: the Spend page keeps its limits panel, and every engine charge still passes the guard.
 assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("SpendGuardPanel"), "The Finance page lost the spending guard");
 assert.ok(readFileSync("app/admin/replicates/spend-guard-panel.tsx", "utf8").includes("Pause all spending"), "The spending guard lost its pause switch");
+assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes("backupEngine(env)"), "A stalled scene no longer moves to the backup engine");
+assert.ok(readFileSync("app/admin/production/page.tsx", "utf8").includes("If a scene stalls, use"), "Production lost the backup engine setting");
 assert.ok(readFileSync("app/api/_lib/provider.ts", "utf8").includes("guardAtEngine"), "createPrediction no longer asks the spending guard");
 assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes('"budget"'), "The scene queue no longer holds scenes at the spending limit");
 assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpend"), "Studio lost the per-film confirmation");
