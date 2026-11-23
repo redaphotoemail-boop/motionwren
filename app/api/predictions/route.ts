@@ -16,9 +16,10 @@ const ENDPOINTS: Record<StudioEngineKey, string> = {
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
   h3: "https://api.replicate.com/v1/models/minimax/h3/predictions",
+  vidu3turbo: "https://api.replicate.com/v1/models/vidu/q3-turbo/predictions",
 };
 
-const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3"]);
+const ENGINE_KEYS = new Set<StudioEngineKey>(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3", "vidu3turbo"]);
 
 export async function POST(request: Request) {
   try {
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
       resolution: resolution === "1080p" ? "1080p" : "768p",
       prompt_optimizer: false,
     };
+    else if (engine === "vidu3turbo") input = { start_image: body.image, prompt: body.prompt.slice(0, 4900), duration, resolution: resolution === "1080p" ? "1080p" : "720p", audio: false };
     else if (engine === "runway4turbo") input = { image: body.image, prompt: runwayPrompt(body.prompt), duration: duration === 10 ? 10 : 5, aspect_ratio: aspectRatio };
     else if (engine === "runway45") input = {
       image: body.image,

@@ -22,12 +22,13 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   wan3: "https://api.replicate.com/v1/models/alibaba/wan-3/predictions",
   h3lite: "https://api.replicate.com/v1/models/minimax/h3-lite/predictions",
   h3: "https://api.replicate.com/v1/models/minimax/h3/predictions",
+  vidu3turbo: "https://api.replicate.com/v1/models/vidu/q3-turbo/predictions",
   luma: "https://api.replicate.com/v1/models/luma/ray-3.2/predictions",
   photo2: "", // made by our own editor, never sent to a provider
   photo3: "",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3", "luma", "photo", "photo2", "photo3"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3", "vidu3turbo", "luma", "photo", "photo2", "photo3"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -72,6 +73,7 @@ export function runwayPrompt(prompt: string) {
 
 function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Record<string, unknown> {
   const noAudio = options.audio ? "Generate restrained synchronized ambience." : "No dialogue, no music, and no sound effects.";
+  if (engine === "vidu3turbo") return { start_image: options.imageUrl, prompt: `${options.prompt.slice(0, 4600)} ${ADD_NOTHING}`, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "720p", audio: false };
   if (engine === "kling3") return { start_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, duration: options.duration, mode: options.resolution === "1080p" ? "pro" : "standard", aspect_ratio: options.aspectRatio, generate_audio: options.audio === true, negative_prompt: KLING_NEGATIVE };
   if (engine === "geminiOmni") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, aspect_ratio: options.aspectRatio };
   if (engine === "veo31Lite") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING} ${noAudio}`, resolution: options.resolution === "480p" ? "720p" : options.resolution, duration: options.duration, aspect_ratio: options.aspectRatio };

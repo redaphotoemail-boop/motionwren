@@ -38,7 +38,7 @@ const odd = frameCrop(4000, 3000, 1.5); assert.ok(odd.sy > 0 && odd.sy + odd.sh 
 
 // which engines can make the film at the photo's own shape: only those whose provider ignores the frame size for a photo, or is sent none
 const keeps = studioEngines.filter((engine) => engineKeepsPhotoShape(engine.key)).map((engine) => engine.key).sort();
-assert.deepEqual(keeps, ["h3", "h3lite", "hailuo23", "kling3", "wan25", "wan27", "wan3"]);
+assert.deepEqual(keeps, ["h3", "h3lite", "hailuo23", "kling3", "vidu3turbo", "wan25", "wan27", "wan3"]);
 for (const key of ["veo31Lite", "geminiOmni", "luma", "runway4turbo", "runway45", "photo", "photo2", "photo3"]) assert.equal(engineKeepsPhotoShape(key), false, key);
 // the composer's crop: centred without an anchor (films made before this are unchanged), floor-keeping with one
 const { coverCrop } = await import(join(process.cwd(), "composer/wrencut.mjs"));
