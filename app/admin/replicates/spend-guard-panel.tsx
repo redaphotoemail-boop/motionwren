@@ -38,30 +38,39 @@ export function SpendGuardPanel() {
   }
 
   const stopped = guard ? !guard.running : false;
-  return <section className="panel spend-guard" aria-label="Spending limits">
-    <p className="eyebrow">Spending guard</p>
-    <h2 className="panel-title">{!guard ? "Spending limits" : guard.settings.paused ? "Paused by you" : stopped ? "Stopped at the limit" : "Running within your limits"}</h2>
-    <p className="muted">{guard?.stopped?.message || "At 100% of a limit everything that costs money stops by itself: new films, scenes not yet sent, re-makes, upscales and quality checks. You are alerted at 50%, 80% and 100%."}</p>
+  const paused = guard?.settings.paused === true;
+  const tone = !guard ? "" : paused || stopped ? "fin-bad" : "fin-ok";
+  return <section className={`panel spend-guard fin-guard ${tone}`} aria-label="Spending limits">
+    <div className="fin-guard-top">
+      <div>
+        <p className="eyebrow">Spending</p>
+        <h2 className="panel-title">{!guard ? "Spending limits" : paused ? "Paused by you" : stopped ? "Stopped at the limit" : "Running within your limits"}</h2>
+      </div>
+      <button type="button" className={paused ? "btn btn-ink btn-sm" : "btn btn-white btn-sm"} disabled={busy || !guard} onClick={() => save({ paused: !paused }, paused ? "Spending resumed." : "Spending paused. Nothing that costs money will run.")}>{paused ? "Resume spending" : "Pause all spending"}</button>
+    </div>
+    {guard?.stopped?.message && <p className="muted">{guard.stopped.message}</p>}
     {error && <p role="alert" className="fine">{error}</p>}
     {message && <p role="status" className="fine">{message}</p>}
 
-    {guard && <div className="mgr-cols even">
-      {([["Today", guard.day, guard.settings.dailyCents], ["This month", guard.month, guard.settings.monthlyCents]] as const).map(([label, period, limit]) => <div key={label}>
-        <strong>{label}</strong>
-        <p className="muted">{cents(period.totalCents)}{limit > 0 ? ` of ${cents(limit)} · ${share(period.totalCents, limit)}%` : " · no limit"}</p>
-        <small>Films {cents(period.engineCents)} · quality check {cents(period.reviewCents)} · editing {cents(period.editCents)}</small>
-      </div>)}
+    {guard && <div className="fin-meters">
+      {([["Today", guard.day, guard.settings.dailyCents], ["This month", guard.month, guard.settings.monthlyCents]] as const).map(([label, period, limit]) => {
+        const used = share(period.totalCents, limit);
+        return <div key={label} className="fin-meter">
+          <div className="fin-meter-head"><span>{label}</span><strong>{cents(period.totalCents)}<small>{limit > 0 ? ` of ${cents(limit)}` : " · no limit"}</small></strong></div>
+          <div className={`fin-meter-bar${used >= 100 ? " full" : used >= 80 ? " warn" : ""}`} role="img" aria-label={limit > 0 ? `${used}% of the ${label.toLowerCase()} limit used` : `${label}: no limit`}><i style={{ width: `${limit > 0 ? Math.max(used, period.totalCents > 0 ? 2 : 0) : 0}%` }} /></div>
+        </div>;
+      })}
     </div>}
 
-    <div className="mgr-cols even">
-      <label className="field"><span>Monthly limit ($)</span><input inputMode="decimal" value={fields.monthly} onChange={(event) => setFields({ ...fields, monthly: event.target.value.replace(/[^\d.]/g, "") })} /></label>
-      <label className="field"><span>Daily limit ($)</span><input inputMode="decimal" value={fields.daily} onChange={(event) => setFields({ ...fields, daily: event.target.value.replace(/[^\d.]/g, "") })} /></label>
-      <label className="field"><span>Ask me first above, per film ($)</span><input inputMode="decimal" value={fields.perFilm} onChange={(event) => setFields({ ...fields, perFilm: event.target.value.replace(/[^\d.]/g, "") })} /></label>
-    </div>
-    <p className="fine">0 means no limit. The day runs midnight to midnight, New York time.</p>
-    <div className="actions">
-      <button type="button" className="btn btn-ink btn-sm" disabled={busy} onClick={() => save({ monthly: fields.monthly, daily: fields.daily, perFilm: fields.perFilm }, "Limits saved.")}>Save limits</button>
-      <button type="button" className={guard?.settings.paused ? "btn btn-white btn-sm" : "btn btn-ink btn-sm"} disabled={busy || !guard} onClick={() => save({ paused: !guard?.settings.paused }, guard?.settings.paused ? "Spending resumed." : "Spending paused. Nothing that costs money will run.")}>{guard?.settings.paused ? "Resume spending" : "Pause all spending"}</button>
-    </div>
+    <details className="fin-more">
+      <summary>Change limits</summary>
+      <div className="mgr-cols even">
+        <label className="field"><span>Monthly limit ($)</span><input inputMode="decimal" value={fields.monthly} onChange={(event) => setFields({ ...fields, monthly: event.target.value.replace(/[^\d.]/g, "") })} /></label>
+        <label className="field"><span>Daily limit ($)</span><input inputMode="decimal" value={fields.daily} onChange={(event) => setFields({ ...fields, daily: event.target.value.replace(/[^\d.]/g, "") })} /></label>
+        <label className="field"><span>Ask me first above, per film ($)</span><input inputMode="decimal" value={fields.perFilm} onChange={(event) => setFields({ ...fields, perFilm: event.target.value.replace(/[^\d.]/g, "") })} /></label>
+      </div>
+      <p className="fine">0 means no limit. At 100% of a limit everything that costs money stops by itself (new films, scenes not yet sent, re-makes, upscales, quality checks). You are alerted at 50%, 80% and 100%. The day runs midnight to midnight, New York time.</p>
+      <div className="actions"><button type="button" className="btn btn-ink btn-sm" disabled={busy} onClick={() => save({ monthly: fields.monthly, daily: fields.daily, perFilm: fields.perFilm }, "Limits saved.")}>Save limits</button></div>
+    </details>
   </section>;
 }

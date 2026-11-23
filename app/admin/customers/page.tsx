@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { Metric, PageHead, ago, cents, money } from "../ui";
+import { GiftsPanel } from "../gifts/gifts-panel";
 
 type Customer = {
   id: string;
@@ -88,5 +89,10 @@ export default function CustomersPage() {
       </div>
       <p className="fine">Select a customer to see each of their orders with its estimated cost.</p>
     </section>
+
+    <details className="panel fin-more fin-gifts">
+      <summary><span><strong>Gift codes</strong><small>Give free videos: make a code, send it to anyone. For a percentage off at checkout, make a promotion code in Stripe.</small></span></summary>
+      <GiftsPanel />
+    </details>
   </div>;
 }
