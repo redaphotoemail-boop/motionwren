@@ -40,8 +40,8 @@ assert.ok(editFilm.includes("Frame"), "The Edit film panel lost the Frame (cut t
 // The Frame picker shows on every film, including vertical ones, with all three shapes —
 // a vertical film's dimensions change both ways — and the film's current shape is marked.
 assert.ok(!editFilm.includes('data.aspect !== "vertical"'), "The Frame picker is hidden on vertical films again");
-assert.ok(editFilm.includes('["horizontal", "16:9", "Horizontal"]') && editFilm.includes('["vertical", "9:16", "Vertical"]'), "The Frame picker lost the 16:9 / 9:16 choices");
-assert.ok(editFilm.includes('" · Current"'), "The Frame picker stopped marking the film's current shape");
+assert.ok(editFilm.includes('key: "horizontal", ratio: "16:9"') && editFilm.includes('key: "vertical", ratio: "9:16"'), "The Frame picker lost the 16:9 / 9:16 choices");
+assert.ok(editFilm.includes("This film now"), "The Frame picker stopped marking the film's current shape");
 // A dimensions-only edit must reach the composer on every path, not just multi-scene films:
 // a single-clip film with a frame cut goes to the composer (not saved as-is), the composer
 // accepts a single clip when a cut is set, the joiner prefers the composer when a cut is set,
@@ -80,3 +80,7 @@ assert.ok(readFileSync("app/admin/replicates/spend-guard-panel.tsx", "utf8").inc
 assert.ok(readFileSync("app/api/_lib/provider.ts", "utf8").includes("guardAtEngine"), "createPrediction no longer asks the spending guard");
 assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes('"budget"'), "The scene queue no longer holds scenes at the spending limit");
 assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpend"), "Studio lost the per-film confirmation");
+
+// Frame sizes in Edit film: original + 16:9, 9:16, 1:1, 4:5; several at once; the price is shown.
+for (const text of ["frame-tiles", "FRAME_CHOICES", "SIZE_CENTS", "Original size", "This film now", '"square"', '"portrait"']) assert.ok(editFilm.includes(text), `Edit film lost: ${text}`);
+assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes('body.frame === "square" || body.frame === "portrait"'), "The edit lost the 1:1 and 4:5 sizes");
