@@ -862,6 +862,8 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   await start(env, id);
   for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); } // fourteen minutes
   const manifest = await lib.loadManifest(env, id);
+  const saved = env.DB.raw.prepare("SELECT value FROM platform_settings WHERE key LIKE ?").all(`engine-report:${id}:%`);
+  check("29e a stalled scene's engine report (status and timings) is saved before it is cancelled", saved.length >= 1 && JSON.parse(saved[0].value).why === "stalled" && Boolean(JSON.parse(saved[0].value).status), `${saved.length}`);
   check("29a a stalled scene moves the film to the backup engine", manifest.engine === "hailuo23" && manifest.endpoint === lib.ENGINE_ENDPOINTS.hailuo23, `${manifest.engine}`);
   check("29b the scenes still to make are rebuilt for the backup engine", manifest.inputs.every((input) => JSON.stringify(input) !== JSON.stringify(lib.buildEngineInput("wan3", { imageUrl: manifest.photos[0].link, prompt: String(input.prompt || ""), duration: 5, resolution: "720p", aspectRatio: "16:9" }))), "inputs unchanged");
 }

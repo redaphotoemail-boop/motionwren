@@ -2157,3 +2157,9 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .prodm-credit strong{font-size:1.5rem;font-weight:600}
 .prodm-credit small{color:var(--muted,#6b6b6b)}
 .prodm-credit input{width:120px;min-height:34px;padding:0 10px;border:1px solid var(--line,#ddd);border-radius:999px;background:transparent;font:inherit}
+
+.prodm-report{margin:8px 0}
+.prodm-report summary{cursor:pointer;font-size:.85rem}
+.prodm-report div{display:grid;gap:2px;margin-top:8px}
+.prodm-report small{color:var(--muted,#6b6b6b)}
+.prodm-report pre{max-height:180px;overflow:auto;white-space:pre-wrap;font-size:.72rem;margin:4px 0 0}
