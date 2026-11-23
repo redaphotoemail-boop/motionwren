@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { Metric, PageHead, cents } from "../ui";
+import { SpendGuardPanel } from "../replicates/spend-guard-panel";
+import { SpendAccount } from "../replicates/spend-account";
 import { COST_RATES, cardFeeCents, musicCentsForSeconds } from "../../cost-model";
 import { engineCost, studioEngines } from "../../engine-catalog";
 import type { StudioEngineKey } from "../../engine-catalog";
@@ -39,8 +41,8 @@ function TwentySecondBreakdown() {
     ["Editing", edit, "Joining the scenes and mixing the music"],
     ["Quality review", review, "Automatic check of the finished film"],
   ];
-  return <section className="panel" aria-label="One 20-second video">
-    <p className="eyebrow">One 20-second video, every cost</p>
+  return <details className="panel fin-more" aria-label="One 20-second video">
+    <summary><span><strong>One 20-second video, every cost</strong><small>Pick an engine and see the line-by-line price</small></span></summary>
     <div className="filters">
       <label>Engine <select value={engine.key} onChange={(event) => setKey(event.target.value as StudioEngineKey)}>{engines.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}</select></label>
       <div className="tabs" role="radiogroup" aria-label="Resolution">{engine.resolutions.map((value) => <button key={value} type="button" role="radio" aria-checked={res === value} className={res === value ? "active" : ""} onClick={() => setResolution(value)}>{value}</button>)}</div>
@@ -57,7 +59,7 @@ function TwentySecondBreakdown() {
       <div><div><span>Left from one sale</span><strong>{cents(left)} <small style={{ display: "inline" }}>{pct(left, SINGLE_PRICE_CENTS)}% margin</small></strong></div><small>Price − all costs − card fee</small></div>
     </div>
     <p className="fine">Catalog list prices, not a bill. Real films also pay for retried scenes. Your measured average across finished films is shown above.</p>
-  </section>;
+  </details>;
 }
 
 export default function FinancePage() {
@@ -130,27 +132,34 @@ export default function FinancePage() {
       <section className="panel" aria-label="Cost of the full production process">
         <p className="eyebrow">Cost of production, A to Z</p>
         <div className="hero-total">{cents(total)}</div>
-        <p className="muted">{who === "customer" ? "Client orders" : "Your own tests"} · {label} · {data.videos} video{data.videos === 1 ? "" : "s"}, {data.finished} finished. Here is where it went:</p>
-        <div className="cost-lines">
-          {categories.map((item) => <div key={item.label}>
-            <div><span>{item.label}</span><strong>{cents(item.cents)} <small style={{ display: "inline" }}>{pct(item.cents, total)}%</small></strong></div>
-            <div className="bar" aria-hidden="true"><i style={{ width: `${pct(item.cents, total)}%` }} /></div>
-            <small>{item.note}</small>
-          </div>)}
+        <p className="muted">{who === "customer" ? "Client orders" : "Your own tests"} · {label} · {data.videos} video{data.videos === 1 ? "" : "s"}, {data.finished} finished</p>
+        <div className="fin-stack" role="img" aria-label="Where the money went">
+          {categories.filter((item) => item.cents > 0).map((item, index) => <i key={item.label} className={`fin-c${index % 6}`} style={{ flexGrow: item.cents }} title={`${item.label} ${cents(item.cents)}`} />)}
         </div>
+        <ul className="fin-legend">
+          {categories.map((item, index) => <li key={item.label}><i className={`fin-c${index % 6}`} aria-hidden="true" /><span>{item.label}</span><strong>{cents(item.cents)}</strong><small>{pct(item.cents, total)}%</small></li>)}
+        </ul>
+        <details className="fin-more fin-inline">
+          <summary>What each line means</summary>
+          <div className="cost-lines">{categories.map((item) => <div key={item.label}><div><span>{item.label}</span><strong>{cents(item.cents)}</strong></div><small>{item.note}</small></div>)}</div>
+        </details>
       </section>
 
       <section className="metrics" aria-label="Money in and out">
         {orders && <Metric label="Revenue at list price" value={cents(revenue)} note={costs.paymentsConnected ? label : `${label} · not charged yet`} />}
         {orders && <Metric label="Profit after all costs" value={cents(profit)} note={revenue ? `${pct(profit, revenue)}% margin` : "No priced orders"} tone={profit < 0 ? "bad" : undefined} />}
         <Metric label="Cost per finished video" value={cents(data.perFinishedCents)} note="Engine + music + editing + review" />
-        <Metric label="Music used" value={`${musicMinutes.toFixed(1)} min`} note={period === "month" ? `of ${costs.rates.includedMusicMinutes} included in the plan` : "all films, all time"} />
-        {orders && breakEven !== null && period === "month" && <Metric label="Orders to cover plans" value={String(breakEven)} note={`Monthly plans ÷ ${cents(perOrderProfit)} profit per order`} />}
       </section>
+      <details className="panel fin-more">
+        <summary><span><strong>More numbers</strong><small>Music used{orders && breakEven !== null && period === "month" ? " and orders needed to cover the plans" : ""}</small></span></summary>
+        <section className="metrics" aria-label="More numbers">
+          <Metric label="Music used" value={`${musicMinutes.toFixed(1)} min`} note={period === "month" ? `of ${costs.rates.includedMusicMinutes} included in the plan` : "all films, all time"} />
+          {orders && breakEven !== null && period === "month" && <Metric label="Orders to cover plans" value={String(breakEven)} note={`Monthly plans ÷ ${cents(perOrderProfit)} profit per order`} />}
+        </section>
+      </details>
 
-      <section className="panel" aria-label="Costs by date">
-        <p className="eyebrow">By date</p>
-        <h2 className="panel-title">Every production, and what each {span === "day" ? "day" : span === "week" ? "week" : "month"} cost</h2>
+      <details className="panel fin-more" aria-label="Costs by date">
+        <summary><span><strong>Every video, by {span}</strong><small>What each {span} cost, with the cost of each film</small></span></summary>
         <div className="filters"><div className="tabs" role="radiogroup" aria-label="Group by">
           {([["day", "Day"], ["week", "Week"], ["month", "Month"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={span === value} className={span === value ? "active" : ""} onClick={() => setSpan(value)}>{text}</button>)}
         </div></div>
@@ -172,17 +181,25 @@ export default function FinancePage() {
           </details>)}
         </div> : <div className="empty-soft compact"><span>No videos yet.</span></div>}
         <p className="fine">Estimates from list prices: the video engine is what production recorded when each video started (failed attempts included), music and editing are calculated from each film&apos;s length. Days, weeks (Monday to Sunday) and months follow your time zone. The providers&apos; billing pages stay the final word. Revenue is the order&apos;s list price; nothing is charged until payments are connected.</p>
-      </section>
+      </details>
     </>;
   })();
 
   return <div className="mgr-page">
-    <PageHead eyebrow="Finance" title="Finance" sub="What it costs to make a video, where the money goes, and what is left.">
-      <a className="btn btn-white btn-sm" href="/admin/replicates">Provider spend <Icon name="arrow" size={14} /></a>
-    </PageHead>
+    <PageHead eyebrow="Finance" title="Finance" sub="What you are spending, where it goes, and what is left." />
+    <SpendGuardPanel />
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
-    {typical && <section className="panel" aria-label="What one film costs">
-      <p className="eyebrow">What one film costs us</p>
+    <div className="filters">
+      <div className="tabs" role="radiogroup" aria-label="Which videos">
+        {([["customer", "Client orders"], ["studio", "My tests"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={who === value} className={who === value ? "active" : ""} onClick={() => setWho(value)}>{text}</button>)}
+      </div>
+      <div className="tabs" role="radiogroup" aria-label="Period">
+        {([["month", "This month"], ["allTime", "All time"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={period === value} className={period === value ? "active" : ""} onClick={() => setPeriod(value)}>{text}</button>)}
+      </div>
+    </div>
+    {body}
+    {typical && <details className="panel fin-more" aria-label="What one film costs">
+      <summary><span><strong>What one film costs us</strong><small>{cents(typical.total)} on average, over {typical.films} finished film{typical.films === 1 ? "" : "s"}</small></span></summary>
       <div className="hero-total">{cents(typical.total)}</div>
       <p className="muted">Average of {typical.films} finished {typical.clients ? "client " : ""}film{typical.films === 1 ? "" : "s"}, about {typical.seconds} seconds each.{typical.price != null ? ` Sold at ${cents(typical.price)}, so ${cents(typical.price - typical.total)} is left before card fees.` : ""}</p>
       <div className="cost-lines">
@@ -193,16 +210,11 @@ export default function FinancePage() {
         </div>)}
       </div>
       <p className="fine">The video engine is almost all of it. Retried scenes and failed attempts are billed by Replicate too but are not in this average, so your Replicate bill runs higher; open its billing page for the exact total.</p>
-    </section>}
+    </details>}
     <TwentySecondBreakdown />
-    <div className="filters">
-      <div className="tabs" role="radiogroup" aria-label="Which videos">
-        {([["customer", "Client orders"], ["studio", "My tests"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={who === value} className={who === value ? "active" : ""} onClick={() => setWho(value)}>{text}</button>)}
-      </div>
-      <div className="tabs" role="radiogroup" aria-label="Period">
-        {([["month", "This month"], ["allTime", "All time"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={period === value} className={period === value ? "active" : ""} onClick={() => setPeriod(value)}>{text}</button>)}
-      </div>
-    </div>
-    {body}
+    <details className="panel fin-more">
+      <summary><span><strong>Video engine account</strong><small>Recorded spend, real balance and the low-balance reminder</small></span></summary>
+      <SpendAccount />
+    </details>
   </div>;
 }

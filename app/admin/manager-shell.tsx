@@ -5,15 +5,14 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { Icon, type IconName } from "../ui-icon";
 import { WrenMark } from "../components/brand";
+import AdminSearch from "./admin-search";
 
 const links: Array<{ href: string; label: string; icon: IconName; match: (path: string) => boolean }> = [
   { href: "/admin", label: "Overview", icon: "dashboard", match: (path) => path === "/admin" },
   { href: "/admin/orders", label: "Orders", icon: "orders", match: (path) => path.startsWith("/admin/orders") || path.startsWith("/admin/projects") },
   { href: "/admin/production", label: "Production", icon: "quality", match: (path) => path.startsWith("/admin/production") },
   { href: "/admin/customers", label: "Customers", icon: "user", match: (path) => path.startsWith("/admin/customers") },
-  { href: "/admin/gifts", label: "Gifts", icon: "check", match: (path) => path.startsWith("/admin/gifts") },
-  { href: "/admin/finance", label: "Finance", icon: "money", match: (path) => path.startsWith("/admin/finance") },
-  { href: "/admin/replicates", label: "Spend", icon: "money", match: (path) => path.startsWith("/admin/replicates") },
+  { href: "/admin/finance", label: "Finance", icon: "money", match: (path) => path.startsWith("/admin/finance") || path.startsWith("/admin/replicates") },
   { href: "/studio", label: "Studio", icon: "studio", match: (path) => path.startsWith("/studio") },
   { href: "/admin/studio-ads", label: "Studio Ads", icon: "motion", match: (path) => path.startsWith("/admin/studio-ads") },
   { href: "/admin/library-studio", label: "Library Studio", icon: "projects", match: (path) => path.startsWith("/admin/library-studio") },
@@ -45,7 +44,7 @@ export default function ManagerShell({ children }: { children: React.ReactNode }
           <a href="/api/auth/logout"><Icon name="sign-in" size={16} />Sign out</a>
         </div>
       </aside>
-      <div className="mgr-main">{children}</div>
+      <div className="mgr-main"><AdminSearch />{children}</div>
     </div>
   );
 }

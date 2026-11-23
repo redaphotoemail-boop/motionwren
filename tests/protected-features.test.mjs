@@ -37,6 +37,20 @@ const studioPage = readFileSync("app/studio/page.tsx", "utf8");
 for (const text of ["Photo shape", "Horizontal", "Social", "Crop-safe"]) assert.ok(studioPage.includes(text), `The Studio frame size lost: ${text}`);
 for (const text of ["arrived and were checked", "Send again", "Checking every photo"]) assert.ok(studioPage.includes(text), `The Studio photo verification lost: ${text}`);
 assert.ok(editFilm.includes("Frame"), "The Edit film panel lost the Frame (cut to 16:9 / vertical) choice");
+// The Frame picker shows on every film, including vertical ones, with all three shapes —
+// a vertical film's dimensions change both ways — and the film's current shape is marked.
+assert.ok(!editFilm.includes('data.aspect !== "vertical"'), "The Frame picker is hidden on vertical films again");
+assert.ok(editFilm.includes('key: "horizontal", ratio: "16:9"') && editFilm.includes('key: "vertical", ratio: "9:16"'), "The Frame picker lost the 16:9 / 9:16 choices");
+assert.ok(editFilm.includes("This film now"), "The Frame picker stopped marking the film's current shape");
+// A dimensions-only edit must reach the composer on every path, not just multi-scene films:
+// a single-clip film with a frame cut goes to the composer (not saved as-is), the composer
+// accepts a single clip when a cut is set, the joiner prefers the composer when a cut is set,
+// and the backup joiner cuts to the new frame instead of the film's original one.
+const renderJobs = readFileSync("app/api/_lib/render-jobs.ts", "utf8");
+assert.ok(renderJobs.includes("loadedManifest.edit?.reframe"), "A single-clip film with a frame cut is saved as-is, so the cut never lands");
+assert.ok(renderJobs.includes("manifest.edit?.sound?.sfx || manifest.edit?.reframe"), "The joiner skips the composer for a frame-only edit");
+assert.ok(renderJobs.includes("!manifest.edit?.sound?.sfx && !manifest.edit?.reframe"), "The composer refuses a single-clip frame cut");
+assert.ok(renderJobs.includes("manifest?.edit?.reframe || row.aspect"), "The backup joiner cuts to the film's original frame, not the new one");
 const strip = readFileSync("app/studio/template-strip.tsx", "utf8");
 for (const text of ["Social media", "SocialGuide"]) assert.ok(strip.includes(text), `The Studio template picker lost: ${text}`);
 const socialGuide = readFileSync("app/studio/social-guide.tsx", "utf8");
@@ -61,8 +75,15 @@ assert.ok(readFileSync("composer/wrencut.mjs", "utf8").includes("shotout") && re
 assert.ok(readFileSync("composer/server.mjs", "utf8").includes("The picture came out"), "Picture-length check lost");
 
 // Spending guard: the Spend page keeps its limits panel, and every engine charge still passes the guard.
-assert.ok(readFileSync("app/admin/replicates/page.tsx", "utf8").includes("SpendGuardPanel"), "The Spend page lost the spending guard");
+assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("SpendGuardPanel"), "The Finance page lost the spending guard");
 assert.ok(readFileSync("app/admin/replicates/spend-guard-panel.tsx", "utf8").includes("Pause all spending"), "The spending guard lost its pause switch");
+assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes("backupEngine(env)"), "A stalled scene no longer moves to the backup engine");
+assert.ok(readFileSync("app/admin/production/page.tsx", "utf8").includes("If a scene stalls, use"), "Production lost the backup engine setting");
+assert.ok(readFileSync("app/admin/production/page.tsx", "utf8").includes("Open Replicate billing"), "Production lost the Open Replicate button");
 assert.ok(readFileSync("app/api/_lib/provider.ts", "utf8").includes("guardAtEngine"), "createPrediction no longer asks the spending guard");
 assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes('"budget"'), "The scene queue no longer holds scenes at the spending limit");
 assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpend"), "Studio lost the per-film confirmation");
+
+// Frame sizes in Edit film: original + 16:9, 9:16, 1:1, 4:5; several at once; the price is shown.
+for (const text of ["frame-tiles", "FRAME_CHOICES", "SIZE_CENTS", "Original size", "This film now", '"square"', '"portrait"']) assert.ok(editFilm.includes(text), `Edit film lost: ${text}`);
+assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes('body.frame === "square" || body.frame === "portrait"'), "The edit lost the 1:1 and 4:5 sizes");

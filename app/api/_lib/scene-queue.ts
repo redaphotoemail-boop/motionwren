@@ -1,8 +1,9 @@
+import { saveEngineReport, reportLine } from "./engine-report";
 import { MAX_ATTEMPTS, staleAfterMs, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
-import { engineCost, engineUpscales, filmSceneDurations, type StudioEngineKey } from "../../engine-catalog";
+import { engineCost, engineKeepsPhotoShape, engineUpscales, filmSceneDurations, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { guardCheck } from "./spend-guard";
-import { ProviderError, acquireLease, backoff, createPrediction, maxActive, readProviderState, releaseLease, writeProviderState } from "./provider";
+import { ProviderError, acquireLease, backoff, backupEngine, createPrediction, maxActive, readProviderState, releaseLease, writeProviderState } from "./provider";
 
 /* The scene queue. Every multi-scene video (client orders and Studio videos)
    is made here, one step at a time, by whoever looks at the job: the
@@ -132,11 +133,43 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
       // What the engine says, and since when: "starting" = not running yet, "processing" = running.
       const seen = manifest.engineSeen || (manifest.engineSeen = []);
       if (seen[index]?.status !== status) seen[index] = { status, since: now };
-      const limit = staleAfterMs(status, manifest.sceneSeconds || 5);
+      const limit = staleAfterMs(status, manifest.sceneSeconds || 5, manifest.engine);
       const stale = !failed && manifest.startedAt[index] > 0 && now - manifest.startedAt[index] > limit;
+      // The engine deletes its logs after about an hour: copy them now, before anything is cancelled or sent again.
+      const report = (failed || stale) ? await saveEngineReport(env, jobId, index, manifest.attempts[index] || 0, studioEngine(manifest.engine as StudioEngineKey)?.name || String(manifest.engine || ""), failed ? "failed" : "stalled", result).catch(() => null) : null;
       if (stale) {
         await hooks.cancel(token, id).catch(() => undefined);
-        await alertManagers(env, `Video engine slow · scene ${index + 1} · ${jobId.slice(0, 8)}`, `The video engine reported "${status}" for ${Math.round((now - manifest.startedAt[index]) / 60000)} minutes on scene ${index + 1} (attempt ${manifest.attempts[index]}), so it was stopped and is being sent again. This is the engine being slow, not your photo.`).catch(() => undefined);
+        await alertManagers(env, `Video engine slow · scene ${index + 1} · ${jobId.slice(0, 8)}`, `The video engine reported "${status}" for ${Math.round((now - manifest.startedAt[index]) / 60000)} minutes on scene ${index + 1} (attempt ${manifest.attempts[index]}), so it was stopped and is being sent again. This is the engine being slow, not your photo.${report ? ` Engine report: ${reportLine(report)}.` : ""}`).catch(() => undefined);
+      }
+      // A scene that stalled with the engine is sent once to the backup engine instead of waiting through the same slow engine again.
+      // Scenes still to be made go with it (the engine is the film's); finished scenes are kept.
+      if (stale && !failed && !manifest.backupSwitchedAt && (manifest.attempts[index] || 0) <= 2) {
+        // The backup is the owner's choice, or Off. When the engine that stalled IS the backup, Wan 3.0 (the steadiest engine) takes over.
+        const chosen = await backupEngine(env);
+        const backup = chosen && chosen === manifest.engine && manifest.engine !== "wan3" ? "wan3" : chosen;
+        const filmAspect = backup ? (await env.DB.prepare(`SELECT aspect FROM render_jobs WHERE id = ?`).bind(jobId).first<{ aspect: string }>().catch(() => null))?.aspect || "horizontal" : "";
+        if (backup && backup !== manifest.engine && backup in ENGINE_ENDPOINTS && !studioEngine(backup as StudioEngineKey).unavailable && !studioEngine(backup as StudioEngineKey).photoMove
+          && (filmAspect !== "original" || engineKeepsPhotoShape(backup as StudioEngineKey)) && !manifest.ads
+          && ids.every((other, position) => segments[position] || manifest.photoMoves?.[position] || manifest.photos?.[position]?.link)) {
+          const target = backup as StudioEngineKey;
+          const resolution = engineResolution(target);
+          const seconds = filmSceneDurations(target, resolution).find((option) => option >= (manifest.sceneSeconds || 5)) || Math.max(...filmSceneDurations(target, resolution));
+          let moved = 0;
+          for (let position = 0; position < count; position += 1) {
+            const inFlight = position !== index && Boolean(ids[position]) && !segments[position];
+            if (segments[position] || inFlight || manifest.photoMoves?.[position]) continue;
+            const old = manifest.inputs[position] || {};
+            manifest.inputs[position] = buildEngineInput(target, { imageUrl: manifest.photos![position].link, prompt: String(old.prompt || ""), duration: seconds, resolution, aspectRatio: filmAspect === "vertical" ? "9:16" : "16:9" });
+            moved += 1;
+          }
+          manifest.engine = target;
+          manifest.backupSwitchedAt = now;
+          manifest.endpoint = ENGINE_ENDPOINTS[target];
+          if (engineUpscales(target, resolution)) manifest.upscale = { to: "1080p" }; else delete manifest.upscale;
+          const extra = Math.round(engineCost(target, resolution, seconds) * moved * 100);
+          if (extra > 0) await env.DB.prepare(`UPDATE render_jobs SET cost_cents = cost_cents + ? WHERE id = ?`).bind(extra, jobId).run().catch(() => undefined);
+          await alertManagers(env, `Video engine stalled · switched to ${studioEngine(target).name}`, `Scene ${index + 1} of ${jobId.slice(0, 8)} did not finish, so it and the scenes still to make were sent to ${studioEngine(target).name} (about ${extra / 100 >= 0.01 ? `$${(extra / 100).toFixed(2)}` : "a few cents"}). Finished scenes are kept.`).catch(() => undefined);
+        }
       }
       if (failed || stale) { seen[index] = { status: "", since: now }; failScene(index, failed ? String(result.error || "The scene did not finish.") : `The engine did not finish the scene within ${Math.round(limit / 60000)} minutes (it said "${status}"), so it was stopped and sent again.`, stale && !failed); }
     }));

@@ -5,6 +5,7 @@ import { videoRef } from "../../video-ref";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { PageHead, cents } from "../ui";
+import { studioEngines } from "../../engine-catalog";
 import EnginePanels from "../engines/panels";
 import { ProductionView, isActive, sceneLabel, type StudioJob } from "../../studio/production";
 
@@ -22,7 +23,7 @@ function sceneNote(error: string) {
    fix a stuck video. Every action goes through the same queue, so a double
    click cannot create duplicate engine jobs. */
 
-type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string; polishNote?: string };
+type Health = { engine: string; backupEngine?: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string; polishNote?: string };
 type Job = StudioJob & { owner?: string };
 
 const time = (value: number) => value ? new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
@@ -30,6 +31,8 @@ const ago = (value: number, now: number) => { const minutes = Math.round((now - 
 
 export default function ProductionPage() {
   const [health, setHealth] = useState<Health | null>(null);
+  const [credit, setCredit] = useState<{ saved: { cents: number; at: number } | null; spentCents: number; estimateCents: number | null } | null>(null);
+  const [creditInput, setCreditInput] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -42,7 +45,19 @@ export default function ProductionPage() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Production could not be loaded.");
     setHealth(data.health); setJobs(data.jobs || []); setNow(Date.now());
+    const creditResponse = await fetch("/api/admin/replicate-credit", { cache: "no-store" }).catch(() => null);
+    if (creditResponse?.ok) setCredit(await creditResponse.json().catch(() => null));
   }, []);
+
+  async function saveCredit() {
+    setError(""); setMessage("");
+    const dollars = Number(creditInput);
+    if (!Number.isFinite(dollars) || dollars < 0) { setError("Enter the balance in dollars, for example 25."); return; }
+    const response = await fetch("/api/admin/replicate-credit", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ balanceCents: Math.round(dollars * 100) }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "The balance could not be saved."); return; }
+    setCredit(data); setCreditInput(""); setMessage("Balance saved.");
+  }
 
   const live = jobs.some(isActive);
   useEffect(() => {
@@ -72,6 +87,14 @@ export default function ProductionPage() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setError(data.error || "The setting could not be saved."); return; }
     setMessage(`Up to ${value} scene${value === 1 ? "" : "s"} at once.`); await load();
+  }
+
+  async function setBackup(value: string) {
+    setError("");
+    const response = await fetch("/api/admin/production", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backupEngine: value }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "The setting could not be saved."); return; }
+    setMessage(value === "off" ? "A stalled scene will wait on its own engine." : "A stalled scene is sent to the backup engine."); await load();
   }
 
   const loadSamples = useCallback(async () => {
@@ -131,40 +154,16 @@ export default function ProductionPage() {
   };
 
   return <div className="mgr-page prodm">
-    <PageHead eyebrow="Production" title="Production" sub="Settings, problems, every video being made, and the engines." />
+    <PageHead eyebrow="Production" title="Production" sub="Is it running, what needs you, and every video being made." />
     <nav className="mgr-jump" aria-label="On this page">
-      <a href="#controls">Controls</a>
       {problems.length > 0 && <a href="#problems">Problems <b>{problems.length}</b></a>}
       <a href="#videos">Videos</a>
+      <a href="#controls">Controls</a>
       <a href="#engines">Engines</a>
+      <a href="#credit">Credit</a>
     </nav>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
     {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
-
-    <section id="controls" className="prodm-block" aria-label="Controls">
-      <h2>Controls</h2>
-      <div className="prodm-setting">
-        <div><strong>Scenes at once</strong><small>How many scenes the engine makes at the same time. Keep 1 while the engine account is under $5.</small></div>
-        <div className="tabs" role="radiogroup" aria-label="Scenes at once">
-          {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
-        </div>
-      </div>
-      <EnginePanels part="controls" />
-      {samples && <details className="prodm-more">
-        <summary>Music tools</summary>
-        <div className="prodm-setting">
-          <div><strong>Client music samples</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a sample clients can play.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready.`}</small></div>
-          <div className="prod-actions">
-            {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
-            {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
-          </div>
-        </div>
-        <div className="prodm-setting">
-          <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents).</small></div>
-          <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
-        </div>
-      </details>}
-    </section>
 
     <section className="prodm-strip" aria-label="Production health">
       <span><i className={`dot ${health?.paused || !health?.tokenConfigured ? "dot-bad" : health && health.waitingUntil > now ? "dot-warn" : "dot-ok"}`} />{status}</span>
@@ -188,8 +187,24 @@ export default function ProductionPage() {
       </ul>
     </section>}
 
+    <section id="credit" className="prodm-block" aria-label="Replicate credit">
+      <h2>Replicate credit</h2>
+      <div className="prodm-credit">
+        <div>
+          <strong>{credit?.estimateCents == null ? "Not set yet" : `About ${cents(Math.max(0, credit.estimateCents))} left`}</strong>
+          <small>{credit?.saved ? `You had ${cents(credit.saved.cents)} on ${new Date(credit.saved.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}; ${cents(credit.spentCents)} used since. An estimate, Replicate does not share the real balance.` : "Type what Replicate shows and the page keeps count from there."}</small>
+          <small><i className={`dot ${health?.paused ? "dot-bad" : health?.lowCredit || (credit?.estimateCents != null && credit.estimateCents < 500) ? "dot-warn" : "dot-ok"}`} />{health?.paused ? "Videos are paused: out of credit" : health?.lowCredit || (credit?.estimateCents != null && credit.estimateCents < 500) ? "Running low" : "Credit looks fine"}</small>
+        </div>
+        <div className="prodm-fixes">
+          <a className="btn btn-ink btn-xs" href="https://replicate.com/account/billing" target="_blank" rel="noreferrer">Open Replicate billing</a>
+          <input aria-label="Balance in dollars" inputMode="decimal" placeholder="Balance, $" value={creditInput} onChange={(event) => setCreditInput(event.target.value.replace(/[^0-9.]/g, ""))} />
+          <button type="button" className="btn btn-soft btn-xs" disabled={!creditInput} onClick={saveCredit}>Save balance</button>
+        </div>
+      </div>
+    </section>
+
     <section id="videos" className="prodm-block" aria-label="Videos">
-      <h2>Videos <small>last 24 hours</small></h2>
+      <h2>Videos <small>last 24 hours{jobs.length ? ` · ${jobs.filter(isActive).length} making · ${jobs.filter((job) => !isActive(job) && job.status !== "failed").length} ready · ${stopped.length} stopped` : ""}</small></h2>
       {!jobs.length && <div className="empty-soft"><strong>No videos in the last 24 hours</strong><span>New client orders and Studio videos appear here.</span></div>}
       <div className="prodm-rows">
       {jobs.map((job) => {
@@ -210,6 +225,7 @@ export default function ProductionPage() {
             {!isActive(job) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "start-over", undefined, `Start over with the same photos and settings? Every scene is made again (~$${(job.costCents / 100).toFixed(2)}).`)}>Start over</button>}
             {!isActive(job) && allReady && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "reassemble", undefined, "Join the finished scenes again into a new version of the film?")}>Re-join scenes</button>}
           </div>
+          {(job.status === "failed" || scenes.some((scene) => scene.attempt > 1)) && <EngineReports id={job.id} />}
           {scenes.length > 0 && <ol className="prodm-scenes">
             {scenes.map((scene, index) => <li key={index}>
               <span className="prodm-n">{index + 1}</span>
@@ -228,9 +244,65 @@ export default function ProductionPage() {
       </div>
     </section>
 
-    <section id="engines" className="prodm-block" aria-label="Engines">
-      <h2>Engines</h2>
+
+    <details id="controls" className="prodm-block fin-more" aria-label="Controls">
+      <summary><span><strong>Controls</strong><small>Scenes at once, engine choice and music tools</small></span></summary>
+      <div className="prodm-setting">
+        <div><strong>Scenes at once</strong><small>How many scenes the engine makes at the same time. Keep 1 while the engine account is under $5.</small></div>
+        <div className="tabs" role="radiogroup" aria-label="Scenes at once">
+          {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
+        </div>
+      </div>
+      <div className="prodm-setting">
+        <div><strong>If a scene stalls, use</strong><small>A scene the engine leaves &ldquo;processing&rdquo; for too long is sent once to this engine, with the scenes still to make. Finished scenes are kept.</small></div>
+        <select value={health?.backupEngine || "off"} onChange={(event) => { void setBackup(event.target.value); }} aria-label="Backup engine">
+          <option value="off">Off, wait on the same engine</option>
+          {studioEngines.filter((item) => !item.unavailable && !item.photoMove).map((item) => <option key={item.key} value={item.key}>{item.shortName || item.name}</option>)}
+        </select>
+      </div>
+      <EnginePanels part="controls" />
+      {samples && <details className="prodm-more">
+        <summary>Music tools</summary>
+        <div className="prodm-setting">
+          <div><strong>Client music samples</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a sample clients can play.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready.`}</small></div>
+          <div className="prod-actions">
+            {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
+            {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
+          </div>
+        </div>
+        <div className="prodm-setting">
+          <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents).</small></div>
+          <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
+        </div>
+      </details>}
+    </details>
+
+    <details id="engines" className="prodm-block fin-more" aria-label="Engines">
+      <summary><span><strong>Engines</strong><small>Prices, speed and what each engine is for</small></span></summary>
       <EnginePanels part="overview" />
-    </section>
+    </details>
   </div>;
+}
+
+
+type Report = { scene: number; attempt: number; engine: string; why: string; status: string; error: string; logs: string; queuedSeconds: number | null; runningSeconds: number | null; predictionId: string; savedAt: number };
+
+/* What the engine itself said when a scene stalled or failed, copied at the time (its own logs are deleted after about an hour). */
+function EngineReports({ id }: { id: string }) {
+  const [reports, setReports] = useState<Report[] | null>(null);
+  async function open(event: React.SyntheticEvent<HTMLDetailsElement>) {
+    if (!event.currentTarget.open || reports) return;
+    const response = await fetch(`/api/admin/production/${id}`, { cache: "no-store" }).catch(() => null);
+    const data = response?.ok ? await response.json().catch(() => null) : null;
+    setReports(data?.reports || []);
+  }
+  return <details className="prodm-report" onToggle={open}>
+    <summary>What the engine said</summary>
+    {reports === null ? <small>Loading…</small> : reports.length === 0 ? <small>Nothing was saved for this video. Reports are saved from now on whenever a scene stalls or fails.</small> : reports.map((report) => <div key={`${report.scene}-${report.attempt}`}>
+      <strong>Scene {report.scene + 1} · try {report.attempt} · {report.engine}</strong>
+      <small>{[report.why === "stalled" ? "Stalled" : "Failed", report.status, report.queuedSeconds != null ? `waited ${Math.round(report.queuedSeconds)}s to start` : "", report.runningSeconds != null ? `ran ${Math.round(report.runningSeconds)}s` : "never started running", report.predictionId].filter(Boolean).join(" · ")}</small>
+      {report.error && <small>Error: {report.error}</small>}
+      <pre>{report.logs || "The engine wrote no log lines."}</pre>
+    </div>)}
+  </details>;
 }

@@ -30,6 +30,7 @@ function makeDb() {
     }
   }
   // The spending guard is off (no limits) for the queue tests, which run many films; its own tests below turn it on.
+  db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'off', 0)").run(); // the stall switch has its own tests below
   db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('spend_guard', ?, 0)").run(JSON.stringify({ monthlyCents: 0, dailyCents: 0, perFilmCents: 0, paused: false }));
   const wrap = (sql, values = []) => ({
     bind: (...next) => wrap(sql, next),
@@ -58,6 +59,7 @@ function running() { return [...P.preds.values()].filter((p) => !p.stitch && p.s
 let maxRunning = 0;
 globalThis.fetch = async (url, init = {}) => {
   url = String(url); const method = (init.method || "GET").toUpperCase();
+  if (url === "https://api.resend.com/emails") { (P.emails ||= []).push(JSON.parse(String(init.body))); return json({ id: "e1" }); }
   if (url.startsWith("https://replicate.delivery/")) return new Response(new Uint8Array(20000), { headers: { "content-type": "video/mp4", "content-length": "20000" } });
   if (url === "https://api.replicate.com/v1/files" && method === "POST") { P.files += 1; return json({ id: `f${P.files}`, urls: { get: `https://api.replicate.com/v1/files/f${P.files}` } }, 201); }
   if (/\/predictions$/.test(url) && method === "POST") {
@@ -295,15 +297,13 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
 
 /* 10. Long one-at-a-time film: joining uses our stored copies once the engine's expire */
 {
-  // Each scene stays inside the engine stall limit (4 min + 1 min per second of video),
-  // so the film is long because it has many scenes made one at a time, not because one stalls.
-  resetProvider({ sceneMs: 7 * 60_000 });
+  resetProvider({ sceneMs: 5.5 * 60_000 }); // scenes the engine takes longer than 6 minutes on are stopped by design, so each takes 5.5 minutes
   const env = env0(); await setLimit(env, 1);
-  const id = await newJob(env, 8, { tag: "s10" });
+  const id = await newJob(env, 10, { tag: "s10" });
   await start(env, id);
   const end = await runToEnd(env, id, { stepMs: 60_000 });
   const csv = P.stitchInputs.at(-1) || "";
-  check("10a an hour-long one-at-a-time film still finishes", end.status === "succeeded", end.status);
+  check("10a a 55-minute one-at-a-time film still finishes", end.status === "succeeded", end.status);
   check("10b joining used our kept copies for scenes older than 45 minutes", csv.includes("/api/job-frames/") && csv.includes("out-01.mp4"), csv.slice(0, 140));
 }
 
@@ -648,7 +648,7 @@ const stitchCreates = () => P.stitchInputs.length;
   const m = await lib.loadManifest(env, id);
   const base = made.filter((c) => c.scene === 1)[0].prompt;
   const fixed = made.filter((c) => c.scene === 1).slice(1);
-  check("22a a film that keeps failing is made 3 times at most (first + MAX_FIX_ROUNDS = 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
+  check("22a a film that keeps failing is made 3 times at most (first + 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
   check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 2, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
   check("22c a fix adds an instruction after the scene's own prompt, which is never edited", fixed.every((c) => c.prompt.startsWith(base) && /Fix:/.test(c.prompt)) && !/Fix:/.test(base) && !/Fix:/.test(String(m.inputs[1].prompt)), `${fixed.map((c) => c.prompt.slice(-90)).join(" | ")}`);
   const cost1 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
@@ -835,6 +835,84 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   const guard = await lib.guardCheck(env2, 0); await lib.guardCheck(env2, 0);
   const alerts = env2.DB.raw.prepare("SELECT title FROM notifications WHERE id LIKE 'spend:%'").all();
   check("25e alerts at 50%, 80% and the 100% stop are each sent once", !guard.ok && alerts.length === 3 && alerts.some((a) => /stopped/i.test(a.title)), JSON.stringify(alerts.map((a) => a.title)));
+}
+
+/* 28. Several sizes of one film: each is its own new version, in the order asked, and "made" goes back to the original frame */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s28" });
+  await start(env, id);
+  const running = await row(env, id);
+  const labels = [];
+  for (const frame of ["square", "portrait", "vertical", "made"]) { const queued = await lib.enqueueEdit(env, running, { frame }); labels.push("error" in queued ? `ERR ${queued.error}` : queued.entry.label); }
+  check("28a every size is accepted and named", labels.join("|") === "Cut to 1:1|Cut to 4:5|Cut to 9:16|Back to the original frame", labels.join("|"));
+  const end = await runToEnd(env, id);
+  const sizes = C.specs.map((entry) => `${entry.spec?.width}x${entry.spec?.height}`).slice(-4);
+  check("28b each size is made in order at its own dimensions — 1:1, 4:5, 9:16, then the original", end.status === "succeeded" && sizes.join(",") === "720x720,720x900,720x1280,1280x720", `${end.status} ${sizes.join(",")}`);
+  check("28c every size lands in History as its own version (five in all with the first)", versionsOf(env) === 5, `versions=${versionsOf(env)}`);
+}
+
+/* 29. A scene that stalls with the engine goes once to the backup engine */
+{
+  resetProvider({ sceneMs: 40 * 60_000 }); // the engine says "processing" for 40 minutes: stalled
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'hailuo23', 0)").run();
+  const id = await newJob(env, 2, { tag: "s29" });
+  await start(env, id);
+  for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); } // fourteen minutes
+  const manifest = await lib.loadManifest(env, id);
+  const saved = env.DB.raw.prepare("SELECT value FROM platform_settings WHERE key LIKE ?").all(`engine-report:${id}:%`);
+  check("29e a stalled scene's engine report (status and timings) is saved before it is cancelled", saved.length >= 1 && JSON.parse(saved[0].value).why === "stalled" && Boolean(JSON.parse(saved[0].value).status), `${saved.length}`);
+  check("29a a stalled scene moves the film to the backup engine", manifest.engine === "hailuo23" && manifest.endpoint === lib.ENGINE_ENDPOINTS.hailuo23, `${manifest.engine}`);
+  check("29b the scenes still to make are rebuilt for the backup engine", manifest.inputs.every((input) => JSON.stringify(input) !== JSON.stringify(lib.buildEngineInput("wan3", { imageUrl: manifest.photos[0].link, prompt: String(input.prompt || ""), duration: 5, resolution: "720p", aspectRatio: "16:9" }))), "inputs unchanged");
+}
+{
+  resetProvider({ sceneMs: 40 * 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'off', 0)").run();
+  const id = await newJob(env, 2, { tag: "s29off" });
+  await start(env, id);
+  for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); }
+  const manifest = await lib.loadManifest(env, id);
+  check("29d with the backup switched off the film stays on its own engine", manifest.engine === "wan3", `${manifest.engine}`);
+}
+
+/* 30. A fast engine that hangs is caught in minutes, and when the stalled engine is the backup itself, Wan 3.0 takes over */
+{
+  resetProvider({ sceneMs: 40 * 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'h3lite', 0)").run();
+  const id = await newJob(env, 1, { tag: "s30" });
+  const manifest0 = await lib.loadManifest(env, id); manifest0.engine = "h3lite"; manifest0.endpoint = lib.ENGINE_ENDPOINTS.h3lite; await lib.saveManifest(env, id, manifest0);
+  await start(env, id);
+  for (let step = 0; step < 5 * 12; step += 1) { tick(5000); await advance(env, id); } // five minutes
+  const manifest = await lib.loadManifest(env, id);
+  check("30a a hung H3 Lite scene is caught within five minutes and moved to Wan 3.0", manifest.engine === "wan3", `${manifest.engine}`);
+  check("30b the limits: H3 Lite 3 min, Wan 3.0 6 min, an unknown engine keeps the old nine", lib.staleAfterMs("processing", 5, "h3lite") === 180000 && lib.staleAfterMs("processing", 5, "wan3") === 360000 && lib.staleAfterMs("processing", 5, "kling3") === 540000, "");
+}
+
+/* 31. The customer gets one "ready" email with a link to the dashboard */
+{
+  resetProvider({ sceneMs: 60_000 }); P.emails = [];
+  process.env.RESEND_API_KEY = "re_test"; process.env.FRAME_MOTION_FROM_EMAIL = "MotionWren <hello@motionwren.test>";
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('owner-1', 'agent@example.test', 'Agent', 'customer', 'active', 'free', 0, 0, 0)").run();
+  const id = await newJob(env, 1, { tag: "s31" });
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const ready = P.emails.filter((mail) => /ready/i.test(mail.subject));
+  check("31a a finished video sends the customer exactly one ready email", end.status === "succeeded" && ready.length === 1 && ready[0].to[0] === "agent@example.test", `${end.status} emails=${ready.length}`);
+  check("31b the email has a button to the dashboard and says how long it is kept", ready.length === 1 && /motionwren\.com\/dashboard/.test(ready[0].html || "") && /90 days/.test(ready[0].text), "");
+  delete process.env.RESEND_API_KEY; delete process.env.FRAME_MOTION_FROM_EMAIL;
+}
+
+/* 32. Vidu Q3 Turbo: its own endpoint, its own input shape, its measured price, the photo's own shape */
+{
+  const input = lib.buildEngineInput("vidu3turbo", { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 6, resolution: "1080p", aspectRatio: "16:9" });
+  check("32a Vidu Q3 Turbo is sent to Replicate's vidu/q3-turbo with the photo as the start frame, silent, at 1080p", lib.ENGINE_ENDPOINTS.vidu3turbo.endsWith("/vidu/q3-turbo/predictions") && input.start_image === "https://x.test/p.jpg" && input.audio === false && input.resolution === "1080p" && input.duration === 6 && !("aspect_ratio" in input), JSON.stringify(input).slice(0, 160));
+  check("32b its prompt keeps the camera-only lock and the photo shape is kept", /STRICT: only the camera moves/.test(String(input.prompt)), "");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
