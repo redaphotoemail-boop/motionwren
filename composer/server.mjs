@@ -86,7 +86,7 @@ function run(command, args, { timeoutMs = 15 * 60 * 1000 } = {}) {
   });
 }
 
-const EDITOR_BUILD = "2026-11-15-shot-length";
+const EDITOR_BUILD = "2026-11-23-smart-movement";
 async function probe(file) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate,duration", "-of", "json", file], { timeoutMs: 60_000 });
   const data = JSON.parse(stdout);
@@ -221,6 +221,7 @@ import { planTitles, titleGraph } from "./titles.mjs";
 import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, prepareTemplateInputs, snapRecipeToBeatGrid, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
 import { analyzeBeats } from "./wrenaudio.mjs";
+import { measurePhotos } from "./movement.mjs";
 
 /* The depth of a photo, as true distances in metres, from Depth Anything 3 Metric-Large (Apache-2.0, so it may be used commercially).
    Used by every photo move. The earlier Depth Anything v2 model was removed: its larger weights are non-commercial. */
@@ -912,6 +913,12 @@ export function createServer() {
         return send(res, 200, { ok: true, build: EDITOR_BUILD, ffmpeg: stdout.split("\n")[0] || "missing", jobs: jobs.size });
       }
       if (url.pathname === "/music-check" && req.method === "POST") return send(res, 200, await musicCheck());
+      // Camera-movement planning: OpenCV numbers for each photo (and small copies for the AI reader when asked).
+      if (url.pathname === "/movements" && req.method === "POST") {
+        const body = await readJson(req, 40 * 1024 * 1024);
+        try { return send(res, 200, await measurePhotos(ROOT, body.photos, { thumbs: body.thumbs === true })); }
+        catch (error) { return send(res, error.status || 502, { error: String(error?.message || error).slice(0, 400) }); }
+      }
       if (url.pathname === "/music-sample" && req.method === "POST") {
         const body = await readJson(req);
         const prompt = String(body.prompt || "").slice(0, 2000);
