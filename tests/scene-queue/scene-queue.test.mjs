@@ -878,5 +878,19 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   check("29d with the backup switched off the film stays on its own engine", manifest.engine === "wan3", `${manifest.engine}`);
 }
 
+/* 30. A fast engine that hangs is caught in minutes, and when the stalled engine is the backup itself, Wan 3.0 takes over */
+{
+  resetProvider({ sceneMs: 40 * 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'h3lite', 0)").run();
+  const id = await newJob(env, 1, { tag: "s30" });
+  const manifest0 = await lib.loadManifest(env, id); manifest0.engine = "h3lite"; manifest0.endpoint = lib.ENGINE_ENDPOINTS.h3lite; await lib.saveManifest(env, id, manifest0);
+  await start(env, id);
+  for (let step = 0; step < 5 * 12; step += 1) { tick(5000); await advance(env, id); } // five minutes
+  const manifest = await lib.loadManifest(env, id);
+  check("30a a hung H3 Lite scene is caught within five minutes and moved to Wan 3.0", manifest.engine === "wan3", `${manifest.engine}`);
+  check("30b the limits: H3 Lite 3 min, Wan 3.0 6 min, an unknown engine keeps the old nine", lib.staleAfterMs("processing", 5, "h3lite") === 180000 && lib.staleAfterMs("processing", 5, "wan3") === 360000 && lib.staleAfterMs("processing", 5, "kling3") === 540000, "");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

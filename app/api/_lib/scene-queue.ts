@@ -133,7 +133,7 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
       // What the engine says, and since when: "starting" = not running yet, "processing" = running.
       const seen = manifest.engineSeen || (manifest.engineSeen = []);
       if (seen[index]?.status !== status) seen[index] = { status, since: now };
-      const limit = staleAfterMs(status, manifest.sceneSeconds || 5);
+      const limit = staleAfterMs(status, manifest.sceneSeconds || 5, manifest.engine);
       const stale = !failed && manifest.startedAt[index] > 0 && now - manifest.startedAt[index] > limit;
       // The engine deletes its logs after about an hour: copy them now, before anything is cancelled or sent again.
       const report = (failed || stale) ? await saveEngineReport(env, jobId, index, manifest.attempts[index] || 0, studioEngine(manifest.engine as StudioEngineKey)?.name || String(manifest.engine || ""), failed ? "failed" : "stalled", result).catch(() => null) : null;
@@ -143,8 +143,10 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
       }
       // A scene that stalled with the engine is sent once to the backup engine instead of waiting through the same slow engine again.
       // Scenes still to be made go with it (the engine is the film's); finished scenes are kept.
-      if (stale && !failed && (manifest.attempts[index] || 0) <= 1) {
-        const backup = await backupEngine(env);
+      if (stale && !failed && !manifest.backupSwitchedAt && (manifest.attempts[index] || 0) <= 2) {
+        // The backup is the owner's choice, or Off. When the engine that stalled IS the backup, Wan 3.0 (the steadiest engine) takes over.
+        const chosen = await backupEngine(env);
+        const backup = chosen && chosen === manifest.engine && manifest.engine !== "wan3" ? "wan3" : chosen;
         const filmAspect = backup ? (await env.DB.prepare(`SELECT aspect FROM render_jobs WHERE id = ?`).bind(jobId).first<{ aspect: string }>().catch(() => null))?.aspect || "horizontal" : "";
         if (backup && backup !== manifest.engine && backup in ENGINE_ENDPOINTS && !studioEngine(backup as StudioEngineKey).unavailable && !studioEngine(backup as StudioEngineKey).photoMove
           && (filmAspect !== "original" || engineKeepsPhotoShape(backup as StudioEngineKey)) && !manifest.ads
@@ -161,6 +163,7 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
             moved += 1;
           }
           manifest.engine = target;
+          manifest.backupSwitchedAt = now;
           manifest.endpoint = ENGINE_ENDPOINTS[target];
           if (engineUpscales(target, resolution)) manifest.upscale = { to: "1080p" }; else delete manifest.upscale;
           const extra = Math.round(engineCost(target, resolution, seconds) * moved * 100);
