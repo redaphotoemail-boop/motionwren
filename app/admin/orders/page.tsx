@@ -95,6 +95,7 @@ export default function OrdersPage() {
     if (!Number.isNaN(cost)) sumCost += cost;
     if (!Number.isNaN(price) && !Number.isNaN(cost)) sumProfit += price - cost;
   }
+  const stages = (["draft", "production", "completed", "failed"] as const).map((key) => ({ key, label: statusFilters.find(([k]) => k === key)?.[1] || key, value: visible.filter((order) => statusGroup(String(order.status)) === key).length }));
   const collected = 0; // Stripe is not connected and no payment rows link to projects yet, so nothing has been collected.
 
   return <div className="mgr-page">
@@ -104,13 +105,31 @@ export default function OrdersPage() {
     </PageHead>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
 
-    <section className="metrics five" aria-label="Order totals">
+    <section className="panel" aria-label="Orders at a glance">
+      <div className="pipeline" role="img" aria-label={stages.map((step) => `${step.label} ${step.value}`).join(", ")}>
+        {stages.filter((step) => step.value > 0).map((step) => <i key={step.key} className={`pipe-${step.key}`} style={{ flexGrow: step.value }} />)}
+        {!visible.length && <i className="pipe-empty" />}
+      </div>
+      <div className="pipeline-legend">
+        {stages.map((step) => <button key={step.key} type="button" onClick={() => setStatusFilter(step.key)}><span className={`swatch pipe-${step.key}`} /><span>{step.label}</span><b>{step.value}</b></button>)}
+      </div>
+    </section>
+
+    <section className="metrics" aria-label="Order totals">
       <Metric label="Orders" value={visible.length} note={statusFilter === "all" && productFilter === "all" ? "In this view" : "Matching filters"} />
-      <Metric label="Package total" value={money(sumPackage)} note={`Ready ${money(sumCompleted)} · Saved ${money(sumDraft)} · Failed ${money(sumFailed)}`} />
-      <Metric label="Collected" value={money(collected)} note="Stripe not connected" />
-      <Metric label="Est. cost" value={money(sumCost)} note="Engine + music + editing" />
+      <Metric label="Package total" value={money(sumPackage)} note="What the orders are priced at" />
       <Metric label="Est. profit" value={money(sumProfit)} note="Not real margin yet" />
     </section>
+    <details className="panel fin-more">
+      <summary><span><strong>More numbers</strong><small>Ready, saved and failed totals, collected and estimated cost</small></span></summary>
+      <section className="metrics" aria-label="More order numbers">
+        <Metric label="Ready" value={money(sumCompleted)} note="Package total of ready orders" />
+        <Metric label="Saved" value={money(sumDraft)} note="Not started yet" />
+        <Metric label="Failed" value={money(sumFailed)} note="Needs attention" />
+        <Metric label="Collected" value={money(collected)} note="Stripe not connected" />
+        <Metric label="Est. cost" value={money(sumCost)} note="Engine + music + editing" />
+      </section>
+    </details>
 
     <section className="panel">
       <div className="filters">
@@ -141,9 +160,12 @@ export default function OrdersPage() {
       <p className="fine">Package totals are what each order is priced at, not collected payments. Cost = video engine (recorded when production started) + music and editing (calculated from the film&apos;s length and list prices). Not metered provider bills; see Finance for the full breakdown.</p>
     </section>
 
-    <section className="panel maintenance">
-      <div><strong>Clean up</strong><small>Delete failed removes only your own failed projects. Clear test rows removes your saved and failed tests. Real client orders are never touched.</small>{cleanupMessage && <small className="note" role="status">{cleanupMessage}</small>}</div>
-      <span className="actions"><button type="button" className="btn btn-danger btn-sm" onClick={() => clearTestRows("failed")} disabled={clearing}>{clearing ? "Clearing…" : "Delete failed"}</button><button type="button" className="btn btn-danger btn-sm" onClick={() => clearTestRows()} disabled={clearing}>{clearing ? "Clearing…" : "Clear test rows"}</button></span>
-    </section>
+    <details className="panel fin-more">
+      <summary><span><strong>Clean up</strong><small>Delete your own failed or test projects</small></span></summary>
+      <div className="maintenance">
+        <div><small>Delete failed removes only your own failed projects. Clear test rows removes your saved and failed tests. Real client orders are never touched.</small>{cleanupMessage && <small className="note" role="status">{cleanupMessage}</small>}</div>
+        <span className="actions"><button type="button" className="btn btn-danger btn-sm" onClick={() => clearTestRows("failed")} disabled={clearing}>{clearing ? "Clearing…" : "Delete failed"}</button><button type="button" className="btn btn-danger btn-sm" onClick={() => clearTestRows()} disabled={clearing}>{clearing ? "Clearing…" : "Clear test rows"}</button></span>
+      </div>
+    </details>
   </div>;
 }

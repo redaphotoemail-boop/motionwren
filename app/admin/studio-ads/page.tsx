@@ -519,17 +519,17 @@ export default function StudioAdsPage() {
           {detail ? (
             <>
 
-              <section className={libraryTemplate !== "none" ? "panel tpl-hide" : "panel"}>
-                <div className="panel-head"><h2>Scenes</h2><span className="muted small">One prompt per scene for 30 s / 60 s ads — leave blank to use the ad prompt for that scene.</span></div>
+              <details className={libraryTemplate !== "none" ? "panel tpl-hide fin-more" : "panel fin-more"}>
+                <summary><span><strong>Scenes</strong><span className="muted small">One prompt per scene for 30 s / 60 s ads — leave blank to use the ad prompt for that scene.</span></span></summary>
                 {Array.from({ length: plan.count }, (_, index) => (
                   <label key={index} className="field"><span>Scene {index + 1} prompt</span>
                     <input value={scenePrompts[index] || ""} onChange={(event) => { const next = [...scenePrompts]; next[index] = event.target.value; setScenePrompts(next); }} placeholder={index === 0 && hook ? `Hook: ${hook}` : "This scene, in your words"} maxLength={500} />
                   </label>
                 ))}
-              </section>
+              </details>
 
-              <section className={libraryTemplate !== "none" ? "panel tpl-hide" : "panel"}>
-                <div className="panel-head"><h2>Actors in this ad</h2><span className="muted small">Pick saved actors — their photos stay in the library for the next ad.</span></div>
+              <details className={libraryTemplate !== "none" ? "panel tpl-hide fin-more" : "panel fin-more"}>
+                <summary><span><strong>Actors in this ad</strong><span className="muted small">Pick saved actors — their photos stay in the library for the next ad.</span></span></summary>
                 {actors.length ? (
                   <div className="sa-list">
                     {actors.map((actor) => (
@@ -551,10 +551,10 @@ export default function StudioAdsPage() {
                     ))}
                   </div>
                 ) : null}
-              </section>
+              </details>
 
-              <section className="panel">
-                <div className="panel-head"><h2>Sound</h2><span className="muted small">{elevenlabsOn ? "Music is made fresh for each ad; voiceover is read by ElevenLabs." : "Off — the ad uses the sound the video engine already made."}</span></div>
+              <details className="panel fin-more">
+                <summary><span><strong>Sound</strong><span className="muted small">{elevenlabsOn ? "Music is made fresh for each ad; voiceover is read by ElevenLabs." : "Off — the ad uses the sound the video engine already made."}</span></span></summary>
                 <label className="field-toggle"><input type="checkbox" checked={elevenlabsOn} onChange={(event) => setElevenlabsOn(event.target.checked)} /> ElevenLabs sound — voiceover and music from ElevenLabs, on top of the sound the video already has. Off uses just the sound the video engine made.</label>
                 <label className="field"><span>Music mood</span>
                   <select value={musicMood || ""} onChange={(event) => setMusicMood(event.target.value || null)} disabled={!elevenlabsOn || libraryTemplate !== "none"}>
@@ -570,10 +570,10 @@ export default function StudioAdsPage() {
                   </select>
                 </label>
                 {elevenlabsOn && !voices.keyed ? <p className="note">Voiceover needs the ElevenLabs key — add ELEVENLABS_API_KEY as a Worker secret and it appears here. Music uses the same key.</p> : null}
-              </section>
+              </details>
 
-              <section className={libraryTemplate !== "none" ? "panel tpl-hide" : "panel"}>
-                <div className="panel-head"><h2>Subtitles</h2><span className="muted small">Burned into the picture. Leave the lines empty and they are timed from the voiceover script.</span></div>
+              <details className={libraryTemplate !== "none" ? "panel tpl-hide fin-more" : "panel fin-more"}>
+                <summary><span><strong>Subtitles</strong><span className="muted small">Burned into the picture. Leave the lines empty and they are timed from the voiceover script.</span></span></summary>
                 <label className="field-toggle"><input type="checkbox" checked={subtitlesOn} onChange={(event) => setSubtitlesOn(event.target.checked)} /> Burn subtitles into the video</label>
                 {subtitlesOn ? (
                   <>
@@ -595,7 +595,7 @@ export default function StudioAdsPage() {
                     <label className="field"><span>Subtitle lines — one per line</span><textarea value={subtitleText} onChange={(event) => setSubtitleText(event.target.value)} placeholder={"One line per subtitle.\nThey are timed evenly across the ad."} rows={4} /></label>
                   </>
                 ) : null}
-              </section>
+              </details>
 
               <section className="panel">
                 <div className="panel-head"><h2>Make it</h2><span className="muted small">Status: {statusLabel[detail.ad.status] || detail.ad.status}{detail.job?.error ? ` — ${detail.job.error}` : ""}</span></div>
@@ -615,12 +615,12 @@ export default function StudioAdsPage() {
 
       {tab === "actors" ? (
         <div className="mgr-stack">
-          <section className="panel">
-            <div className="panel-head"><h2>Save an actor</h2><span className="muted small">Upload once — front, side, three-quarter, silhouette — and pick them for any future ad.</span></div>
+          <details className="panel fin-more">
+            <summary><span><strong>Save an actor</strong><span className="muted small">Upload once — front, side, three-quarter, silhouette — and pick them for any future ad.</span></span></summary>
             <label className="field"><span>Name</span><input value={actorName} onChange={(event) => setActorName(event.target.value)} placeholder="e.g. Maya" maxLength={120} /></label>
             <label className="field"><span>Notes</span><input value={actorNotes} onChange={(event) => setActorNotes(event.target.value)} placeholder="Who they are, what they are for (optional)" maxLength={500} /></label>
             <button type="button" className="btn btn-ink" onClick={createActor} disabled={saving}>Save actor</button>
-          </section>
+          </details>
           {actors.map((actor) => (
             <ActorCard key={actor.id} actor={actor} onUpload={uploadActorPhoto} onDelete={() => deleteActor(actor)} busy={saving} />
           ))}
