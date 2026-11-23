@@ -405,7 +405,7 @@ export default function StudioAdsPage() {
   return (
     <div className="mgr-page studio-ads">
       <style>{SA_STYLES}</style>
-      <PageHead eyebrow="Manager · Admin only" title="Studio Ads" sub="Commercials and social ads — your tool, not a client product. Same engines as Studio, a different prompt: premium, cinematic, realistic, never childish or cheesy." />
+      <PageHead eyebrow="Manager · Admin only" title="Studio Ads" sub="Commercials and social ads. Pick your photos, say what the ad is about, then make it." />
       {message ? <p className="notice">{message}</p> : null}
 
       <div className="sa-tabs" role="tablist" aria-label="Studio Ads sections">
@@ -442,8 +442,11 @@ export default function StudioAdsPage() {
           </section>
           ) : null}
           <section className="panel">
-            <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2><span className={libraryTemplate !== "none" ? "muted small tpl-hide" : "muted small"}>Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</span></div>
+            <div className="panel-head"><h2>{detail ? "The ad" : "New ad"}</h2></div>
             <label className="field"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Summer launch — 30 s reel" maxLength={120} /></label>
+            <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={template === "fix-it-20" ? "Anything else the video should show or say — the Fix It In 20 Seconds structure is layered on top automatically." : "The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically."} rows={3} maxLength={2000} /></label>
+            <details className="fin-more fin-inline" open={libraryTemplate !== "none" || template === "fix-it-20"}>
+              <summary><span><strong>Style and template</strong><small>Prompt template, library template and the opening hook</small></span></summary>
             <div className={libraryTemplate !== "none" ? "field tpl-hide" : "field"}><span>Template</span>
               <div className="sa-picker" role="radiogroup" aria-label="Prompt template">
                 {AD_TEMPLATES.map((item) => (
@@ -488,7 +491,10 @@ export default function StudioAdsPage() {
               </>
             ) : null}
             <label className={libraryTemplate !== "none" ? "field tpl-hide" : "field"}><span>Opening hook — the first 2 seconds</span><textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="What must land before anyone scrolls past?" rows={2} maxLength={280} /></label>
-            <label className="field"><span>What is this ad about?</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={template === "fix-it-20" ? "Anything else the video should show or say — the Fix It In 20 Seconds structure is layered on top automatically." : "The product, the feeling, the story — in your words. The premium cinematic prompt is layered on top automatically."} rows={3} maxLength={2000} /></label>
+            </details>
+            <details className="fin-more fin-inline">
+              <summary><span><strong>Format, length and engine</strong><small>{AD_ASPECTS.find((item) => item.id === aspect)?.label || aspect} · {duration} s · {draft ? "draft" : "full render"}</small></span></summary>
+              <p className={libraryTemplate !== "none" ? "muted small tpl-hide" : "muted small"}>Two upload places, one bill: images and actors share the same storage — a second area costs nothing extra.</p>
             <div className="field-row">
               <label className="field"><span>Format</span>
                 <select value={aspect} disabled={libraryTemplate !== "none"} onChange={(event) => setAspect(event.target.value as AdAspect)}>
@@ -512,6 +518,7 @@ export default function StudioAdsPage() {
             <label className="field-toggle"><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Draft render first — 480p, max 10 s, about a third of the full price, to check the idea before spending on the full render.</label>
             {template === "fix-it-20" && draft ? <p className="note">A draft is 10 s at 480p — it previews the opening only (hook, problem, start of the demo), not the full 21–30 s structure. The full structure is only in the 30 s render.</p> : null}
             {libraryTemplate !== "none" && draft ? <p className="note">A draft is 10 s at 480p — the first 4 scenes only, not the full 17 s structure.</p> : null}
+            </details>
             <p className="muted small">Plan: {plan.count} scene{plan.count === 1 ? "" : "s"} × {plan.sceneSeconds}s · Estimated generation {money(estimate)}{draft ? " (draft)" : ""}{elevenlabsOn ? " — ElevenLabs voiceover and music are billed by ElevenLabs, not here." : ""}</p>
             {!detail ? <button type="button" className="btn btn-ink" onClick={createAd} disabled={saving}>{saving ? "Creating…" : "Create ad"}</button> : null}
           </section>

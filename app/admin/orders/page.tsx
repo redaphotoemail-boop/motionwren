@@ -115,14 +115,14 @@ export default function OrdersPage() {
       </div>
     </section>
 
-    <section className="metrics" aria-label="Order totals">
+    <section className="metrics three" aria-label="Order totals">
       <Metric label="Orders" value={visible.length} note={statusFilter === "all" && productFilter === "all" ? "In this view" : "Matching filters"} />
       <Metric label="Package total" value={money(sumPackage)} note="What the orders are priced at" />
       <Metric label="Est. profit" value={money(sumProfit)} note="Not real margin yet" />
     </section>
     <details className="panel fin-more">
       <summary><span><strong>More numbers</strong><small>Ready, saved and failed totals, collected and estimated cost</small></span></summary>
-      <section className="metrics" aria-label="More order numbers">
+      <section className="metrics five" aria-label="More order numbers">
         <Metric label="Ready" value={money(sumCompleted)} note="Package total of ready orders" />
         <Metric label="Saved" value={money(sumDraft)} note="Not started yet" />
         <Metric label="Failed" value={money(sumFailed)} note="Needs attention" />
