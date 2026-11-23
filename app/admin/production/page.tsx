@@ -8,6 +8,8 @@ import { PageHead, cents } from "../ui";
 import { studioEngines } from "../../engine-catalog";
 import EnginePanels from "../engines/panels";
 import { ProductionView, isActive, sceneLabel, type StudioJob } from "../../studio/production";
+import { ISSUE_WORDS, type IssueCode } from "../../problem-words";
+import type { Issue, TimelineEvent } from "../../api/_lib/job-diagnosis";
 
 /* A scene's last engine message in plain words (the exact text stays in the tooltip). */
 function sceneNote(error: string) {
@@ -24,9 +26,18 @@ function sceneNote(error: string) {
    click cannot create duplicate engine jobs. */
 
 type Health = { engine: string; backupEngine?: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string; polishNote?: string };
-type Job = StudioJob & { owner?: string };
+type Job = StudioJob & { owner?: string; engine?: string; issues?: Issue[]; timeline?: TimelineEvent[] };
 
 const time = (value: number) => value ? new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
+/* A full time for every video and every event: the date too once it is not today. */
+const stamp = (value: number, seconds = false) => {
+  if (!value) return "time not recorded";
+  const date = new Date(value);
+  const today = new Date().toDateString() === date.toDateString();
+  const clock = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", ...(seconds ? { second: "2-digit" as const } : {}) });
+  return today ? clock : `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${clock}`;
+};
+const engineLabel = (key?: string) => studioEngines.find((engine) => engine.key === key)?.shortName || "";
 const ago = (value: number, now: number) => { const minutes = Math.round((now - value) / 60000); return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`; };
 
 export default function ProductionPage() {
@@ -146,6 +157,23 @@ export default function ProductionPage() {
   }
   const stopped = jobs.filter((job) => job.status === "failed");
   if (stopped.length) problems.push({ id: "stopped", title: `${stopped.length} video${stopped.length === 1 ? "" : "s"} stopped`, detail: "Resume keeps the scenes already made.", fixes: [{ label: "Show them", href: "#videos" }] });
+  // Every video with a problem, grouped under the problem in words.
+  const groups = (Object.keys(ISSUE_WORDS) as IssueCode[]).map((code) => ({ code, words: ISSUE_WORDS[code], items: jobs.flatMap((job) => (job.issues || []).filter((issue) => issue.code === code).map((issue) => ({ job, issue }))) })).filter((group) => group.items.length);
+  const problemGroups = groups.filter((group) => group.words.kind === "problem");
+  const handledGroups = groups.filter((group) => group.words.kind === "handled");
+  const problemCount = problems.length + problemGroups.reduce((sum, group) => sum + group.items.length, 0);
+  const fixIssue = (job: Job, issue: Issue) => issue.fix && act(job, issue.fix.action, issue.fix.scene, issue.fix.action === "resume" && issue.fix.note ? `${issue.fix.label.replace("Fix: ", "Resume")}? ${issue.fix.note}` : undefined);
+  const issueRow = ({ job, issue }: { job: Job; issue: Issue }, index: number) => <li key={`${job.id}:${issue.code}:${issue.scene ?? ""}:${index}`}>
+    <div>
+      <strong><b className="video-ref">{videoRef(job.id)}</b> {job.category.replace(/^Studio · /, "") || "Video"}{engineLabel(job.engine) ? ` · ${engineLabel(job.engine)}` : ""}{job.owner ? ` · ${job.owner}` : ""}</strong>
+      <small>Started {stamp(job.createdAt, true)} · {issue.code === "stopped" ? "stopped" : "problem"} at {stamp(issue.at, true)}</small>
+      <small>{issue.why}</small>
+    </div>
+    <div className="prodm-fixes">
+      {issue.fix && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => { void fixIssue(job, issue); }}>{issue.fix.label}</button>}
+      <a className="btn btn-soft btn-xs" href="#videos" onClick={() => { const row = document.getElementById(`video-${job.id}`) as HTMLDetailsElement | null; if (row) row.open = true; }}>See video</a>
+    </div>
+  </li>;
   const dot = (job: Job) => isActive(job) ? "is-live" : job.status === "failed" ? "is-bad" : "is-ok";
   const summary = (job: Job) => {
     const scenes = job.scenes || [];
@@ -156,7 +184,7 @@ export default function ProductionPage() {
   return <div className="mgr-page prodm">
     <PageHead eyebrow="Production" title="Production" sub="Is it running, what needs you, and every video being made." />
     <nav className="mgr-jump" aria-label="On this page">
-      {problems.length > 0 && <a href="#problems">Problems <b>{problems.length}</b></a>}
+      {problemCount > 0 && <a href="#problems">Problems <b>{problemCount}</b></a>}
       <a href="#videos">Videos</a>
       <a href="#controls">Controls</a>
       <a href="#engines">Engines</a>
@@ -173,7 +201,7 @@ export default function ProductionPage() {
       <span>Music <b>{health?.music || "…"}</b></span>
     </section>
 
-    {problems.length > 0 && <section id="problems" className="prodm-block" aria-label="Problems">
+    {(problems.length > 0 || groups.length > 0) && <section id="problems" className="prodm-block" aria-label="Problems">
       <h2>Problems</h2>
       <ul className="prodm-problems">
         {problems.map((problem) => <li key={problem.id}>
@@ -185,6 +213,19 @@ export default function ProductionPage() {
           </div>
         </li>)}
       </ul>
+      {problemGroups.map((group) => <div className="prodm-group" key={group.code}>
+        <h3>{group.words.title} <small>{group.items.length}</small></h3>
+        <p className="muted small">{group.words.meaning}</p>
+        <ul className="prodm-problems">{group.items.map(issueRow)}</ul>
+      </div>)}
+      {handledGroups.length > 0 && <details className="prodm-more">
+        <summary>Handled automatically ({handledGroups.reduce((sum, group) => sum + group.items.length, 0)})</summary>
+        {handledGroups.map((group) => <div className="prodm-group" key={group.code}>
+          <h3>{group.words.title} <small>{group.items.length}</small></h3>
+          <p className="muted small">{group.words.meaning}</p>
+          <ul className="prodm-problems">{group.items.map(issueRow)}</ul>
+        </div>)}
+      </details>}
     </section>}
 
     <section id="credit" className="prodm-block" aria-label="Replicate credit">
@@ -210,13 +251,13 @@ export default function ProductionPage() {
       {jobs.map((job) => {
         const scenes = job.scenes || [];
         const allReady = scenes.length > 1 && scenes.every((scene) => scene.state === "ready");
-        return <details className="prodm-row" key={job.id}>
+        return <details className="prodm-row" key={job.id} id={`video-${job.id}`}>
           <summary>
             <i className={`dot ${dot(job)}`} />
             <span className="prodm-row-title"><b className="video-ref">{videoRef(job.id)}</b> {job.category.replace(/^Studio · /, "") || "Video"}{job.owner ? <small> · {job.owner}</small> : null}</span>
             <span className="prodm-row-meta">{summary(job)}</span>
             <span className="prodm-row-cost">{cents(job.costCents)}</span>
-            <span className="prodm-row-time">{ago(job.createdAt, now || job.createdAt)}</span>
+            <span className="prodm-row-time" title={ago(job.createdAt, now || job.createdAt)}>{stamp(job.createdAt)} · {ago(job.createdAt, now || job.createdAt)}</span>
           </summary>
           <div className="prodm-job">
           <ProductionView job={job} title={`${job.category.replace(/^Studio · /, "") || "Video"}${job.owner ? ` · ${job.owner}` : ""}`} />
@@ -225,6 +266,10 @@ export default function ProductionPage() {
             {!isActive(job) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "start-over", undefined, `Start over with the same photos and settings? Every scene is made again (~$${(job.costCents / 100).toFixed(2)}).`)}>Start over</button>}
             {!isActive(job) && allReady && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "reassemble", undefined, "Join the finished scenes again into a new version of the film?")}>Re-join scenes</button>}
           </div>
+          {(job.timeline || []).length > 0 && <details className="prodm-timeline" open={(job.issues || []).some((issue) => ISSUE_WORDS[issue.code].kind === "problem")}>
+            <summary>History of this video</summary>
+            <ol>{(job.timeline || []).map((event, index) => <li key={index} className={event.bad ? "is-bad" : ""}><time>{stamp(event.at, true)}</time><span>{event.text}</span></li>)}</ol>
+          </details>}
           {(job.status === "failed" || scenes.some((scene) => scene.attempt > 1)) && <EngineReports id={job.id} />}
           {scenes.length > 0 && <ol className="prodm-scenes">
             {scenes.map((scene, index) => <li key={index}>

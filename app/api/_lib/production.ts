@@ -99,7 +99,7 @@ export type ProductionManifest = {
   editQueue?: QueuedEdit[];
   /** "Original photo shape": the film is made at this shape (width ÷ height), the shape of the photos themselves. */
   frame?: { ratio: number };
-  fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string }[];
+  fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string; at?: number }[];
     /** The exact instruction written for each re-made scene, and who asked for it (the automatic check, or the owner's "Fix this scene" tap). */
     sent?: { round: number; scene: number; text: string; by: "check" | "you"; engine?: string }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */

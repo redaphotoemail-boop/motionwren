@@ -2163,3 +2163,16 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .prodm-report div{display:grid;gap:2px;margin-top:8px}
 .prodm-report small{color:var(--muted,#6b6b6b)}
 .prodm-report pre{max-height:180px;overflow:auto;white-space:pre-wrap;font-size:.72rem;margin:4px 0 0}
+
+.prodm-group{margin-top:22px}
+.prodm-group h3{font-size:1rem;margin:0 0 4px;font-weight:600}
+.prodm-group h3 small{color:var(--muted,#6b6b6b);font-weight:400;margin-left:6px}
+.prodm-group>p{margin:0 0 12px;max-width:64ch}
+.prodm-fixes .btn{white-space:nowrap}
+.prodm-timeline{margin:10px 0}
+.prodm-timeline summary{cursor:pointer;font-size:.85rem}
+.prodm-timeline ol{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
+.prodm-timeline li{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;font-size:.82rem;line-height:1.4}
+.prodm-timeline time{color:var(--muted,#6b6b6b);font-variant-numeric:tabular-nums}
+.prodm-timeline li.is-bad span{color:#8a3b12}
+@media (max-width:700px){.prodm-timeline li{grid-template-columns:1fr;gap:2px}}

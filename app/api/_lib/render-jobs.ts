@@ -748,7 +748,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
         notes[scene] = fixInstruction(issues.get(scene) || [], undefined, issues.get(scene)?.length ? "" : [...new Set(reasons.get(scene))].join(" ")).slice(0, 1500);
         sent.push({ round: round + 1, scene, text: notes[scene], by: "check" });
       }
-      manifest.fix = { ...manifest.fix, round: round + 1, notes, sent, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400) }] };
+      manifest.fix = { ...manifest.fix, round: round + 1, notes, sent, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400), at: Date.now() }] };
       if (await remakeScenes(env, row, manifest, scenes, issues)) return true;
     }
     // Delivered as it is: remember which scenes still have a flag, so they can be previewed in History → Quality.
@@ -863,7 +863,7 @@ export async function fixSceneByHand(env: { DB: D1Database; BUCKET: R2Bucket }, 
   const { cents } = fixEstimate(manifest, row);
   const spend = await guardCheck(env, cents);
   if (!spend.ok) return { error: spend.message };
-  manifest.fix = { ...manifest.fix, round, notes, history: [...(manifest.fix?.history || []), { round, scenes: [scene], why: `Fix this scene (asked by hand): ${issues.join(" ").slice(0, 300)}` }], sent: [...(manifest.fix?.sent || []), { round, scene, text, by: "you" }] };
+  manifest.fix = { ...manifest.fix, round, notes, history: [...(manifest.fix?.history || []), { round, scenes: [scene], why: `Fix this scene (asked by hand): ${issues.join(" ").slice(0, 300)}`, at: Date.now() }], sent: [...(manifest.fix?.sent || []), { round, scene, text, by: "you" }] };
   if (!await remakeScenes(env, row, manifest, [scene], new Map([[scene, issues]]))) return { error: "This video is being updated right now. Try again in a few seconds." };
   const fresh = await getRenderJob(env, row.id);
   if (fresh) await advanceRenderJob(env, fresh, token, webhookUrl);
@@ -1050,12 +1050,18 @@ export async function jobCardsNote(env: { BUCKET: R2Bucket }, row: RenderJobRow)
 }
 
 export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
+  return (await jobSceneDetail(env, row))?.scenes ?? null;
+}
+
+/* The scenes plus what the manager's Production page needs to explain a video: when each scene finished and the
+   quality re-makes (round, scenes, why, cost, time). */
+export async function jobSceneDetail(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
   const loaded = await loadManifest(env, row.id);
   if (!loaded) return null;
   const manifest = normalizeManifest(loaded);
   const finishing = ["stitching", "saving", "succeeded"].includes(row.status);
   const { ids } = alignedScenes(row, manifest.inputs.length);
-  return manifest.states.map((state, index) => ({
+  const scenes = manifest.states.map((state, index) => ({
     state: finishing ? "ready" : state === "waiting" ? "queued" : state === "retrying" ? "retry" : state,
     attempt: manifest.attempts[index] || 0,
     reason: finishing ? "" : manifest.reasons[index] || "",
@@ -1064,12 +1070,14 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
     engine: finishing ? "" : manifest.engineSeen?.[index]?.status || "",
     engineSince: finishing ? 0 : manifest.engineSeen?.[index]?.since || 0,
     startedAt: finishing ? 0 : manifest.startedAt[index] || 0,
+    readyAt: manifest.readyAt?.[index] || 0,
     predictionId: ids[index] && !ids[index].startsWith("pending-") && !ids[index].startsWith("resume-") ? ids[index] : "",
     saved: Boolean(manifest.saved[index]),
     motion: motionLabel(String(manifest.inputs[index]?.prompt || "")),
     // A stopped video's finished scene whose engine copy has expired and was never kept: Resume makes it again.
     expired: row.status === "failed" && (finishing ? false : state === "ready") && !manifest.saved[index] && Date.now() - (manifest.readyAt[index] || 0) > 45 * 60 * 1000,
   }));
+  return { scenes, engine: String(manifest.engine || ""), firstEngine: String(manifest.fix?.firstEngine || manifest.engine || ""), fix: (manifest.fix?.history || []).map((item) => ({ round: item.round, scenes: item.scenes, why: item.why, cents: item.cents || 0, engine: item.engine || "", at: item.at || 0 })) };
 }
 
 /* What the provider is doing right now, for the progress views. */

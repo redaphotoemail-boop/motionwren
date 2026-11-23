@@ -1,5 +1,6 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
-import { ACTIVE_STATUSES, advanceStaleJobs, jobScenes, providerNote, publicJob, type RenderJobRow } from "../../_lib/render-jobs";
+import { ACTIVE_STATUSES, advanceStaleJobs, jobSceneDetail, providerNote, publicJob, type RenderJobRow } from "../../_lib/render-jobs";
+import { diagnoseJob, type DiagReport } from "../../_lib/job-diagnosis";
 import { backupEngine, maxActive, readProviderState } from "../../_lib/provider";
 import { composerBinding, readEditorState } from "../../_lib/composer";
 import { studioEngine } from "../../../engine-catalog";
@@ -29,7 +30,20 @@ export async function GET(request: Request) {
     const owners = [...new Set(rows.results.map((row) => row.ownerId))];
     const people = owners.length ? await env.DB.prepare(`SELECT id, email, display_name AS name FROM users WHERE id IN (${owners.map(() => "?").join(",")})`).bind(...owners).all<{ id: string; email: string; name: string }>() : { results: [] };
     const who = new Map(people.results.map((person) => [person.id, person.name || person.email]));
-    const jobs = await Promise.all(rows.results.map(async (row) => ({ ...publicJob(row), owner: who.get(row.ownerId) || "", scenes: await jobScenes(env, row) })));
+    // What the engine said when a scene stalled or failed (saved at the time), for every video listed.
+    const saved = await env.DB.prepare(`SELECT key, value FROM platform_settings WHERE key LIKE 'engine-report:%' ORDER BY updated_at DESC LIMIT 600`).all<{ key: string; value: string }>().catch(() => ({ results: [] as { key: string; value: string }[] }));
+    const reportsByJob = new Map<string, DiagReport[]>();
+    for (const item of saved.results) {
+      const jobId = item.key.split(":")[1];
+      try { reportsByJob.set(jobId, [...(reportsByJob.get(jobId) || []), JSON.parse(item.value) as DiagReport]); } catch { /* unreadable report */ }
+    }
+    const now = Date.now();
+    const jobs = await Promise.all(rows.results.map(async (row) => {
+      const detail = await jobSceneDetail(env, row).catch(() => null);
+      const pub = publicJob(row);
+      const diagnosis = diagnoseJob({ id: row.id, kind: row.kind, status: row.status, error: row.error, createdAt: row.createdAt, updatedAt: row.updatedAt, costCents: row.costCents }, detail?.scenes || [], reportsByJob.get(row.id) || [], detail?.fix || [], now, detail ? { engine: detail.engine, firstEngine: detail.firstEngine } : undefined);
+      return { ...pub, owner: who.get(row.ownerId) || "", engine: detail?.engine || "", scenes: detail?.scenes ?? null, issues: diagnosis.issues, timeline: diagnosis.timeline };
+    }));
     const scenes = jobs.filter((job) => ACTIVE_STATUSES.includes(job.status as never)).flatMap((job) => job.scenes || []);
     const engine = isEngineKey(engineRow?.value) ? engineRow.value : "wan3";
     return Response.json({
