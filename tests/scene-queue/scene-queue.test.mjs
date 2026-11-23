@@ -908,5 +908,12 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   delete process.env.RESEND_API_KEY; delete process.env.FRAME_MOTION_FROM_EMAIL;
 }
 
+/* 32. Vidu Q3 Turbo: its own endpoint, its own input shape, its measured price, the photo's own shape */
+{
+  const input = lib.buildEngineInput("vidu3turbo", { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 6, resolution: "1080p", aspectRatio: "16:9" });
+  check("32a Vidu Q3 Turbo is sent to Replicate's vidu/q3-turbo with the photo as the start frame, silent, at 1080p", lib.ENGINE_ENDPOINTS.vidu3turbo.endsWith("/vidu/q3-turbo/predictions") && input.start_image === "https://x.test/p.jpg" && input.audio === false && input.resolution === "1080p" && input.duration === 6 && !("aspect_ratio" in input), JSON.stringify(input).slice(0, 160));
+  check("32b its prompt keeps the camera-only lock and the photo shape is kept", /STRICT: only the camera moves/.test(String(input.prompt)), "");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
