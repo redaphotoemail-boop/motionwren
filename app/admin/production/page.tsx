@@ -5,6 +5,7 @@ import { videoRef } from "../../video-ref";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../../ui-icon";
 import { PageHead, cents } from "../ui";
+import { studioEngines } from "../../engine-catalog";
 import EnginePanels from "../engines/panels";
 import { ProductionView, isActive, sceneLabel, type StudioJob } from "../../studio/production";
 
@@ -22,7 +23,7 @@ function sceneNote(error: string) {
    fix a stuck video. Every action goes through the same queue, so a double
    click cannot create duplicate engine jobs. */
 
-type Health = { engine: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string; polishNote?: string };
+type Health = { engine: string; backupEngine?: string; maxActive: number; activeScenes: number; queuedScenes: number; activeVideos: number; waitingUntil: number; paused: boolean; lowCredit: boolean; lastError: string; lastErrorAt: number; tokenConfigured: boolean; editor?: "ready" | "trouble" | "backup"; editorOkAt?: number; editorError?: string; music?: string; musicNote?: string; polishNote?: string };
 type Job = StudioJob & { owner?: string };
 
 const time = (value: number) => value ? new Date(value).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "";
@@ -72,6 +73,14 @@ export default function ProductionPage() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { setError(data.error || "The setting could not be saved."); return; }
     setMessage(`Up to ${value} scene${value === 1 ? "" : "s"} at once.`); await load();
+  }
+
+  async function setBackup(value: string) {
+    setError("");
+    const response = await fetch("/api/admin/production", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ backupEngine: value }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "The setting could not be saved."); return; }
+    setMessage(value === "off" ? "A stalled scene will wait on its own engine." : "A stalled scene is sent to the backup engine."); await load();
   }
 
   const loadSamples = useCallback(async () => {
@@ -211,6 +220,13 @@ export default function ProductionPage() {
         <div className="tabs" role="radiogroup" aria-label="Scenes at once">
           {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
         </div>
+      </div>
+      <div className="prodm-setting">
+        <div><strong>If a scene stalls, use</strong><small>A scene the engine leaves &ldquo;processing&rdquo; for too long is sent once to this engine, with the scenes still to make. Finished scenes are kept.</small></div>
+        <select value={health?.backupEngine || "off"} onChange={(event) => { void setBackup(event.target.value); }} aria-label="Backup engine">
+          <option value="off">Off, wait on the same engine</option>
+          {studioEngines.filter((item) => !item.unavailable && !item.photoMove).map((item) => <option key={item.key} value={item.key}>{item.shortName || item.name}</option>)}
+        </select>
       </div>
       <EnginePanels part="controls" />
       {samples && <details className="prodm-more">
