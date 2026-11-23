@@ -131,6 +131,7 @@ export function outputSize(resolution: string, aspect: string) {
   if (aspect === "vertical") return { width: height, height: Math.round(height * 16 / 9) };
   if (aspect === "cinematic") return { width: Math.round(height * 2.39), height };
   if (aspect === "square") return { width: height, height };
+  if (aspect === "portrait") return { width: height, height: Math.round(height * 5 / 4 / 2) * 2 };
   return { width: Math.round(height * 16 / 9), height };
 }
 
@@ -387,8 +388,9 @@ function queueHooks(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow
       const fresh = await getRenderJob(env, row.id);
       if (!fresh || fresh.status !== "generating") return;
       const loadedManifest = segments.length === 1 ? await loadManifest(env, row.id) : null;
-      const photoSingle = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest)));
-      if (segments.length === 1 && !photoSingle && !loadedManifest?.ads) {
+      // A single clip is saved as-is — unless it still needs the composer: a photo move, cards, an upscale, a slow single, or a frame cut.
+      const singleNeedsComposer = Boolean(loadedManifest && (loadedManifest.photoMoves?.some(Boolean) || loadedManifest.cards || loadedManifest.upscale || slowSingle(loadedManifest) || loadedManifest.edit?.reframe));
+      if (segments.length === 1 && !singleNeedsComposer && !loadedManifest?.ads) {
         const claim = await env.DB.prepare(`UPDATE render_jobs SET status = 'saving', updated_at = ? WHERE id = ? AND status = 'generating'`).bind(Date.now(), row.id).run();
         if (!claim.meta.changes) return;
         const manifest = await loadManifest(env, row.id);
@@ -410,7 +412,7 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const loaded = await loadManifest(env, row.id);
   const manifest = loaded ? normalizeManifest(loaded) : null;
   const origin = webhookUrl ? new URL(webhookUrl).origin : "";
-  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest) || manifest.edit?.sound?.voice || manifest.edit?.sound?.sfx) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
+  if (manifest && QUEUE_KINDS.has(row.kind) && (CROSSFADE_KINDS.has(row.kind) || manifest.photoMoves?.some(Boolean) || manifest.cards || manifest.upscale || slowSingle(manifest) || manifest.edit?.sound?.voice || manifest.edit?.sound?.sfx || manifest.edit?.reframe) && composerBinding(env) && !manifest.edit?.usedBackupJoiner && origin && row.webhookToken) {
     if (await startComposerEdit(env, row, manifest, origin)) return;
   }
   // A Photo-move film can only be edited by our editor: the backup joiner takes video clips, not photos.
@@ -435,7 +437,7 @@ async function startJoin(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
   const urls = segments.filter((value): value is string => Boolean(value));
   if (urls.length < 2) throw new Error("The finished scenes could not be found for joining.");
   try {
-    const stitchId = await startStitch(token, urls, row.resolution, row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio);
+    const stitchId = await startStitch(token, urls, row.resolution, manifest?.edit?.reframe || row.aspect, CROSSFADE_KINDS.has(row.kind) ? 1 : 0, webhookUrl, row.duration, manifest?.audio);
     await env.DB.prepare(`UPDATE render_jobs SET stitch_prediction_id = ?, updated_at = ? WHERE id = ? AND status = 'stitching'`).bind(stitchId, Date.now(), row.id).run();
   } catch (error) {
     if (error instanceof ProviderError && error.kind === "budget") {
@@ -480,7 +482,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const only = manifest.edit?.recipe && manifest.edit.useScenes?.length ? [...new Set(manifest.edit.useScenes)].filter((index) => Number.isInteger(index) && index >= 0 && index < count) : [];
   const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : list;
   const moves = pick(allMoves), speeds = pick(allSpeeds), clips = pick(allClips);
-  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
+  if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx && !manifest.edit?.reframe) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   let edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
   const attempt = (edit.attempt || 0) + 1;
@@ -502,7 +504,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const cut = manifest.edit?.reframe;
   const own = !cut && row.aspect === "original" && manifest.frame?.ratio ? shapeSize(manifest.frame.ratio, height) : null;
   const frameNow = cut || row.aspect;
-  const [width, tall] = own ? [own.width, own.height] : frameNow === "vertical" ? [height, wide] : frameNow === "square" ? [height, height] : [wide, height];
+  const [width, tall] = own ? [own.width, own.height] : frameNow === "vertical" ? [height, wide] : frameNow === "square" ? [height, height] : frameNow === "portrait" ? [height, Math.round(height * 5 / 4 / 2) * 2] : [wide, height];
   // Studio Ads with the ElevenLabs toggle off arrive with no edit.music:
   // no generated music — the scenes keep their own sound (keepAudio below).
   // Never fall through to the customer musicPrompt fallback here.
@@ -1212,7 +1214,7 @@ export async function applyFilmEdit(env: { DB: D1Database; BUCKET: R2Bucket }, r
   }
 
   // Cut to another frame: the stored clips are re-framed at the final edit, so nothing is made again and nothing is charged.
-  if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "made") {
+  if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "square" || body.frame === "portrait" || body.frame === "made") {
     if (body.frame === "made" || body.frame === row.aspect) delete edit.reframe; else edit.reframe = body.frame;
   }
 
@@ -1318,6 +1320,8 @@ export function editQueueLabel(body: FilmEditBody): string {
   const parts: string[] = [];
   if (body.frame === "horizontal") parts.push("Cut to 16:9");
   else if (body.frame === "vertical") parts.push("Cut to 9:16");
+  else if (body.frame === "square") parts.push("Cut to 1:1");
+  else if (body.frame === "portrait") parts.push("Cut to 4:5");
   else if (body.frame === "made") parts.push("Back to the original frame");
   if (typeof body.template === "string" && body.template) parts.push("Apply a template");
   if (typeof body.music === "string" && body.music !== "keep") parts.push(body.music === "none" ? "Remove the music" : "New music");
@@ -1358,7 +1362,7 @@ export async function enqueueEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row
   }
   if (typeof body.music === "string" && body.music !== "keep" && body.music !== "none" && !musicTemplate(body.music)) return { error: "Unknown music." };
   if (body.voice !== undefined && body.voice !== null && (body.voice?.mode === "scene" || body.voice?.mode === "film") && !editText(body.voice?.voiceId, 64)) return { error: "Choose a voice." };
-  if (body.frame !== undefined && !["horizontal", "vertical", "made"].includes(String(body.frame))) return { error: "Unknown frame." };
+  if (body.frame !== undefined && !["horizontal", "vertical", "square", "portrait", "made"].includes(String(body.frame))) return { error: "Unknown frame." };
   const queueId = crypto.randomUUID();
   const storedBody = JSON.parse(JSON.stringify(body)) as FilmEditBody;
   for (const item of Array.isArray(storedBody.scenes) ? storedBody.scenes : []) {

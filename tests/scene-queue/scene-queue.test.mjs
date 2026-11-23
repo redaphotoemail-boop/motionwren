@@ -835,5 +835,22 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   check("25e alerts at 50%, 80% and the 100% stop are each sent once", !guard.ok && alerts.length === 3 && alerts.some((a) => /stopped/i.test(a.title)), JSON.stringify(alerts.map((a) => a.title)));
 }
 
+/* 28. Several sizes of one film: each is its own new version, in the order asked, and "made" goes back to the original frame */
+{
+  resetProvider({ sceneMs: 5_000 });
+  const { C, binding } = makeComposer();
+  const env = { ...env0(), COMPOSER: binding }; await setLimit(env, 1);
+  const id = await newJob(env, 2, { tag: "s28" });
+  await start(env, id);
+  const running = await row(env, id);
+  const labels = [];
+  for (const frame of ["square", "portrait", "vertical", "made"]) { const queued = await lib.enqueueEdit(env, running, { frame }); labels.push("error" in queued ? `ERR ${queued.error}` : queued.entry.label); }
+  check("28a every size is accepted and named", labels.join("|") === "Cut to 1:1|Cut to 4:5|Cut to 9:16|Back to the original frame", labels.join("|"));
+  const end = await runToEnd(env, id);
+  const sizes = C.specs.map((entry) => `${entry.spec?.width}x${entry.spec?.height}`).slice(-4);
+  check("28b each size is made in order at its own dimensions — 1:1, 4:5, 9:16, then the original", end.status === "succeeded" && sizes.join(",") === "720x720,720x900,720x1280,1280x720", `${end.status} ${sizes.join(",")}`);
+  check("28c every size lands in History as its own version (five in all with the first)", versionsOf(env) === 5, `versions=${versionsOf(env)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

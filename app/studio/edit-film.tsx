@@ -8,6 +8,7 @@ import { CardsPreview, FinalSection, FinalSoundPanel, emptySound, type FinalSoun
 import type { StudioJob } from "./production";
 import { prepareFrameFile } from "./prepare-frame";
 import { shapeLabel } from "../original-shape";
+import { COST_RATES } from "../cost-model";
 
 /* Edit a finished film from History: its listing cards, music, voiceover,
    sound effects, and the camera movement of any single scene. Everything that
@@ -15,7 +16,7 @@ import { shapeLabel } from "../original-shape";
    shown before anything starts. */
 
 type Data = {
-  status: string; kind: string; engine: string; engineName: string; resolution: string; aspect: string; frameRatio?: number | null; cut?: "horizontal" | "vertical" | null; duration: number; count: number; sceneSeconds: number;
+  status: string; kind: string; engine: string; engineName: string; resolution: string; aspect: string; frameRatio?: number | null; cut?: "horizontal" | "vertical" | "square" | "portrait" | null; duration: number; count: number; sceneSeconds: number;
   photoEngine: boolean; remakeCostCents: number;
   cards: { opening: { title: string; detail: string; message: string } | null; closing: { name: string; contact: string; logo: string } | null } | null;
   music: string; voice: { mode: "scene" | "film"; voiceId: string; lines: string[] } | null; sfx: { prompts: string[] } | null;
@@ -30,6 +31,19 @@ type Props = {
 
 const prettyMove = (key: string) => key.replace(/-/g, " ").replace(/^./, (letter) => letter.toUpperCase());
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+export type FrameKey = "made" | "horizontal" | "vertical" | "square" | "portrait";
+/* The sizes offered. "made" is the film's own original size; the others are cuts of it. */
+const FRAME_CHOICES: { key: Exclude<FrameKey, "made">; ratio: string; shape: number; note: string }[] = [
+  { key: "horizontal", ratio: "16:9", shape: 16 / 9, note: "Widescreen · YouTube, listings" },
+  { key: "vertical", ratio: "9:16", shape: 9 / 16, note: "Vertical · Reels, TikTok, Stories" },
+  { key: "square", ratio: "1:1", shape: 1, note: "Square · feed posts" },
+  { key: "portrait", ratio: "4:5", shape: 4 / 5, note: "Portrait · Instagram feed" },
+];
+/* What one new size costs: the final edit plus the quality check. Nothing is made again by the video engine. */
+const SIZE_CENTS = Math.round(COST_RATES.editPerFilm * 100 + COST_RATES.reviewCloudflareCents);
+
+/* The shape a film was made at, as the Frame picker shows it: "original" means the film was made at its photos' own shape, so its ratio is shown when known. */
+const madeShapeLabel = (aspect: string, frameRatio?: number | null) => aspect === "vertical" ? "9:16" : aspect === "cinematic" ? "2.39:1" : aspect === "square" ? "1:1" : aspect === "horizontal" ? "16:9" : frameRatio ? shapeLabel(frameRatio) : "16:9";
 
 export default function EditFilm({ jobId, onClose, onStarted, motions, scenePrompt }: Props) {
   const [data, setData] = useState<Data | null>(null);
@@ -47,7 +61,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const [recreate, setRecreate] = useState<Record<number, boolean>>({});
   const [newPhotos, setNewPhotos] = useState<Record<number, string>>({});
   const [skipped, setSkipped] = useState<number[]>([]);
-  const [frame, setFrame] = useState<"made" | "horizontal" | "vertical">("made");
+  const [frames, setFrames] = useState<FrameKey[]>([]); // the sizes to make; each one is its own new version
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState("");
   const [problem, setProblem] = useState<{ message: string; fix?: string } | null>(null);
@@ -55,7 +69,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   // Set the form to the film's current state (used on load, and after an edit
   // is queued — so a second Apply does not queue the same changes again).
   function setFormFrom(body: Data) {
-    setFrame(body.cut || "made"); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
+    setFrames([]); setTitles(titlesFrom(body.titles)); setTitlesStart(JSON.stringify(titlesFrom(body.titles)));
     const next: FinalSound = { music: body.music === "auto" ? "keep" : body.music, voiceMode: body.voice?.mode || "off", voiceId: body.voice?.voiceId || "", lines: body.voice?.lines || [], film: body.voice?.mode === "film" ? (body.voice.lines.find(Boolean) || "") : "", sfxOn: Boolean(body.sfx), sfx: body.sfx?.prompts || [] };
     setSoundState(next); setInitial(JSON.stringify(next));
     setOpeningOn(Boolean(body.cards?.opening)); setClosingOn(Boolean(body.cards?.closing));
@@ -97,7 +111,9 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const remakeCents = data && !data.photoEngine ? changedScenes.length * data.remakeCostCents : 0;
   const titlesChanged = Boolean(data) && JSON.stringify(titles) !== titlesStart;
   const usedClips = data ? data.scenes.map((scene) => scene.index).filter((index) => !skipped.includes(index)) : [];
-  const frameChanged = Boolean(data) && frame !== (data?.cut || "made");
+  const currentFrame: FrameKey = data?.cut || "made";
+  const sizes = frames.filter((key) => key !== currentFrame); // the size the film already is needs no new version
+  const frameChanged = Boolean(data) && sizes.length > 0;
   const anything = frameChanged || cardsChanged || voiceChanged || sfxChanged || musicChanged || changedScenes.length > 0 || Boolean(wrenId) || titlesChanged;
 
   const branding = { listingTitle: title, listingBeds: "", listingBaths: "", listingSquareFeet: "", listingPrice: detail, listingMessage: message, agentName: agent, agentEmail: "", agentPhone: contact, agentLogo: logo.startsWith("data:") ? logo : "" } as never;
@@ -115,7 +131,6 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     if (cardsChanged) body.cards = (openingOn && (title.trim() || detail.trim() || message.trim())) || (closingOn && (agent.trim() || contact.trim() || logo !== "none"))
       ? { opening: openingOn ? { title, detail, message } : null, closing: closingOn ? { name: agent, contact, logo: logo === "none" ? "" : logo } : null } : null;
     if (wrenId) { if (usedClips.length < 2) { setBusy(false); setProblem({ message: "Choose at least two clips." }); return; } body.template = wrenId; if (usedClips.length < data.count) body.useScenes = usedClips; }
-    if (frameChanged) body.frame = frame;
     if (titlesChanged) body.titles = hasTitles(titles) ? titlesPayload(titles) : null;
     if (musicChanged) body.music = sound.music;
     if (voiceChanged) {
@@ -124,18 +139,35 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
     }
     if (sfxChanged) body.sfx = { on: sound.sfxOn, prompts: sound.sfx.slice(0, data.count) };
     if (changedScenes.length) body.scenes = changedScenes.map((scene) => data.photoEngine ? { scene, photoMove: moves[scene] } : { scene, ...(moves[scene] ? { prompt: scenePrompt(moves[scene]) } : {}), ...(newPhotos[scene] ? { photo: newPhotos[scene] } : {}) });
+    type EditResult = { job?: StudioJob; error?: string; fix?: string; warning?: string; queued?: { id: string; position: number; label: string }; queue?: Data["queue"] };
+    const post = async (payload: Record<string, unknown>) => {
+      const response = await fetch(`/api/studio/production/${jobId}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      return { ok: response.ok, result: await response.json().catch(() => ({})) as EditResult };
+    };
     try {
-      const response = await fetch(`/api/studio/production/${jobId}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const result = await response.json().catch(() => ({})) as { job?: StudioJob; error?: string; fix?: string; warning?: string; queued?: { id: string; position: number; label: string }; queue?: Data["queue"] };
-      if (!response.ok) { setProblem({ message: result.error || "The edit could not start.", fix: result.fix }); return; }
-      if (result.queued) {
-        // The film is still being made: this edit waits in line and runs on its own when the film finishes.
-        onStarted(result.job || null, `Added to the line — edit ${result.queued.position} in line. It starts when the current one finishes.`);
-        setData((current) => current ? { ...current, queue: result.queue || current.queue } : current);
+      // One edit per size, in order: each becomes its own new version in History. The other changes ride with the first one
+      // (they are kept on the film, so the later sizes carry them too).
+      const list: (FrameKey | null)[] = sizes.length ? sizes : [null];
+      let first: EditResult | null = null; let started = 0; let queuedAny = false; let lastQueue: Data["queue"] | undefined;
+      for (const [position, size] of list.entries()) {
+        const { ok, result } = await post(position === 0 ? { ...body, ...(size ? { frame: size } : {}) } : { frame: size });
+        if (!ok) {
+          setProblem({ message: started ? `${started} of ${list.length} sizes started. The rest could not: ${result.error || "the edit could not start."}` : result.error || "The edit could not start.", fix: result.fix });
+          if (!started) return;
+          break;
+        }
+        started += 1; first = first || result; queuedAny = queuedAny || Boolean(result.queued); if (result.queue) lastQueue = result.queue;
+      }
+      if (!first) return;
+      const many = started > 1 ? `${started} sizes are being made — each lands in History as its own version.` : "";
+      if (queuedAny) {
+        // The film is still being made: these edits wait in line and run on their own when the film finishes.
+        onStarted(first.job || null, many ? `Added to the line — ${many}` : `Added to the line — edit ${first.queued?.position || 1} in line. It starts when the current one finishes.`);
+        setData((current) => current ? { ...current, queue: lastQueue || current.queue } : current);
         setFormFrom(data); // back to the film's current state, so a second Apply does not queue the same changes again
         return;
       }
-      onStarted(result.job || null, changedScenes.length && !data.photoEngine ? "Making the changed scenes again, then editing your film. The new version will appear here." : "Editing your film. The new version will appear here in a minute or two.");
+      onStarted(first.job || null, many || (changedScenes.length && !data.photoEngine ? "Making the changed scenes again, then editing your film. The new version will appear here." : "Editing your film. The new version will appear here in a minute or two."));
     } catch { setProblem({ message: "The edit could not start. Check your connection and try again." }); }
     finally { setBusy(false); }
   }
@@ -155,11 +187,19 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           {templates.length ? <label className="fin-fields"><span className="label">Edit again with a template</span><select value={wrenId} onChange={(event) => setWrenId(event.target.value)} aria-label="Template"><option value="">Keep the current edit</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
         </FinalSection>}
 
-        {data.aspect !== "vertical" && <FinalSection title="Frame" note={`Cut the finished film to another shape. Nothing is made again, so it costs nothing. The floor stays in the picture; a vertical keeps the middle.`}>
-          <div className="segmented-control frame-control"><div>
-            {([["made", data.aspect === "original" && data.frameRatio ? shapeLabel(data.frameRatio) : "16:9", "As made"], ...(data.aspect === "original" ? [["horizontal", "16:9", "Horizontal"]] : []), ["vertical", "9:16", "Vertical"]] as [typeof frame, string, string][]).map(([key, ratio, note]) => <button type="button" key={key} className={frame === key ? "active" : ""} onClick={() => setFrame(key)} disabled={busy}><strong>{ratio}</strong><small>{note}</small></button>)}
-          </div></div>
-        </FinalSection>}
+        <FinalSection title="Frame" note={`Pick one or more sizes. Each one becomes its own new version, cut from your film — about ${SIZE_CENTS}¢ each, and no scenes are made again. The floor stays in the picture; a vertical keeps the middle.`}>
+          <div className="frame-tiles" role="group" aria-label="Sizes">
+            {([{ key: "made" as FrameKey, ratio: madeShapeLabel(data.aspect, data.frameRatio), shape: data.aspect === "vertical" ? 9 / 16 : data.aspect === "square" ? 1 : data.aspect === "cinematic" ? 2.39 : data.frameRatio || 16 / 9, note: data.cut ? "Original size · go back to it" : "Original size" }, ...FRAME_CHOICES.filter((choice) => choice.key !== data.aspect)] as { key: FrameKey; ratio: string; shape: number; note: string }[]).map((choice) => {
+              const current = choice.key === currentFrame; const picked = frames.includes(choice.key) && !current;
+              return <button type="button" key={choice.key} className={`frame-tile${picked ? " on" : ""}${current ? " current" : ""}`} onClick={() => !current && setFrames((list) => list.includes(choice.key) ? list.filter((key) => key !== choice.key) : [...list, choice.key])} disabled={busy} aria-pressed={picked} aria-label={`${choice.ratio} ${choice.note}${current ? " — this film's size now" : ""}`}>
+                <span className="frame-glyph" style={{ aspectRatio: String(choice.shape) }} aria-hidden="true">{picked ? "✓" : ""}</span>
+                <strong>{choice.ratio}</strong><small>{choice.note}</small>
+                {current ? <em>This film now</em> : picked ? <em>New version</em> : null}
+              </button>;
+            })}
+          </div>
+          {sizes.length ? <p className="frame-sum">{sizes.length} new version{sizes.length === 1 ? "" : "s"} · about {sizes.length * SIZE_CENTS}¢ in all</p> : null}
+        </FinalSection>
 
         <FinalSection title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Turn on Recreate for the scenes you want made again, with the same movement or a new one, and optionally a new photo — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}. Scenes you leave off are kept.`}>
           <div className="fin-scenes">{data.scenes.map((scene) => { const on = Boolean(recreate[scene.index]) || Boolean(moves[scene.index]); return <div className={on && !data.photoEngine ? "fin-scene fin-scene-open" : "fin-scene"} key={scene.index}><img src={newPhotos[scene.index] || scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
@@ -190,7 +230,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
         </FinalSection>
         {problem && <div className="fin-problem" role="alert"><span>{problem.message}</span>{problem.fix === "elevenlabs" && <a href="https://elevenlabs.io/app/subscription" target="_blank" rel="noreferrer">Open ElevenLabs plans →</a>}</div>}
       </div>}
-      {data && <footer className="fin-sheet-foot"><div><strong>{!anything ? "No changes yet" : remakeCents ? `${dollars(remakeCents)} to make ${changedScenes.length} scene${changedScenes.length === 1 ? "" : "s"} again` : "No new scenes to make"}</strong><small>{busy ? "Starting your edit — this can take a minute. You can close this; it keeps going on our server and lands in History." : data.status !== "succeeded" ? "This film is still being made — your edit will wait in line and run when it finishes." : anything ? "A new version is saved to History; the current one stays." : "Change something above to enable Apply."}</small></div><button type="button" className="generate" onClick={apply} disabled={!anything || busy}>{busy ? "Starting…" : "Apply changes"}<span>→</span></button></footer>}
+      {data && <footer className="fin-sheet-foot"><div><strong>{!anything ? "No changes yet" : `${sizes.length ? `${sizes.length} new size${sizes.length === 1 ? "" : "s"} · about ${sizes.length * SIZE_CENTS}¢` : ""}${sizes.length && remakeCents ? " + " : ""}${remakeCents ? `${dollars(remakeCents)} to make ${changedScenes.length} scene${changedScenes.length === 1 ? "" : "s"} again` : ""}${!sizes.length && !remakeCents ? "No new scenes to make" : ""}`}</strong><small>{busy ? "Starting your edit — this can take a minute. You can close this; it keeps going on our server and lands in History." : data.status !== "succeeded" ? "This film is still being made — your edit will wait in line and run when it finishes." : anything ? (sizes.length > 1 ? "Each size is saved to History as its own new version; the current one stays." : "A new version is saved to History; the current one stays.") : "Change something above to enable Apply."}</small></div><button type="button" className="generate" onClick={apply} disabled={!anything || busy}>{busy ? "Starting…" : "Apply changes"}<span>→</span></button></footer>}
     </div>
   </div>;
 }
