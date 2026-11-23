@@ -2151,3 +2151,9 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .mgr-search-box li em { flex: none; color: var(--faint); font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; font-style: normal; }
 .mgr-search-box li.empty { padding: 16px; color: var(--muted); }
 @media (max-width: 900px) { .mgr-search-btn { top: 12px; right: 14px; } }
+
+.prodm-credit{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+.prodm-credit>div:first-child{display:grid;gap:4px}
+.prodm-credit strong{font-size:1.5rem;font-weight:600}
+.prodm-credit small{color:var(--muted,#6b6b6b)}
+.prodm-credit input{width:120px;min-height:34px;padding:0 10px;border:1px solid var(--line,#ddd);border-radius:999px;background:transparent;font:inherit}
