@@ -8,6 +8,7 @@ import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } fr
 import { soundLayers } from "./film-sound";
 import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "./film-sound";
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
+import { ENGINE_ORDER } from "../../engine-order";
 import { isEngineVideoHost } from "./engine-hosts";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
@@ -285,9 +286,9 @@ export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?
    (see HOLDING_MESSAGE) — never that it failed. The fix itself stays with
    the heartbeat and the managers; the customer can ask for their credit
    back, but only as a fallback (see refundHoldingOrder). */
-/* Backups for a client order, in order: if the engine it started on cannot make a scene, the scenes still
-   to be made go to the next one. Chosen for the same natural, photo-true look at a fair price. */
-const BACKUP_ENGINES: StudioEngineKey[] = ["wan3", "hailuo23", "wan27", "kling3"];
+/* Backups for a client order, in order (see ENGINE_ORDER): if the engine it started on cannot make a scene, the scenes still
+   to be made go to the next one. */
+const BACKUP_ENGINES = ENGINE_ORDER;
 const MAX_RECOVERIES = 3;
 const HARD_ERROR = /not.?found|not supported|unavailable|invalid|unprocessable|HTTP 4(00|04|22)|safety|nsfw|moderat/i;
 const WAIT_ERROR = /credit|throttl|rate limit|429|busy/i;

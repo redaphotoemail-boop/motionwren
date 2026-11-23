@@ -259,7 +259,7 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
   await lib.recoverFailedOrders(env);
   const moved = await lib.loadManifest(env, id3);
   const movedRow = env.DB.raw.prepare("SELECT status, cost_cents AS c FROM render_jobs WHERE id = ?").get(id3);
-  check("7d an engine-side error moves the order to the backup engine (Hailuo 2.3)", moved.engine === "hailuo23" && moved.endpoint === lib.ENGINE_ENDPOINTS.hailuo23 && String(moved.inputs[0].first_frame_image || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
+  check("7d an engine-side error moves the order to the first backup engine (H3 Lite)", moved.engine === "h3lite" && moved.endpoint === lib.ENGINE_ENDPOINTS.h3lite && String(moved.inputs[0].first_frame_image || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
 }
 
 /* 8. Provider out of credit: production pauses, nothing fails, then continues */
@@ -879,7 +879,7 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   check("29d with the backup switched off the film stays on its own engine", manifest.engine === "wan3", `${manifest.engine}`);
 }
 
-/* 30. A fast engine that hangs is caught in minutes, and when the stalled engine is the backup itself, Wan 3.0 takes over */
+/* 30. A fast engine that hangs is caught in minutes, and a stalled backup passes the film on to the next engine in the order (H3 Lite → H3) */
 {
   resetProvider({ sceneMs: 40 * 60_000 });
   const env = env0(); await setLimit(env, 1);
@@ -889,7 +889,7 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   await start(env, id);
   for (let step = 0; step < 5 * 12; step += 1) { tick(5000); await advance(env, id); } // five minutes
   const manifest = await lib.loadManifest(env, id);
-  check("30a a hung H3 Lite scene is caught within five minutes and moved to Wan 3.0", manifest.engine === "wan3", `${manifest.engine}`);
+  check("30a a hung H3 Lite scene is caught within five minutes and moved to the next engine, H3", manifest.engine === "h3", `${manifest.engine}`);
   check("30b the limits: H3 Lite 3 min, Wan 3.0 6 min, an unknown engine keeps the old nine", lib.staleAfterMs("processing", 5, "h3lite") === 180000 && lib.staleAfterMs("processing", 5, "wan3") === 360000 && lib.staleAfterMs("processing", 5, "kling3") === 540000, "");
 }
 
@@ -927,6 +927,33 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   const mine = P.creates.filter((c) => c.job === "s33");
   check("33b a Vidu scene is handed our private link on the first try, finishes on that one try, and is kept", end.status === "succeeded" && mine.length === 1 && mine[0].via === "link", `${end.status} tries=${mine.length} via=${mine.map((c) => c.via).join(",")}`);
   P.viduHost = false;
+}
+
+/* 34. The engine order: Wan 3.0, then H3 Lite, H3, Hailuo 2.3. A film whose engine keeps stalling walks down it once, and stops at the end */
+{
+  check("34a the order is Wan 3.0, H3 Lite, H3, Hailuo 2.3", JSON.stringify(lib.ENGINE_ORDER) === JSON.stringify(["wan3", "h3lite", "h3", "hailuo23"]), "");
+  check("34b from Wan the first backup is the owner's choice (Off = none); from a backup the order decides; the end has nowhere to go",
+    lib.stallBackup("wan3", "h3lite") === "h3lite" && lib.stallBackup("wan3", null) === null && lib.stallBackup("h3lite", "h3lite") === "h3" && lib.stallBackup("h3", "h3lite") === "hailuo23" && lib.stallBackup("hailuo23", "h3lite") === null && lib.stallBackup("kling3", "h3lite") === "h3lite" && lib.stallBackup("h3lite", null) === null, "");
+  resetProvider({ sceneMs: 90 * 60_000 }); // an engine that never finishes
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'h3lite', 0)").run();
+  const id = await newJob(env, 2, { tag: "s34" });
+  await start(env, id);
+  const seen = [];
+  for (let step = 0; step < 40 * 12; step += 1) {
+    tick(5000); await advance(env, id);
+    const m = await lib.loadManifest(env, id); if (m && seen[seen.length - 1] !== m.engine) seen.push(m.engine);
+  }
+  check("34c a film that keeps stalling goes Wan 3.0 → H3 Lite → H3 → Hailuo 2.3, in that order and no further", JSON.stringify(seen) === JSON.stringify(["wan3", "h3lite", "h3", "hailuo23"]), seen.join(" → "));
+}
+
+/* 35. H3 and H3 Lite are made at 720p (768p) and upscaled to 1080p, exactly like Wan 3.0 */
+{
+  for (const key of ["wan3", "h3", "h3lite"]) {
+    const input = lib.buildEngineInput(key, { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 5, resolution: "1080p", aspectRatio: "16:9" });
+    const sent = String(input.resolution);
+    check(`35 ${key}: a 1080p film is made at ${key === "wan3" ? "720p" : "768P"} and upscaled`, lib.engineUpscales(key, "1080p") && lib.nativeResolution(key, "1080p") === "720p" && sent === (key === "wan3" ? "720p" : "768P") && lib.engineCost(key, "1080p", 5) > lib.engineCost(key, "720p", 5), `${sent}`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
