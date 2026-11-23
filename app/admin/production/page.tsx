@@ -146,6 +146,7 @@ export default function ProductionPage() {
       <a href="#videos">Videos</a>
       <a href="#controls">Controls</a>
       <a href="#engines">Engines</a>
+      <a className="btn btn-ink btn-xs" href="https://replicate.com/predictions" target="_blank" rel="noreferrer">Open Replicate</a>
     </nav>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
     {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
