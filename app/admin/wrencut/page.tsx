@@ -69,8 +69,8 @@ export default function WrenCutPage() {
       <PageHead eyebrow="Manager · Admin only" title="WrenCut" sub="Bring an edit you like. It is read — cuts, camera moves, transitions, colour — and kept as a MotionWren template. The reference is deleted." />
       {message ? <p className="notice">{message}</p> : null}
       <div className="mgr-stack lib-stack">
-        <section className="panel wc-bring">
-          <div className="panel-head"><h2>Bring a reference</h2></div>
+        <details className="panel wc-bring fin-more" open={loaded && !templates.length}>
+          <summary><span><strong>Bring a reference</strong><small>Upload an edit you like, or paste a link</small></span></summary>
           <label className={busy ? "ml-file off" : "ml-file"}>Upload the video<input type="file" accept="video/*" disabled={Boolean(busy)} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void sendFile(file); }} /></label>
           <div className="wc-or"><span>or paste a link</span></div>
           <div className="wc-link">
@@ -79,7 +79,7 @@ export default function WrenCutPage() {
           </div>
           <p className="muted small">Paste a TikTok, Instagram or other video link and the server will try to fetch it. Some links are blocked by the site. If this one is, use Instagram\u2019s Share → Download, then upload the file.</p>
           {busy ? <p className="wc-busy" role="status"><i />{busy}</p> : null}
-        </section>
+        </details>
         {templates.map((template) => <TemplateCard key={template.id} template={template} onChange={load} onAct={act} onReread={(init) => start(init, template.id.replace(/^wren:/, ""))} busy={Boolean(busy)} />)}
         {loaded && !templates.length ? <p className="muted">No templates yet. Bring the first reference above.</p> : null}
       </div>
@@ -179,6 +179,8 @@ function TemplateCard({ template, onChange, onAct, onReread, busy }: { template:
         </div>
         <button type="button" role="switch" aria-checked={template.active} aria-label="Show in Studio" className={template.active ? "ml-switch on" : "ml-switch"} onClick={() => { void onAct(template.id, "active", !template.active); }}><i /></button>
       </div>
+      <details className="fin-more fin-inline" open={open || rereading}>
+      <summary>Manage</summary>
       <label className="wc-engine"><span>Made with</span>
         <select value={template.engine || ""} onChange={(event) => { void onAct(template.id, "engine", undefined, undefined, event.target.value); }}>
           <option value="">Studio&rsquo;s current engine</option>
@@ -191,6 +193,7 @@ function TemplateCard({ template, onChange, onAct, onReread, busy }: { template:
         <button type="button" className="secondary" onClick={() => setRereading((value) => !value)}>Update from a reference</button>
         <button type="button" className="ml-del" onClick={() => { if (window.confirm(`Delete ${template.name}?`)) void onAct(template.id, "delete"); }}>Delete</button>
       </div>
+      </details>
       {rereading ? (
         <div className="wc-picker">
           <p className="muted small">Read a reference again into {template.name}. Its speed ramps, motion blur, camera moves, cuts, sound and colour are replaced by what the video shows; the name, engine and on/off stay. The reference is deleted afterwards, and the old preview is cleared so you can make a new one.</p>

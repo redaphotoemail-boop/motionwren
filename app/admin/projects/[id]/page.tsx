@@ -82,10 +82,11 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
 
     {loading && !project ? <div className="empty-soft"><span>Loading production order…</span></div> : project && <div className="mgr-cols">
       <div className="mgr-stack">
-        <section className="panel">
-          <div className="panel-head"><h2>Listing brief</h2>{project.listingUrl ? <a className="text-btn" href={project.listingUrl} target="_blank" rel="noreferrer">Open original listing <Icon name="arrow" size={14} /></a> : <span className="muted small">Manual entry</span>}</div>
+        <details className="panel fin-more">
+          <summary><span><strong>Listing brief</strong><small>{project.customerName || project.customerEmail || "Customer"} · {project.price ? money(Number(project.price)) : "no price"} · {aspectLabel(project.aspect)}</small></span></summary>
+          <div className="panel-head">{project.listingUrl ? <a className="text-btn" href={project.listingUrl} target="_blank" rel="noreferrer">Open original listing <Icon name="arrow" size={14} /></a> : <span className="muted small">Manual entry</span>}</div>
           <dl className="facts-list">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-        </section>
+        </details>
         <section className="panel">
           <div className="panel-head"><h2>Source photos</h2><span className="muted small">{project.assets.length} in production order</span></div>
           <ol className="asset-grid">{project.assets.map((asset, index) => <li key={asset.id}>
@@ -108,8 +109,8 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
           <div className="status-buttons">{["queued", "generating", "stitching", "saving", "completed", "failed"].map((status) => <button key={status} type="button" className={project.status === status ? "active" : ""} disabled={working || project.status === status} onClick={() => setStatus(status)}>{status}</button>)}</div>
           <Link className="btn btn-soft btn-sm" href={`/studio?duration=${project.targetDuration || 20}`}><Icon name="studio" size={15} />Open in Studio</Link>
         </section>
-        <section className="panel">
-          <div className="panel-head"><h2>Final delivery</h2></div>
+        <details className="panel fin-more">
+          <summary><span><strong>Final delivery</strong><small>{project.finalHistoryId ? "A delivery is saved. Replace or download it." : "Upload the finished video"}</small></span></summary>
           <p className="muted small">Uploading here marks the project complete, stores the file privately, and adds it to the customer’s history.</p>
           {project.finalHistoryId && <a className="text-btn" href={`/api/history/${project.finalHistoryId}/video?download=1`}><Icon name="finish" size={15} />Download current delivery</a>}
           <form className="delivery-form" onSubmit={deliver}>
@@ -117,7 +118,7 @@ export default function AdminProjectPage({ params }: { params: Promise<{ id: str
             <button className="btn btn-ink btn-sm" disabled={working || !video}>{working ? "Saving…" : "Publish final delivery"}</button>
           </form>
           <p className="fine">Up to 100 MB. Replace only after final quality review.</p>
-        </section>
+        </details>
       </div>
     </div>}
   </div>;
