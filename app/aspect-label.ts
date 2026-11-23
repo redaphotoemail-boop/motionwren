@@ -23,6 +23,8 @@ export function aspectLabel(aspect: string | null | undefined, frameRatio?: numb
   if (aspect === "vertical") return "9:16";
   if (aspect === "horizontal") return "16:9";
   if (aspect === "cinematic") return "2.39:1";
+  if (aspect === "square") return "1:1";
+  if (aspect === "portrait") return "4:5";
   if (aspect === "original") return frameRatio ? `Original · ${ratioName(frameRatio)}` : "Original";
   return aspect || "—";
 }

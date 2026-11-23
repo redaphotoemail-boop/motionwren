@@ -116,7 +116,7 @@ export type ProductionManifest = {
     /** With a recipe: edit from only these scenes (by index), in this order. */
     useScenes?: number[];
     /** The finished film is cut to this frame instead of the one it was made at (nothing is made again). */
-    reframe?: "horizontal" | "vertical";
+    reframe?: "horizontal" | "vertical" | "square" | "portrait";
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };
     /** Studio Ads: subtitle lines to burn in (position + size), and a
         voiceover track already stored in R2 (voiceover.mp3), mixed over

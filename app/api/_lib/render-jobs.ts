@@ -131,6 +131,7 @@ export function outputSize(resolution: string, aspect: string) {
   if (aspect === "vertical") return { width: height, height: Math.round(height * 16 / 9) };
   if (aspect === "cinematic") return { width: Math.round(height * 2.39), height };
   if (aspect === "square") return { width: height, height };
+  if (aspect === "portrait") return { width: height, height: Math.round(height * 5 / 4 / 2) * 2 };
   return { width: Math.round(height * 16 / 9), height };
 }
 
@@ -503,7 +504,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const cut = manifest.edit?.reframe;
   const own = !cut && row.aspect === "original" && manifest.frame?.ratio ? shapeSize(manifest.frame.ratio, height) : null;
   const frameNow = cut || row.aspect;
-  const [width, tall] = own ? [own.width, own.height] : frameNow === "vertical" ? [height, wide] : frameNow === "square" ? [height, height] : [wide, height];
+  const [width, tall] = own ? [own.width, own.height] : frameNow === "vertical" ? [height, wide] : frameNow === "square" ? [height, height] : frameNow === "portrait" ? [height, Math.round(height * 5 / 4 / 2) * 2] : [wide, height];
   // Studio Ads with the ElevenLabs toggle off arrive with no edit.music:
   // no generated music — the scenes keep their own sound (keepAudio below).
   // Never fall through to the customer musicPrompt fallback here.
@@ -1213,7 +1214,7 @@ export async function applyFilmEdit(env: { DB: D1Database; BUCKET: R2Bucket }, r
   }
 
   // Cut to another frame: the stored clips are re-framed at the final edit, so nothing is made again and nothing is charged.
-  if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "made") {
+  if (body.frame === "horizontal" || body.frame === "vertical" || body.frame === "square" || body.frame === "portrait" || body.frame === "made") {
     if (body.frame === "made" || body.frame === row.aspect) delete edit.reframe; else edit.reframe = body.frame;
   }
 
@@ -1319,6 +1320,8 @@ export function editQueueLabel(body: FilmEditBody): string {
   const parts: string[] = [];
   if (body.frame === "horizontal") parts.push("Cut to 16:9");
   else if (body.frame === "vertical") parts.push("Cut to 9:16");
+  else if (body.frame === "square") parts.push("Cut to 1:1");
+  else if (body.frame === "portrait") parts.push("Cut to 4:5");
   else if (body.frame === "made") parts.push("Back to the original frame");
   if (typeof body.template === "string" && body.template) parts.push("Apply a template");
   if (typeof body.music === "string" && body.music !== "keep") parts.push(body.music === "none" ? "Remove the music" : "New music");
@@ -1359,7 +1362,7 @@ export async function enqueueEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row
   }
   if (typeof body.music === "string" && body.music !== "keep" && body.music !== "none" && !musicTemplate(body.music)) return { error: "Unknown music." };
   if (body.voice !== undefined && body.voice !== null && (body.voice?.mode === "scene" || body.voice?.mode === "film") && !editText(body.voice?.voiceId, 64)) return { error: "Choose a voice." };
-  if (body.frame !== undefined && !["horizontal", "vertical", "made"].includes(String(body.frame))) return { error: "Unknown frame." };
+  if (body.frame !== undefined && !["horizontal", "vertical", "square", "portrait", "made"].includes(String(body.frame))) return { error: "Unknown frame." };
   const queueId = crypto.randomUUID();
   const storedBody = JSON.parse(JSON.stringify(body)) as FilmEditBody;
   for (const item of Array.isArray(storedBody.scenes) ? storedBody.scenes : []) {
