@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { Icon, type IconName } from "../ui-icon";
 import { WrenMark } from "../components/brand";
+import AdminSearch from "./admin-search";
 
 const links: Array<{ href: string; label: string; icon: IconName; match: (path: string) => boolean }> = [
   { href: "/admin", label: "Overview", icon: "dashboard", match: (path) => path === "/admin" },
@@ -43,7 +44,7 @@ export default function ManagerShell({ children }: { children: React.ReactNode }
           <a href="/api/auth/logout"><Icon name="sign-in" size={16} />Sign out</a>
         </div>
       </aside>
-      <div className="mgr-main">{children}</div>
+      <div className="mgr-main"><AdminSearch />{children}</div>
     </div>
   );
 }
