@@ -110,6 +110,14 @@ export async function writeProviderState(env: DbEnv, change: Partial<ProviderSta
    Default 1 (a provider account under $5 of credit allows a burst of one
    request). Raise it in the Studio's production health panel, or with the
    REPLICATE_MAX_ACTIVE environment variable, once the account allows more. */
+/* The engine a stalled scene is sent to once. Default H3 Lite; "off" turns the automatic switch off. */
+export const BACKUP_ENGINE_DEFAULT = "h3lite";
+export async function backupEngine(env: DbEnv): Promise<string | null> {
+  const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'backup_engine'`).first<{ value?: string }>().catch(() => null);
+  const value = row?.value || BACKUP_ENGINE_DEFAULT;
+  return value === "off" ? null : value;
+}
+
 export async function maxActive(env: DbEnv) {
   const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'provider_max_active'`).first<{ value?: string }>().catch(() => null);
   const value = Number(row?.value || process.env.REPLICATE_MAX_ACTIVE || 1);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 const src = readFileSync("app/api/_lib/production.ts", "utf8");
-assert.ok(/staleAfterMs = \(status: string, sceneSeconds: number\) => status === "starting" \? 6 \* 60 \* 1000 : Math\.min\(18, 4 \+ Math\.max\(3, sceneSeconds\)\) \* 60 \* 1000/.test(src), "the stall limits changed");
+assert.ok(/staleAfterMs = \(status: string, sceneSeconds: number, engine\?: string\) =>/.test(src) && /const general = Math\.min\(18, 4 \+ Math\.max\(3, sceneSeconds\)\)/.test(src) && /FAST_ENGINE_MINUTES: Record<string, number> = \{ h3lite: 3, wan3: 6, hailuo23: 6, h3: 7 \}/.test(src), "the stall limits changed");
 const limit = (status, seconds) => status === "starting" ? 6 * 60000 : Math.min(18, 4 + Math.max(3, seconds)) * 60000;
 assert.equal(limit("starting", 5), 360000, "an engine that has not started a scene gets 6 minutes");
 assert.equal(limit("processing", 5), 9 * 60000, "a running 5-second scene gets 9 minutes, not 20");

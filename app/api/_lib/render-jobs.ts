@@ -8,6 +8,8 @@ import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } fr
 import { soundLayers } from "./film-sound";
 import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "./film-sound";
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
+import { ENGINE_ORDER } from "../../engine-order";
+import { isEngineVideoHost } from "./engine-hosts";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { fixEngine } from "../../fix-engine";
@@ -74,7 +76,7 @@ export function safeReplicateUrl(value: unknown) {
     // Local end-to-end tests serve "engine" outputs from a mock (never set in production).
     const mockHost = process.env.REPLICATE_API_BASE ? new URL(process.env.REPLICATE_API_BASE).host : null;
     if (mockHost && url.host === mockHost) return url.toString();
-    return url.protocol === "https:" && (url.hostname === "replicate.delivery" || url.hostname.endsWith(".replicate.delivery") || Boolean(compositorHost && url.hostname === compositorHost)) ? url.toString() : null;
+    return url.protocol === "https:" && (isEngineVideoHost(url.hostname) || Boolean(compositorHost && url.hostname === compositorHost)) ? url.toString() : null;
   } catch { return null; }
 }
 
@@ -238,7 +240,9 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     ]);
     // A later version: remember it in order, so History can list the first version as the original and the edits after it.
     if (existing && manifest) { manifest.versions = [...(manifest.versions || []), historyId]; await saveManifest(env, row.id, manifest).catch(() => undefined); }
-    await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", "Your finished video is saved in your MotionWren dashboard and ready to download.");
+    // One "ready" email per finished video, even if this step runs twice.
+    const first = await env.DB.prepare(`INSERT OR IGNORE INTO platform_settings (key, value, updated_at) VALUES (?1, '1', ?2)`).bind(`ready-email:${historyId}`, Date.now()).run().catch(() => null);
+    if (first?.meta?.changes) await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", READY_TEXT, readyEmailHtml());
     // Scene photos and finished scenes are kept (regenerate a scene, re-join) until the retention clean-up.
   } catch (error) {
     await env.BUCKET.delete(r2Key);
@@ -247,7 +251,14 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   return historyId;
 }
 
-export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string) {
+const DASHBOARD_URL = "https://motionwren.com/dashboard";
+const READY_TEXT = `Your video is ready.\n\nWatch it and download it here:\n${DASHBOARD_URL}\n\nIt stays saved in your dashboard for 90 days.\n\nMotionWren`;
+/* Plain, spacious and short: one message and one button. */
+export function readyEmailHtml() {
+  return `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:440px;margin:0 auto;padding:48px 24px;color:#1a1a1a"><p style="font-size:22px;font-weight:600;margin:0 0 12px">Your video is ready.</p><p style="font-size:15px;line-height:1.5;color:#555;margin:0 0 28px">Watch it and download it from your dashboard. It stays saved there for 90 days.</p><a href="${DASHBOARD_URL}" style="display:inline-block;background:#1a1a1a;color:#fff;text-decoration:none;font-size:15px;padding:12px 22px;border-radius:999px">Watch your video</a><p style="font-size:12px;color:#999;margin:36px 0 0">MotionWren</p></div>`;
+}
+
+export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string, html?: string) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.FRAME_MOTION_FROM_EMAIL;
   if (!apiKey || !from) return;
@@ -257,7 +268,7 @@ export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string,
     await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [user.email], subject, text }),
+      body: JSON.stringify({ from, to: [user.email], subject, text, ...(html ? { html } : {}) }),
     });
   } catch { /* Email failure must never fail the video delivery. */ }
 }
@@ -275,9 +286,9 @@ export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?
    (see HOLDING_MESSAGE) — never that it failed. The fix itself stays with
    the heartbeat and the managers; the customer can ask for their credit
    back, but only as a fallback (see refundHoldingOrder). */
-/* Backups for a client order, in order: if the engine it started on cannot make a scene, the scenes still
-   to be made go to the next one. Chosen for the same natural, photo-true look at a fair price. */
-const BACKUP_ENGINES: StudioEngineKey[] = ["wan3", "hailuo23", "wan27", "kling3"];
+/* Backups for a client order, in order (see ENGINE_ORDER): if the engine it started on cannot make a scene, the scenes still
+   to be made go to the next one. */
+const BACKUP_ENGINES = ENGINE_ORDER;
 const MAX_RECOVERIES = 3;
 const HARD_ERROR = /not.?found|not supported|unavailable|invalid|unprocessable|HTTP 4(00|04|22)|safety|nsfw|moderat/i;
 const WAIT_ERROR = /credit|throttl|rate limit|429|busy/i;
@@ -737,7 +748,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
         notes[scene] = fixInstruction(issues.get(scene) || [], undefined, issues.get(scene)?.length ? "" : [...new Set(reasons.get(scene))].join(" ")).slice(0, 1500);
         sent.push({ round: round + 1, scene, text: notes[scene], by: "check" });
       }
-      manifest.fix = { ...manifest.fix, round: round + 1, notes, sent, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400) }] };
+      manifest.fix = { ...manifest.fix, round: round + 1, notes, sent, history: [...(manifest.fix?.history || []), { round: round + 1, scenes, why: alertText.trim().slice(0, 400), at: Date.now() }] };
       if (await remakeScenes(env, row, manifest, scenes, issues)) return true;
     }
     // Delivered as it is: remember which scenes still have a flag, so they can be previewed in History → Quality.
@@ -852,7 +863,7 @@ export async function fixSceneByHand(env: { DB: D1Database; BUCKET: R2Bucket }, 
   const { cents } = fixEstimate(manifest, row);
   const spend = await guardCheck(env, cents);
   if (!spend.ok) return { error: spend.message };
-  manifest.fix = { ...manifest.fix, round, notes, history: [...(manifest.fix?.history || []), { round, scenes: [scene], why: `Fix this scene (asked by hand): ${issues.join(" ").slice(0, 300)}` }], sent: [...(manifest.fix?.sent || []), { round, scene, text, by: "you" }] };
+  manifest.fix = { ...manifest.fix, round, notes, history: [...(manifest.fix?.history || []), { round, scenes: [scene], why: `Fix this scene (asked by hand): ${issues.join(" ").slice(0, 300)}`, at: Date.now() }], sent: [...(manifest.fix?.sent || []), { round, scene, text, by: "you" }] };
   if (!await remakeScenes(env, row, manifest, [scene], new Map([[scene, issues]]))) return { error: "This video is being updated right now. Try again in a few seconds." };
   const fresh = await getRenderJob(env, row.id);
   if (fresh) await advanceRenderJob(env, fresh, token, webhookUrl);
@@ -1039,12 +1050,18 @@ export async function jobCardsNote(env: { BUCKET: R2Bucket }, row: RenderJobRow)
 }
 
 export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
+  return (await jobSceneDetail(env, row))?.scenes ?? null;
+}
+
+/* The scenes plus what the manager's Production page needs to explain a video: when each scene finished and the
+   quality re-makes (round, scenes, why, cost, time). */
+export async function jobSceneDetail(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
   const loaded = await loadManifest(env, row.id);
   if (!loaded) return null;
   const manifest = normalizeManifest(loaded);
   const finishing = ["stitching", "saving", "succeeded"].includes(row.status);
   const { ids } = alignedScenes(row, manifest.inputs.length);
-  return manifest.states.map((state, index) => ({
+  const scenes = manifest.states.map((state, index) => ({
     state: finishing ? "ready" : state === "waiting" ? "queued" : state === "retrying" ? "retry" : state,
     attempt: manifest.attempts[index] || 0,
     reason: finishing ? "" : manifest.reasons[index] || "",
@@ -1053,12 +1070,14 @@ export async function jobScenes(env: { BUCKET: R2Bucket }, row: RenderJobRow) {
     engine: finishing ? "" : manifest.engineSeen?.[index]?.status || "",
     engineSince: finishing ? 0 : manifest.engineSeen?.[index]?.since || 0,
     startedAt: finishing ? 0 : manifest.startedAt[index] || 0,
+    readyAt: manifest.readyAt?.[index] || 0,
     predictionId: ids[index] && !ids[index].startsWith("pending-") && !ids[index].startsWith("resume-") ? ids[index] : "",
     saved: Boolean(manifest.saved[index]),
     motion: motionLabel(String(manifest.inputs[index]?.prompt || "")),
     // A stopped video's finished scene whose engine copy has expired and was never kept: Resume makes it again.
     expired: row.status === "failed" && (finishing ? false : state === "ready") && !manifest.saved[index] && Date.now() - (manifest.readyAt[index] || 0) > 45 * 60 * 1000,
   }));
+  return { scenes, engine: String(manifest.engine || ""), firstEngine: String(manifest.fix?.firstEngine || manifest.engine || ""), fix: (manifest.fix?.history || []).map((item) => ({ round: item.round, scenes: item.scenes, why: item.why, cents: item.cents || 0, engine: item.engine || "", at: item.at || 0 })) };
 }
 
 /* What the provider is doing right now, for the progress views. */

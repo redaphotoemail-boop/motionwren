@@ -30,6 +30,7 @@ function makeDb() {
     }
   }
   // The spending guard is off (no limits) for the queue tests, which run many films; its own tests below turn it on.
+  db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'off', 0)").run(); // the stall switch has its own tests below
   db.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('spend_guard', ?, 0)").run(JSON.stringify({ monthlyCents: 0, dailyCents: 0, perFilmCents: 0, paused: false }));
   const wrap = (sql, values = []) => ({
     bind: (...next) => wrap(sql, next),
@@ -58,7 +59,8 @@ function running() { return [...P.preds.values()].filter((p) => !p.stitch && p.s
 let maxRunning = 0;
 globalThis.fetch = async (url, init = {}) => {
   url = String(url); const method = (init.method || "GET").toUpperCase();
-  if (url.startsWith("https://replicate.delivery/")) return new Response(new Uint8Array(20000), { headers: { "content-type": "video/mp4", "content-length": "20000" } });
+  if (url === "https://api.resend.com/emails") { (P.emails ||= []).push(JSON.parse(String(init.body))); return json({ id: "e1" }); }
+  if (url.startsWith("https://replicate.delivery/") || url.startsWith("https://video.cf.vidu.com/")) return new Response(new Uint8Array(20000), { headers: { "content-type": "video/mp4", "content-length": "20000" } });
   if (url === "https://api.replicate.com/v1/files" && method === "POST") { P.files += 1; return json({ id: `f${P.files}`, urls: { get: `https://api.replicate.com/v1/files/f${P.files}` } }, 201); }
   if (/\/predictions$/.test(url) && method === "POST") {
     // The account limit: one new request per 10 s while credit < $5.
@@ -93,7 +95,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (get && method === "GET") {
     const p = P.preds.get(get[1]); if (!p) return json({ detail: "Not found" }, 404);
     if (p.status === "processing" && clock >= p.doneAt) p.status = p.stitch || p.upscale ? (p.fail ? "failed" : "succeeded") : p.outcome === "fail" ? "failed" : "succeeded";
-    return json({ id: get[1], status: p.status, output: p.status === "succeeded" ? `https://replicate.delivery/${get[1]}.mp4` : null, error: p.status === "failed" ? "Engine error" : null });
+    return json({ id: get[1], status: p.status, output: p.status === "succeeded" ? (P.viduHost && !p.stitch && !p.upscale ? `https://video.cf.vidu.com/infer/${get[1]}/final_video.mp4?Expires=1&Signature=x` : `https://replicate.delivery/${get[1]}.mp4`) : null, error: p.status === "failed" ? "Engine error" : null });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -257,7 +259,7 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
   await lib.recoverFailedOrders(env);
   const moved = await lib.loadManifest(env, id3);
   const movedRow = env.DB.raw.prepare("SELECT status, cost_cents AS c FROM render_jobs WHERE id = ?").get(id3);
-  check("7d an engine-side error moves the order to the backup engine (Hailuo 2.3)", moved.engine === "hailuo23" && moved.endpoint === lib.ENGINE_ENDPOINTS.hailuo23 && String(moved.inputs[0].first_frame_image || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
+  check("7d an engine-side error moves the order to the first backup engine (H3 Lite)", moved.engine === "h3lite" && moved.endpoint === lib.ENGINE_ENDPOINTS.h3lite && String(moved.inputs[0].first_frame_image || "").includes("scene-01") && movedRow.status === "generating", `${moved.engine} ${movedRow.status} ${movedRow.c}`);
 }
 
 /* 8. Provider out of credit: production pauses, nothing fails, then continues */
@@ -295,13 +297,13 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
 
 /* 10. Long one-at-a-time film: joining uses our stored copies once the engine's expire */
 {
-  resetProvider({ sceneMs: 20 * 60_000 });
+  resetProvider({ sceneMs: 5.5 * 60_000 }); // scenes the engine takes longer than 6 minutes on are stopped by design, so each takes 5.5 minutes
   const env = env0(); await setLimit(env, 1);
-  const id = await newJob(env, 4, { tag: "s10" });
+  const id = await newJob(env, 10, { tag: "s10" });
   await start(env, id);
   const end = await runToEnd(env, id, { stepMs: 60_000 });
   const csv = P.stitchInputs.at(-1) || "";
-  check("10a an 80-minute one-at-a-time film still finishes", end.status === "succeeded", end.status);
+  check("10a a 55-minute one-at-a-time film still finishes", end.status === "succeeded", end.status);
   check("10b joining used our kept copies for scenes older than 45 minutes", csv.includes("/api/job-frames/") && csv.includes("out-01.mp4"), csv.slice(0, 140));
 }
 
@@ -646,8 +648,8 @@ const stitchCreates = () => P.stitchInputs.length;
   const m = await lib.loadManifest(env, id);
   const base = made.filter((c) => c.scene === 1)[0].prompt;
   const fixed = made.filter((c) => c.scene === 1).slice(1);
-  check("22a a film that keeps failing is made 4 times at most (first + 3 fixes: same engine, another engine, Wan 3.0), then delivered", end.status === "succeeded" && C.starts.length === 4 && m.fix?.round === 3, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
-  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 3, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
+  check("22a a film that keeps failing is made 3 times at most (first + 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
+  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 2, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
   check("22c a fix adds an instruction after the scene's own prompt, which is never edited", fixed.every((c) => c.prompt.startsWith(base) && /Fix:/.test(c.prompt)) && !/Fix:/.test(base) && !/Fix:/.test(String(m.inputs[1].prompt)), `${fixed.map((c) => c.prompt.slice(-90)).join(" | ")}`);
   const cost1 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
   check("22d each fix is added to the order's cost", cost1 > cost0, `${cost0} -> ${cost1}`);
@@ -850,6 +852,108 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   const sizes = C.specs.map((entry) => `${entry.spec?.width}x${entry.spec?.height}`).slice(-4);
   check("28b each size is made in order at its own dimensions — 1:1, 4:5, 9:16, then the original", end.status === "succeeded" && sizes.join(",") === "720x720,720x900,720x1280,1280x720", `${end.status} ${sizes.join(",")}`);
   check("28c every size lands in History as its own version (five in all with the first)", versionsOf(env) === 5, `versions=${versionsOf(env)}`);
+}
+
+/* 29. A scene that stalls with the engine goes once to the backup engine */
+{
+  resetProvider({ sceneMs: 40 * 60_000 }); // the engine says "processing" for 40 minutes: stalled
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'hailuo23', 0)").run();
+  const id = await newJob(env, 2, { tag: "s29" });
+  await start(env, id);
+  for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); } // fourteen minutes
+  const manifest = await lib.loadManifest(env, id);
+  const saved = env.DB.raw.prepare("SELECT value FROM platform_settings WHERE key LIKE ?").all(`engine-report:${id}:%`);
+  check("29e a stalled scene's engine report (status and timings) is saved before it is cancelled", saved.length >= 1 && JSON.parse(saved[0].value).why === "stalled" && Boolean(JSON.parse(saved[0].value).status), `${saved.length}`);
+  check("29a a stalled scene moves the film to the backup engine", manifest.engine === "hailuo23" && manifest.endpoint === lib.ENGINE_ENDPOINTS.hailuo23, `${manifest.engine}`);
+  check("29b the scenes still to make are rebuilt for the backup engine", manifest.inputs.every((input) => JSON.stringify(input) !== JSON.stringify(lib.buildEngineInput("wan3", { imageUrl: manifest.photos[0].link, prompt: String(input.prompt || ""), duration: 5, resolution: "720p", aspectRatio: "16:9" }))), "inputs unchanged");
+}
+{
+  resetProvider({ sceneMs: 40 * 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'off', 0)").run();
+  const id = await newJob(env, 2, { tag: "s29off" });
+  await start(env, id);
+  for (let step = 0; step < 14 * 12; step += 1) { tick(5000); await advance(env, id); }
+  const manifest = await lib.loadManifest(env, id);
+  check("29d with the backup switched off the film stays on its own engine", manifest.engine === "wan3", `${manifest.engine}`);
+}
+
+/* 30. A fast engine that hangs is caught in minutes, and a stalled backup passes the film on to the next engine in the order (H3 Lite → H3) */
+{
+  resetProvider({ sceneMs: 40 * 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'h3lite', 0)").run();
+  const id = await newJob(env, 1, { tag: "s30" });
+  const manifest0 = await lib.loadManifest(env, id); manifest0.engine = "h3lite"; manifest0.endpoint = lib.ENGINE_ENDPOINTS.h3lite; await lib.saveManifest(env, id, manifest0);
+  await start(env, id);
+  for (let step = 0; step < 5 * 12; step += 1) { tick(5000); await advance(env, id); } // five minutes
+  const manifest = await lib.loadManifest(env, id);
+  check("30a a hung H3 Lite scene is caught within five minutes and moved to the next engine, H3", manifest.engine === "h3", `${manifest.engine}`);
+  check("30b the limits: H3 Lite 3 min, Wan 3.0 6 min, an unknown engine keeps the old nine", lib.staleAfterMs("processing", 5, "h3lite") === 180000 && lib.staleAfterMs("processing", 5, "wan3") === 360000 && lib.staleAfterMs("processing", 5, "kling3") === 540000, "");
+}
+
+/* 31. The customer gets one "ready" email with a link to the dashboard */
+{
+  resetProvider({ sceneMs: 60_000 }); P.emails = [];
+  process.env.RESEND_API_KEY = "re_test"; process.env.FRAME_MOTION_FROM_EMAIL = "MotionWren <hello@motionwren.test>";
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('owner-1', 'agent@example.test', 'Agent', 'customer', 'active', 'free', 0, 0, 0)").run();
+  const id = await newJob(env, 1, { tag: "s31" });
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const ready = P.emails.filter((mail) => /ready/i.test(mail.subject));
+  check("31a a finished video sends the customer exactly one ready email", end.status === "succeeded" && ready.length === 1 && ready[0].to[0] === "agent@example.test", `${end.status} emails=${ready.length}`);
+  check("31b the email has a button to the dashboard and says how long it is kept", ready.length === 1 && /motionwren\.com\/dashboard/.test(ready[0].html || "") && /90 days/.test(ready[0].text), "");
+  delete process.env.RESEND_API_KEY; delete process.env.FRAME_MOTION_FROM_EMAIL;
+}
+
+/* 32. Vidu Q3 Turbo: its own endpoint, its own input shape, its measured price, the photo's own shape */
+{
+  const input = lib.buildEngineInput("vidu3turbo", { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 6, resolution: "1080p", aspectRatio: "16:9" });
+  check("32a Vidu Q3 Turbo is sent to Replicate's vidu/q3-turbo with the photo as the start frame, silent, at 1080p", lib.ENGINE_ENDPOINTS.vidu3turbo.endsWith("/vidu/q3-turbo/predictions") && input.start_image === "https://x.test/p.jpg" && input.audio === false && input.resolution === "1080p" && input.duration === 6 && !("aspect_ratio" in input), JSON.stringify(input).slice(0, 160));
+  check("32b its prompt keeps the camera-only lock and the photo shape is kept", /STRICT: only the camera moves/.test(String(input.prompt)), "");
+}
+
+/* 33. Vidu hosts its own video and cannot read Replicate's file store (found on the first real Vidu run) */
+{
+  check("33a a finished video from Vidu's own host is accepted, and look-alike hosts are not", Boolean(lib.safeReplicateUrl("https://video.cf.vidu.com/infer/x/final_video.mp4?Expires=1")) && !lib.safeReplicateUrl("https://video.cf.vidu.com.evil.test/x.mp4") && !lib.safeReplicateUrl("https://evilvidu.com/x.mp4") && !lib.safeReplicateUrl("http://video.cf.vidu.com/x.mp4") && Boolean(lib.safeReplicateUrl("https://replicate.delivery/x.mp4")), "");
+  resetProvider({ sceneMs: 60_000 }); P.viduHost = true;
+  const env = env0(); await setLimit(env, 1);
+  const id = await newJob(env, 1, { kind: "studio-single", tag: "s33" });
+  const manifest = await lib.loadManifest(env, id); manifest.engine = "vidu3turbo"; manifest.endpoint = lib.ENGINE_ENDPOINTS.vidu3turbo; await lib.saveManifest(env, id, manifest);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const mine = P.creates.filter((c) => c.job === "s33");
+  check("33b a Vidu scene is handed our private link on the first try, finishes on that one try, and is kept", end.status === "succeeded" && mine.length === 1 && mine[0].via === "link", `${end.status} tries=${mine.length} via=${mine.map((c) => c.via).join(",")}`);
+  P.viduHost = false;
+}
+
+/* 34. The engine order: Wan 3.0, then H3 Lite, H3, Hailuo 2.3. A film whose engine keeps stalling walks down it once, and stops at the end */
+{
+  check("34a the order is Wan 3.0, H3 Lite, H3, Hailuo 2.3", JSON.stringify(lib.ENGINE_ORDER) === JSON.stringify(["wan3", "h3lite", "h3", "hailuo23"]), "");
+  check("34b from Wan the first backup is the owner's choice (Off = none); from a backup the order decides; the end has nowhere to go",
+    lib.stallBackup("wan3", "h3lite") === "h3lite" && lib.stallBackup("wan3", null) === null && lib.stallBackup("h3lite", "h3lite") === "h3" && lib.stallBackup("h3", "h3lite") === "hailuo23" && lib.stallBackup("hailuo23", "h3lite") === null && lib.stallBackup("kling3", "h3lite") === "h3lite" && lib.stallBackup("h3lite", null) === null, "");
+  resetProvider({ sceneMs: 90 * 60_000 }); // an engine that never finishes
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO platform_settings (key, value, updated_at) VALUES ('backup_engine', 'h3lite', 0)").run();
+  const id = await newJob(env, 2, { tag: "s34" });
+  await start(env, id);
+  const seen = [];
+  for (let step = 0; step < 40 * 12; step += 1) {
+    tick(5000); await advance(env, id);
+    const m = await lib.loadManifest(env, id); if (m && seen[seen.length - 1] !== m.engine) seen.push(m.engine);
+  }
+  check("34c a film that keeps stalling goes Wan 3.0 → H3 Lite → H3 → Hailuo 2.3, in that order and no further", JSON.stringify(seen) === JSON.stringify(["wan3", "h3lite", "h3", "hailuo23"]), seen.join(" → "));
+}
+
+/* 35. H3 and H3 Lite are made at 720p (768p) and upscaled to 1080p, exactly like Wan 3.0 */
+{
+  for (const key of ["wan3", "h3", "h3lite"]) {
+    const input = lib.buildEngineInput(key, { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 5, resolution: "1080p", aspectRatio: "16:9" });
+    const sent = String(input.resolution);
+    check(`35 ${key}: a 1080p film is made at ${key === "wan3" ? "720p" : "768P"} and upscaled`, lib.engineUpscales(key, "1080p") && lib.nativeResolution(key, "1080p") === "720p" && sent === (key === "wan3" ? "720p" : "768P") && lib.engineCost(key, "1080p", 5) > lib.engineCost(key, "720p", 5), `${sent}`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

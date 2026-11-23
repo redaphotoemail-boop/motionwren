@@ -34,7 +34,7 @@ assert.ok(clipPicker.includes("Use saved clips") || clipPicker.includes("saved c
 assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").includes("requireAdmin"), "The saved-clips route lost its admin check");
 assert.ok(readFileSync("app/api/studio/clips/route.ts", "utf8").includes("requireAdmin"), "The clips list lost its admin check");
 const studioPage = readFileSync("app/studio/page.tsx", "utf8");
-for (const text of ["Photo shape", "Horizontal", "Social", "Crop-safe"]) assert.ok(studioPage.includes(text), `The Studio frame size lost: ${text}`);
+for (const text of ["Photo shape", "Classic listing film", "Vertical property reel", "Luxury cinematic", "Important action stays safe for a wide 2.39:1 cinematic crop"]) assert.ok(studioPage.includes(text), `The Studio video format lost: ${text}`);
 for (const text of ["arrived and were checked", "Send again", "Checking every photo"]) assert.ok(studioPage.includes(text), `The Studio photo verification lost: ${text}`);
 assert.ok(editFilm.includes("Frame"), "The Edit film panel lost the Frame (cut to 16:9 / vertical) choice");
 // The Frame picker shows on every film, including vertical ones, with all three shapes —
@@ -77,6 +77,9 @@ assert.ok(readFileSync("composer/server.mjs", "utf8").includes("The picture came
 // Spending guard: the Spend page keeps its limits panel, and every engine charge still passes the guard.
 assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("SpendGuardPanel"), "The Finance page lost the spending guard");
 assert.ok(readFileSync("app/admin/replicates/spend-guard-panel.tsx", "utf8").includes("Pause all spending"), "The spending guard lost its pause switch");
+assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes("backupEngine(env)"), "A stalled scene no longer moves to the backup engine");
+assert.ok(readFileSync("app/admin/production/page.tsx", "utf8").includes("If a scene stalls, use"), "Production lost the backup engine setting");
+assert.ok(readFileSync("app/admin/production/page.tsx", "utf8").includes("Open Replicate billing"), "Production lost the Open Replicate button");
 assert.ok(readFileSync("app/api/_lib/provider.ts", "utf8").includes("guardAtEngine"), "createPrediction no longer asks the spending guard");
 assert.ok(readFileSync("app/api/_lib/scene-queue.ts", "utf8").includes('"budget"'), "The scene queue no longer holds scenes at the spending limit");
 assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpend"), "Studio lost the per-film confirmation");
@@ -84,3 +87,16 @@ assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpe
 // Frame sizes in Edit film: original + 16:9, 9:16, 1:1, 4:5; several at once; the price is shown.
 for (const text of ["frame-tiles", "FRAME_CHOICES", "SIZE_CENTS", "Original size", "This film now", '"square"', '"portrait"']) assert.ok(editFilm.includes(text), `Edit film lost: ${text}`);
 assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes('body.frame === "square" || body.frame === "portrait"'), "The edit lost the 1:1 and 4:5 sizes");
+
+// Vidu's video lives on its own host and it cannot read Replicate's file store: both fixes must stay.
+const hosts = readFileSync("app/api/_lib/engine-hosts.ts", "utf8");
+assert.ok(hosts.includes("vidu.com"), "Vidu's video host is no longer accepted");
+const prod = readFileSync("app/api/_lib/production.ts", "utf8");
+assert.ok(prod.includes('READS_PRIVATE_LINK = new Set(["vidu3turbo"])'), "Vidu is no longer handed the private photo link first");
+
+// One shared engine order (Wan 3.0, then H3 Lite, H3, Hailuo 2.3); one Video format control; Focus shift is gone from the menu but its baked prompt is untouched.
+const order = readFileSync("app/engine-order.ts", "utf8");
+assert.ok(order.includes('["wan3", "h3lite", "h3", "hailuo23"]'), "The engine order changed");
+assert.ok(!studio.includes("VisualStyleControl") && studio.includes("Video format") && studio.includes("Classic listing film") && studio.includes("Luxury cinematic") && studio.includes("Vertical property reel"), "Video style and Frame size must stay one control");
+assert.ok(!studio.includes('label: "Focus shift"'), "Focus shift is not offered any more");
+assert.ok(studio.includes('focus: "The camera remains stationary while the lens performs a slow, gentle focus shift within the property scene"'), "The baked movement prompt text was changed");

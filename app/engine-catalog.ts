@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "h3" | "luma" | "photo" | "photo2" | "photo3";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "h3" | "vidu3turbo" | "luma" | "photo" | "photo2" | "photo3";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 9 | 10 | 15;
 
@@ -56,13 +56,13 @@ export const studioEngines: StudioEngine[] = [
     ownShape: true,
     name: "MiniMax H3",
     shortName: "H3",
-    description: "MiniMax's top model, made at 768p and upscaled to 1080p. Added Nov 11 for real-estate testing.",
+    description: "MiniMax's top model. 1080p is made at 768p, then upscaled to 1080p automatically.",
     bestFor: "Quality · fine detail",
     resolutions: ["720p", "1080p"],
     audio: false,
     firstLastFrame: true,
     realEstate: true,
-    badge: "NEW",
+    badge: "UPSCALED 1080P",
     pricePerSecond: { "720p": 0.08, "1080p": 0.0986 }, // Replicate list price $0.08/s at 768p; the 1080p upscale adds the same $0.0186/s H3 Lite pays
     upscaleTo1080: true,
   },
@@ -71,14 +71,28 @@ export const studioEngines: StudioEngine[] = [
     ownShape: true,
     name: "MiniMax H3 Lite",
     shortName: "H3 Lite",
-    description: "Lower-cost MiniMax H3 at 768p. New: being tested against Wan 3.0 for real estate.",
+    description: "Lower-cost MiniMax H3. 1080p is made at 768p, then upscaled to 1080p automatically.",
     bestFor: "Lowest cost",
     resolutions: ["480p", "720p", "1080p"],
     audio: false,
     firstLastFrame: true,
     realEstate: true,
+    badge: "UPSCALED 1080P",
     pricePerSecond: { "480p": 0.0125, "720p": 0.02, "1080p": 0.0386 },
     upscaleTo1080: true,
+  },
+  {
+    key: "vidu3turbo",
+    ownShape: true,
+    name: "Vidu Q3 Turbo",
+    shortName: "Vidu Turbo",
+    description: "Vidu's fast image-to-video, made natively at 1080p. New: being tested against Wan 3.0 for real estate.",
+    bestFor: "Fast · 1080p for less",
+    resolutions: ["720p", "1080p"],
+    audio: false,
+    firstLastFrame: true,
+    realEstate: true,
+    pricePerSecond: { "720p": 0.06, "1080p": 0.08 },
   },
   {
     key: "hailuo23",
@@ -289,6 +303,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "luma": return [5];
     case "h3lite":
     case "h3": return [4, 5, 6, 8, 10, 15];
+    case "vidu3turbo": return [3, 4, 5, 6, 8, 10, 15];
     case "kling3": return [3, 5, 6, 8, 10, 15];
     case "wan25": return [3, 5, 6, 8, 10];
     case "wan27": return [3, 5, 6, 8, 10, 15];
@@ -321,6 +336,7 @@ export const CROSSFADE_SECONDS = 0.5;
     Studio options. */
 export function filmSceneDurations(key: StudioEngineKey, resolution: StudioResolution): number[] {
   if (key === "wan3" || key === "photo" || key === "photo2" || key === "photo3") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
+  if (key === "vidu3turbo") return [3, 4, 5, 6, 7, 8, 9, 10, 12, 15]; // the model takes 1–16 whole seconds
   if (key === "h3lite" || key === "h3") return [4, 5, 6, 7, 8, 9, 10, 12, 15]; // the model takes 4–15 whole seconds
   return [...engineDurationOptions(key, resolution)].sort((a, b) => a - b);
 }

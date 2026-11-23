@@ -15,7 +15,15 @@ export const STALE_SCENE_MS = 20 * 60 * 1000; // the longest a scene may run bef
 /* How long a scene may sit with the engine before it is cancelled and sent again. A scene the engine has not even started
    ("starting": queued or booting) gets 6 minutes; one it is running gets 4 minutes plus one per second of video (a 5-second
    scene: 9 minutes), never more than 18. Scenes normally take 1–5 minutes, so waiting 20 minutes on a silent engine was the problem. */
-export const staleAfterMs = (status: string, sceneSeconds: number) => status === "starting" ? 6 * 60 * 1000 : Math.min(18, 4 + Math.max(3, sceneSeconds)) * 60 * 1000;
+/* Minutes a RUNNING scene may take on engines measured to be fast (Nov 23: H3 Lite 30-45 s, Wan 3.0 ~1.8 min, Hailuo 2.3 ~1.5-2.5 min, H3 ~2.5 min).
+   About three times the usual time, so a hung engine is caught in minutes and not after nine. */
+const FAST_ENGINE_MINUTES: Record<string, number> = { h3lite: 3, wan3: 6, hailuo23: 6, h3: 7 };
+export const staleAfterMs = (status: string, sceneSeconds: number, engine?: string) => {
+  if (status === "starting") return 6 * 60 * 1000;
+  const general = Math.min(18, 4 + Math.max(3, sceneSeconds));
+  const fast = engine ? FAST_ENGINE_MINUTES[engine] : undefined;
+  return (fast ? Math.min(general, fast) : general) * 60 * 1000;
+};
 /* A scene counts as "taking longer than usual" (and shows its Send again button) after this long with the engine. */
 export const SLOW_SCENE_MS = 5 * 60 * 1000;
 
@@ -30,6 +38,8 @@ export const PHOTO_MOVE_CYCLE = ["push-rise", "orbit-right", "pull", "orbit-left
 
 export type ProductionManifest = {
   version: 1;
+  /** Set when a stalled scene sent the film to the backup engine: this happens once per film. */
+  backupSwitchedAt?: number;
   engine: StudioEngineKey;
   endpoint: string;
   sceneSeconds: number;
@@ -89,7 +99,7 @@ export type ProductionManifest = {
   editQueue?: QueuedEdit[];
   /** "Original photo shape": the film is made at this shape (width ÷ height), the shape of the photos themselves. */
   frame?: { ratio: number };
-  fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string }[];
+  fix?: { round: number; firstEngine?: string; notes: string[]; history: { round: number; scenes: number[]; why: string; cents?: number; engine?: string; at?: number }[];
     /** The exact instruction written for each re-made scene, and who asked for it (the automatic check, or the owner's "Fix this scene" tap). */
     sent?: { round: number; scene: number; text: string; by: "check" | "you"; engine?: string }[];
     /** Scene clips the quality check flagged and that were then re-made (kept so they can be previewed), and the flagged scenes of the film as delivered. */
@@ -253,13 +263,16 @@ async function inlinePhoto(env: R2Env, key: string, limit: number): Promise<stri
    3 — the photo inline when it is small, otherwise a fresh upload.
    Each way fails over to the next, so one way of handing over the photo
    failing can never sink a scene. The manifest remembers the uploaded copy
-   (the caller saves it). */
+   (the caller saves it).
+   Vidu fetches the photo from its own servers, which cannot read Replicate's file store (it answered "User Input Error"
+   in 12 seconds), so it is handed our private link from the first try. */
+const READS_PRIVATE_LINK = new Set(["vidu3turbo"]);
 async function baseEngineInput(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
   const input = manifest.inputs[index];
   const photo = manifest.photos?.[index];
   if (!photo) return legacyInput(env, jobId, index, input, attempt);
   const swap = (value: string) => Object.fromEntries(Object.entries(input).map(([key, current]) => [key, current === photo.link ? value : current]));
-  if (attempt === 2) return input;
+  if (attempt === 2 || (attempt === 1 && READS_PRIVATE_LINK.has(String(manifest.engine)))) return input;
   if (attempt >= 3) {
     const inline = await inlinePhoto(env, photo.key, 1_000_000).catch(() => null);
     if (inline) return swap(inline);

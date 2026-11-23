@@ -47,22 +47,34 @@ export default function LibraryStudioPage() {
 
   return (
     <div className="mgr-page">
-      <PageHead eyebrow="Manager · Admin only" title="Library Studio" sub="Recorded video templates — switch one on and it appears as a choice when producing a Studio Ad. Off stays hidden." />
+      <PageHead eyebrow="Manager · Admin only" title="Library Studio" sub="Switch a template on and it appears as a choice in Studio Ads." />
       {message ? <p className="notice">{message}</p> : null}
       <div className="mgr-stack lib-stack">
         {LIBRARY_TEMPLATES.map((template) => (
           <section key={template.id} className="panel">
             <div className="panel-head"><h2>{template.name}</h2><span className="muted small">{template.source}</span></div>
             <p className="muted">{template.blurb}</p>
-            <p className="muted small">{template.durationSeconds} s · vertical 9:16 · {template.photoSlots} photo slots · hard cuts · warm grade · Luxe &amp; warm music</p>
-            <p className="muted small">Fields: {LIBRARY_TEMPLATE_FIELD_DEFS.map((def) => def.label).join(", ")}</p>
+            <details className="fin-more fin-inline">
+              <summary>Details</summary>
+              <p className="muted small">{template.durationSeconds} s · vertical 9:16 · {template.photoSlots} photo slots · hard cuts · warm grade · Luxe &amp; warm music</p>
+              <p className="muted small">Fields: {LIBRARY_TEMPLATE_FIELD_DEFS.map((def) => def.label).join(", ")}</p>
+            </details>
             <div className="ml-rule"><span>Show when producing</span><button type="button" role="switch" aria-checked={isLibraryTemplateVisible(template.id, enabled)} aria-label="Show when producing" className={isLibraryTemplateVisible(template.id, enabled) ? "ml-switch on" : "ml-switch"} disabled={saving || !loaded} onClick={() => { void toggle(template.id, !isLibraryTemplateVisible(template.id, enabled)); }}><i /></button></div>
           </section>
         ))}
         {!LIBRARY_TEMPLATES.length && loaded ? <p className="muted">No templates recorded yet.</p> : null}
-        <WrenTemplates />
-        <TemplateAudits />
-        <MusicLibrary />
+        <details className="fin-more fin-section" open>
+          <summary><span><strong>MotionWren templates</strong><small>Switch each one on or off, rename it, choose its engine</small></span></summary>
+          <WrenTemplates />
+        </details>
+        <details className="fin-more fin-section">
+          <summary><span><strong>Template checks</strong><small>Audit of each recorded template</small></span></summary>
+          <TemplateAudits />
+        </details>
+        <details className="fin-more fin-section">
+          <summary><span><strong>Music library</strong><small>Tracks the films can use for free</small></span></summary>
+          <MusicLibrary />
+        </details>
       </div>
     </div>
   );

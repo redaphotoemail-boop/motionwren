@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "../_lib/account";
 import { loadManifest, qualityState, type QualityState } from "../_lib/production";
 import { UPSCALE_PER_SECOND, engineUpscales } from "../../engine-catalog";
+import { isEngineVideoHost } from "../_lib/engine-hosts";
 import { HISTORY_COOKIE as COOKIE, historyOwnerIds, uploadBody } from "../_lib/history-owners";
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
@@ -9,7 +10,7 @@ function safeVideoUrl(value: unknown) {
   if (typeof value !== "string") return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && (url.hostname === "replicate.delivery" || url.hostname.endsWith(".replicate.delivery")) ? url : null;
+    return url.protocol === "https:" && isEngineVideoHost(url.hostname) ? url : null;
   } catch { return null; }
 }
 
@@ -121,7 +122,7 @@ export async function POST(request: Request) {
     await env.BUCKET.put(r2Key, bytes, { httpMetadata: { contentType } });
 
     const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 6000) : "";
-    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "kling25", "runway4turbo", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite", "h3", "luma", "seedance1fast", "upscale", "studio", "fast"]);
+    const validEngines = new Set(["kling3", "geminiOmni", "veo31Lite", "hailuo23", "kling25", "runway4turbo", "runway45", "wan22", "wan25", "wan27", "wan3", "h3lite", "h3", "vidu3turbo", "luma", "seedance1fast", "upscale", "studio", "fast"]);
     const requestedEngine = typeof body.engine === "string" ? body.engine : "wan3";
     const engine = validEngines.has(requestedEngine) ? requestedEngine : "wan3";
     const category = typeof body.category === "string" ? body.category.slice(0, 40) : "single";

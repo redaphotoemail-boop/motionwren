@@ -1,4 +1,5 @@
 import { jsonError, requireAdmin } from "../../_lib/account";
+import { composerBinding, readEditorState } from "../../_lib/composer";
 import { advanceStaleJobs } from "../../_lib/render-jobs";
 
 export async function GET(request: Request) {
@@ -10,6 +11,10 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const offset = Math.max(0, parseInt(params.get("offset") || "0", 10) || 0);
     const customer = (params.get("customer") || "").trim().slice(0, 320);
+    // Video finishing is our own Cloudflare Container (cross-dissolve + one music track); the older external compositor is only used if it is set.
+    const editor = await readEditorState(env);
+    const containerReady = Boolean(composerBinding(env));
+    const containerTrouble = containerReady && editor.lastErrorAt > editor.lastOkAt;
     const [users, projects, jobs, history, assets, payments, subscriptions, recentProjects, recentJobs, recentActivity, filtered] = await Promise.all([
       env.DB.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active FROM users`).first(),
       env.DB.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS draft, SUM(CASE WHEN status IN ('queued','generating','stitching','saving') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed FROM projects`).first(),
@@ -29,7 +34,7 @@ export async function GET(request: Request) {
       recentJobs: recentJobs.results,
       recentActivity: recentActivity.results,
       filteredProjectTotal: Number((filtered as { total?: number } | null)?.total || 0),
-      system: { storage: "Cloudflare R2", database: "Cloudflare D1", compositor: process.env.COMPOSITOR_API_URL && process.env.COMPOSITOR_API_SECRET ? "Controlled FFmpeg + fallback" : "Managed crossfade fallback", compositorStatus: process.env.COMPOSITOR_API_URL && process.env.COMPOSITOR_API_SECRET ? "Operational" : "Container account needed", dependencyAudit: "0 known production vulnerabilities", billing: process.env.STRIPE_SECRET_KEY ? "Connected" : "Stripe credentials needed", email: process.env.RESEND_API_KEY && process.env.FRAME_MOTION_FROM_EMAIL ? "Connected" : "Email credentials needed", callbacks: process.env.REPLICATE_API_TOKEN ? "Operational" : "Provider token needed" },
+      system: { storage: "Cloudflare R2", database: "Cloudflare D1", compositor: containerReady ? "Cloudflare Container (cross-dissolve) + backup joiner" : process.env.COMPOSITOR_API_URL && process.env.COMPOSITOR_API_SECRET ? "Controlled FFmpeg + fallback" : "Managed crossfade fallback", compositorStatus: containerTrouble ? "Needs attention" : containerReady || (process.env.COMPOSITOR_API_URL && process.env.COMPOSITOR_API_SECRET) ? "Operational" : "Container account needed", dependencyAudit: "0 known production vulnerabilities", billing: process.env.STRIPE_SECRET_KEY ? "Connected" : "Stripe credentials needed", email: process.env.RESEND_API_KEY && process.env.FRAME_MOTION_FROM_EMAIL ? "Connected" : "Email credentials needed", callbacks: process.env.REPLICATE_API_TOKEN ? "Operational" : "Provider token needed" },
     });
   } catch (error) { return jsonError(error); }
 }

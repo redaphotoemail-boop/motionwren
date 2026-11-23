@@ -87,7 +87,8 @@ export function parseRecipe(value: unknown): WrenRecipe | null {
     // The footage already moves by itself: no added zoom or sliding, and no whoosh sounds at all (standing rule: never
     // in any template — a "flash" accent is a whoosh too, so it goes as well).
     recipe.slots = recipe.slots.map((slot) => ({ ...slot, zoom: [1, 1], pan: [0, 0] }));
-    if (recipe.audio?.sfx) recipe.audio = { ...recipe.audio, sfx: recipe.audio.sfx.filter((item) => item.kind !== "whoosh" && item.kind !== "flash") };
+    // No transition sounds at all (whoosh, flash or hit): templates carry their music only. A reference that had them is read without them.
+    if (recipe.audio?.sfx) recipe.audio = { ...recipe.audio, sfx: [] };
     return recipe;
   } catch { return null; }
 }
