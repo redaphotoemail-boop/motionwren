@@ -8,6 +8,7 @@ import { REALITY_SOURCE_MAX_BYTES, aiReviewOn, reviewSettings, reviewStills } fr
 import { soundLayers } from "./film-sound";
 import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "./film-sound";
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
+import { isEngineVideoHost } from "./engine-hosts";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { fixEngine } from "../../fix-engine";
@@ -74,7 +75,7 @@ export function safeReplicateUrl(value: unknown) {
     // Local end-to-end tests serve "engine" outputs from a mock (never set in production).
     const mockHost = process.env.REPLICATE_API_BASE ? new URL(process.env.REPLICATE_API_BASE).host : null;
     if (mockHost && url.host === mockHost) return url.toString();
-    return url.protocol === "https:" && (url.hostname === "replicate.delivery" || url.hostname.endsWith(".replicate.delivery") || Boolean(compositorHost && url.hostname === compositorHost)) ? url.toString() : null;
+    return url.protocol === "https:" && (isEngineVideoHost(url.hostname) || Boolean(compositorHost && url.hostname === compositorHost)) ? url.toString() : null;
   } catch { return null; }
 }
 

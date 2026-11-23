@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireAdmin } from "../_lib/account";
+import { isEngineVideoHost } from "../_lib/engine-hosts";
 
 export async function GET(request: Request) {
   try {
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   if (!source) return NextResponse.json({ error: "Missing video URL." }, { status: 400 });
   try {
     const url = new URL(source);
-    const allowed = url.protocol === "https:" && (url.hostname === "replicate.delivery" || url.hostname.endsWith(".replicate.delivery"));
+    const allowed = url.protocol === "https:" && isEngineVideoHost(url.hostname);
     if (!allowed) return NextResponse.json({ error: "This download source is not allowed." }, { status: 400 });
     const upstream = await fetch(url.toString());
     if (!upstream.ok || !upstream.body) return NextResponse.json({ error: "The video file is no longer available." }, { status: 502 });

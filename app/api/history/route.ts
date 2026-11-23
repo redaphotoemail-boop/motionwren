@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "../_lib/account";
 import { loadManifest, qualityState, type QualityState } from "../_lib/production";
 import { UPSCALE_PER_SECOND, engineUpscales } from "../../engine-catalog";
+import { isEngineVideoHost } from "../_lib/engine-hosts";
 import { HISTORY_COOKIE as COOKIE, historyOwnerIds, uploadBody } from "../_lib/history-owners";
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
@@ -9,7 +10,7 @@ function safeVideoUrl(value: unknown) {
   if (typeof value !== "string") return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && (url.hostname === "replicate.delivery" || url.hostname.endsWith(".replicate.delivery")) ? url : null;
+    return url.protocol === "https:" && isEngineVideoHost(url.hostname) ? url : null;
   } catch { return null; }
 }
 

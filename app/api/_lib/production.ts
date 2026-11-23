@@ -263,13 +263,16 @@ async function inlinePhoto(env: R2Env, key: string, limit: number): Promise<stri
    3 — the photo inline when it is small, otherwise a fresh upload.
    Each way fails over to the next, so one way of handing over the photo
    failing can never sink a scene. The manifest remembers the uploaded copy
-   (the caller saves it). */
+   (the caller saves it).
+   Vidu fetches the photo from its own servers, which cannot read Replicate's file store (it answered "User Input Error"
+   in 12 seconds), so it is handed our private link from the first try. */
+const READS_PRIVATE_LINK = new Set(["vidu3turbo"]);
 async function baseEngineInput(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
   const input = manifest.inputs[index];
   const photo = manifest.photos?.[index];
   if (!photo) return legacyInput(env, jobId, index, input, attempt);
   const swap = (value: string) => Object.fromEntries(Object.entries(input).map(([key, current]) => [key, current === photo.link ? value : current]));
-  if (attempt === 2) return input;
+  if (attempt === 2 || (attempt === 1 && READS_PRIVATE_LINK.has(String(manifest.engine)))) return input;
   if (attempt >= 3) {
     const inline = await inlinePhoto(env, photo.key, 1_000_000).catch(() => null);
     if (inline) return swap(inline);
