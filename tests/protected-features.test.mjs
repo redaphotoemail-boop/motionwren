@@ -34,7 +34,7 @@ assert.ok(clipPicker.includes("Use saved clips") || clipPicker.includes("saved c
 assert.ok(readFileSync("app/api/studio/production/from-clips/route.ts", "utf8").includes("requireAdmin"), "The saved-clips route lost its admin check");
 assert.ok(readFileSync("app/api/studio/clips/route.ts", "utf8").includes("requireAdmin"), "The clips list lost its admin check");
 const studioPage = readFileSync("app/studio/page.tsx", "utf8");
-for (const text of ["Photo shape", "Horizontal", "Social", "Crop-safe"]) assert.ok(studioPage.includes(text), `The Studio frame size lost: ${text}`);
+for (const text of ["Photo shape", "Classic listing film", "Vertical property reel", "Luxury cinematic", "Important action stays safe for a wide 2.39:1 cinematic crop"]) assert.ok(studioPage.includes(text), `The Studio video format lost: ${text}`);
 for (const text of ["arrived and were checked", "Send again", "Checking every photo"]) assert.ok(studioPage.includes(text), `The Studio photo verification lost: ${text}`);
 assert.ok(editFilm.includes("Frame"), "The Edit film panel lost the Frame (cut to 16:9 / vertical) choice");
 // The Frame picker shows on every film, including vertical ones, with all three shapes —
@@ -93,3 +93,10 @@ const hosts = readFileSync("app/api/_lib/engine-hosts.ts", "utf8");
 assert.ok(hosts.includes("vidu.com"), "Vidu's video host is no longer accepted");
 const prod = readFileSync("app/api/_lib/production.ts", "utf8");
 assert.ok(prod.includes('READS_PRIVATE_LINK = new Set(["vidu3turbo"])'), "Vidu is no longer handed the private photo link first");
+
+// One shared engine order (Wan 3.0, then H3 Lite, H3, Hailuo 2.3); one Video format control; Focus shift is gone from the menu but its baked prompt is untouched.
+const order = readFileSync("app/engine-order.ts", "utf8");
+assert.ok(order.includes('["wan3", "h3lite", "h3", "hailuo23"]'), "The engine order changed");
+assert.ok(!studio.includes("VisualStyleControl") && studio.includes("Video format") && studio.includes("Classic listing film") && studio.includes("Luxury cinematic") && studio.includes("Vertical property reel"), "Video style and Frame size must stay one control");
+assert.ok(!studio.includes('label: "Focus shift"'), "Focus shift is not offered any more");
+assert.ok(studio.includes('focus: "The camera remains stationary while the lens performs a slow, gentle focus shift within the property scene"'), "The baked movement prompt text was changed");
