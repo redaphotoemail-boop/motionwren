@@ -2176,3 +2176,48 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .prodm-timeline time{color:var(--muted,#6b6b6b);font-variant-numeric:tabular-nums}
 .prodm-timeline li.is-bad span{color:#8a3b12}
 @media (max-width:700px){.prodm-timeline li{grid-template-columns:1fr;gap:2px}}
+
+/* Edit film: one calm, visual layout. The same controls, given room. */
+.fin-sheet { width: min(780px, 100%); }
+.fin-sheet-head { padding: 32px 40px 18px; border-bottom: 0; }
+.fin-sheet-head h2 { margin: 8px 0 6px; font-size: 32px; letter-spacing: -.03em; }
+.fin-sheet-head p { font-size: 15px; }
+.fin-sheet-body { padding: 0 40px 44px; gap: 0; }
+.fin-strip { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 0 26px; min-height: 102px; scrollbar-width: none; }
+.fin-strip::-webkit-scrollbar { display: none; }
+.fin-strip figure { flex: none; position: relative; margin: 0; }
+.fin-strip img { display: block; width: 104px; height: 72px; object-fit: cover; border-radius: 14px; background: var(--paper-2); }
+.fin-strip figcaption { position: absolute; left: 9px; bottom: 7px; font: 600 11px/1 var(--mono); color: #fff; text-shadow: 0 1px 5px rgba(0, 0, 0, .65); }
+.fin-strip-meta { flex: none; margin: 0 0 0 12px; display: grid; gap: 3px; }
+.fin-strip-meta strong { font: 600 15px/1.2 var(--display); }
+.fin-strip-meta span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.fin-panel { gap: 20px; padding: 38px 0 12px; }
+.fin-panel-head h3 { font-size: 20px; letter-spacing: -.02em; }
+.fin-panel-head p, .fin-fold > summary p { margin: 5px 0 0; color: var(--muted); font-size: 14px; max-width: 52ch; }
+.fin-fold > summary h3 { margin: 0; font: 600 20px/1.25 var(--display); letter-spacing: -.02em; }
+.fin-fold > summary::after { width: 34px; height: 34px; background: var(--paper); font-size: 20px; }
+.fin-scenes { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 24px 16px; align-items: start; }
+.fin-sheet .fin-scene, .fin-sheet .fin-scene.fin-scene-open { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 0; background: transparent; align-items: start; }
+.fin-scene img, .fin-scene video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: 18px; object-fit: cover; background: var(--paper-2); }
+.fin-scene.fin-scene-open img { box-shadow: 0 0 0 2.5px var(--ink); }
+.fin-scene strong { font-size: 15px; }
+.fin-scene small { margin-top: 3px; }
+.fin-scene select { min-height: 44px; border-radius: 14px; }
+.fin-recreate { justify-content: space-between; padding: 2px 2px 0; }
+.fin-scene-more { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.fin-use { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.fin-card-block { padding: 22px; border-radius: 22px; gap: 16px; }
+.fin-cards { gap: 16px; }
+.frame-tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.frame-tile { border-radius: 22px; padding: 38px 16px 16px; }
+.fin-sheet-foot { padding: 18px 40px calc(18px + env(safe-area-inset-bottom)); }
+@media (max-width: 640px) {
+  .fin-sheet-head { padding: 24px 20px 14px; }
+  .fin-sheet-head h2 { font-size: 26px; }
+  .fin-sheet-body { padding: 0 20px 36px; }
+  .fin-sheet-foot { padding: 14px 20px calc(14px + env(safe-area-inset-bottom)); }
+  .fin-scenes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
+  .fin-scene, .fin-scene.fin-scene-open { grid-template-columns: minmax(0, 1fr); }
+  .fin-scene select { grid-column: auto; }
+  .fin-panel { padding-top: 30px; }
+}
