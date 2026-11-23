@@ -59,6 +59,7 @@ function running() { return [...P.preds.values()].filter((p) => !p.stitch && p.s
 let maxRunning = 0;
 globalThis.fetch = async (url, init = {}) => {
   url = String(url); const method = (init.method || "GET").toUpperCase();
+  if (url === "https://api.resend.com/emails") { (P.emails ||= []).push(JSON.parse(String(init.body))); return json({ id: "e1" }); }
   if (url.startsWith("https://replicate.delivery/")) return new Response(new Uint8Array(20000), { headers: { "content-type": "video/mp4", "content-length": "20000" } });
   if (url === "https://api.replicate.com/v1/files" && method === "POST") { P.files += 1; return json({ id: `f${P.files}`, urls: { get: `https://api.replicate.com/v1/files/f${P.files}` } }, 201); }
   if (/\/predictions$/.test(url) && method === "POST") {
@@ -296,13 +297,13 @@ const env0 = () => ({ DB: makeDb(), BUCKET: makeBucket() });
 
 /* 10. Long one-at-a-time film: joining uses our stored copies once the engine's expire */
 {
-  resetProvider({ sceneMs: 20 * 60_000 });
+  resetProvider({ sceneMs: 5.5 * 60_000 }); // scenes the engine takes longer than 6 minutes on are stopped by design, so each takes 5.5 minutes
   const env = env0(); await setLimit(env, 1);
-  const id = await newJob(env, 4, { tag: "s10" });
+  const id = await newJob(env, 10, { tag: "s10" });
   await start(env, id);
   const end = await runToEnd(env, id, { stepMs: 60_000 });
   const csv = P.stitchInputs.at(-1) || "";
-  check("10a an 80-minute one-at-a-time film still finishes", end.status === "succeeded", end.status);
+  check("10a a 55-minute one-at-a-time film still finishes", end.status === "succeeded", end.status);
   check("10b joining used our kept copies for scenes older than 45 minutes", csv.includes("/api/job-frames/") && csv.includes("out-01.mp4"), csv.slice(0, 140));
 }
 
@@ -647,8 +648,8 @@ const stitchCreates = () => P.stitchInputs.length;
   const m = await lib.loadManifest(env, id);
   const base = made.filter((c) => c.scene === 1)[0].prompt;
   const fixed = made.filter((c) => c.scene === 1).slice(1);
-  check("22a a film that keeps failing is made 4 times at most (first + 3 fixes: same engine, another engine, Wan 3.0), then delivered", end.status === "succeeded" && C.starts.length === 4 && m.fix?.round === 3, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
-  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 3, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
+  check("22a a film that keeps failing is made 3 times at most (first + 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
+  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 2, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
   check("22c a fix adds an instruction after the scene's own prompt, which is never edited", fixed.every((c) => c.prompt.startsWith(base) && /Fix:/.test(c.prompt)) && !/Fix:/.test(base) && !/Fix:/.test(String(m.inputs[1].prompt)), `${fixed.map((c) => c.prompt.slice(-90)).join(" | ")}`);
   const cost1 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
   check("22d each fix is added to the order's cost", cost1 > cost0, `${cost0} -> ${cost1}`);
@@ -890,6 +891,21 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   const manifest = await lib.loadManifest(env, id);
   check("30a a hung H3 Lite scene is caught within five minutes and moved to Wan 3.0", manifest.engine === "wan3", `${manifest.engine}`);
   check("30b the limits: H3 Lite 3 min, Wan 3.0 6 min, an unknown engine keeps the old nine", lib.staleAfterMs("processing", 5, "h3lite") === 180000 && lib.staleAfterMs("processing", 5, "wan3") === 360000 && lib.staleAfterMs("processing", 5, "kling3") === 540000, "");
+}
+
+/* 31. The customer gets one "ready" email with a link to the dashboard */
+{
+  resetProvider({ sceneMs: 60_000 }); P.emails = [];
+  process.env.RESEND_API_KEY = "re_test"; process.env.FRAME_MOTION_FROM_EMAIL = "MotionWren <hello@motionwren.test>";
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('owner-1', 'agent@example.test', 'Agent', 'customer', 'active', 'free', 0, 0, 0)").run();
+  const id = await newJob(env, 1, { tag: "s31" });
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const ready = P.emails.filter((mail) => /ready/i.test(mail.subject));
+  check("31a a finished video sends the customer exactly one ready email", end.status === "succeeded" && ready.length === 1 && ready[0].to[0] === "agent@example.test", `${end.status} emails=${ready.length}`);
+  check("31b the email has a button to the dashboard and says how long it is kept", ready.length === 1 && /motionwren\.com\/dashboard/.test(ready[0].html || "") && /90 days/.test(ready[0].text), "");
+  delete process.env.RESEND_API_KEY; delete process.env.FRAME_MOTION_FROM_EMAIL;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

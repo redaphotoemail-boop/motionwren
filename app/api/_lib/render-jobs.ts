@@ -238,7 +238,9 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     ]);
     // A later version: remember it in order, so History can list the first version as the original and the edits after it.
     if (existing && manifest) { manifest.versions = [...(manifest.versions || []), historyId]; await saveManifest(env, row.id, manifest).catch(() => undefined); }
-    await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", "Your finished video is saved in your MotionWren dashboard and ready to download.");
+    // One "ready" email per finished video, even if this step runs twice.
+    const first = await env.DB.prepare(`INSERT OR IGNORE INTO platform_settings (key, value, updated_at) VALUES (?1, '1', ?2)`).bind(`ready-email:${historyId}`, Date.now()).run().catch(() => null);
+    if (first?.meta?.changes) await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", READY_TEXT, readyEmailHtml());
     // Scene photos and finished scenes are kept (regenerate a scene, re-join) until the retention clean-up.
   } catch (error) {
     await env.BUCKET.delete(r2Key);
@@ -247,7 +249,14 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   return historyId;
 }
 
-export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string) {
+const DASHBOARD_URL = "https://motionwren.com/dashboard";
+const READY_TEXT = `Your video is ready.\n\nWatch it and download it here:\n${DASHBOARD_URL}\n\nIt stays saved in your dashboard for 90 days.\n\nMotionWren`;
+/* Plain, spacious and short: one message and one button. */
+export function readyEmailHtml() {
+  return `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:440px;margin:0 auto;padding:48px 24px;color:#1a1a1a"><p style="font-size:22px;font-weight:600;margin:0 0 12px">Your video is ready.</p><p style="font-size:15px;line-height:1.5;color:#555;margin:0 0 28px">Watch it and download it from your dashboard. It stays saved there for 90 days.</p><a href="${DASHBOARD_URL}" style="display:inline-block;background:#1a1a1a;color:#fff;text-decoration:none;font-size:15px;padding:12px 22px;border-radius:999px">Watch your video</a><p style="font-size:12px;color:#999;margin:36px 0 0">MotionWren</p></div>`;
+}
+
+export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string, html?: string) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.FRAME_MOTION_FROM_EMAIL;
   if (!apiKey || !from) return;
@@ -257,7 +266,7 @@ export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string,
     await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [user.email], subject, text }),
+      body: JSON.stringify({ from, to: [user.email], subject, text, ...(html ? { html } : {}) }),
     });
   } catch { /* Email failure must never fail the video delivery. */ }
 }
