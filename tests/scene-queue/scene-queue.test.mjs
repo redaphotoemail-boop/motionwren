@@ -60,7 +60,7 @@ let maxRunning = 0;
 globalThis.fetch = async (url, init = {}) => {
   url = String(url); const method = (init.method || "GET").toUpperCase();
   if (url === "https://api.resend.com/emails") { (P.emails ||= []).push(JSON.parse(String(init.body))); return json({ id: "e1" }); }
-  if (url.startsWith("https://replicate.delivery/")) return new Response(new Uint8Array(20000), { headers: { "content-type": "video/mp4", "content-length": "20000" } });
+  if (url.startsWith("https://replicate.delivery/") || url.startsWith("https://video.cf.vidu.com/")) return new Response(new Uint8Array(20000), { headers: { "content-type": "video/mp4", "content-length": "20000" } });
   if (url === "https://api.replicate.com/v1/files" && method === "POST") { P.files += 1; return json({ id: `f${P.files}`, urls: { get: `https://api.replicate.com/v1/files/f${P.files}` } }, 201); }
   if (/\/predictions$/.test(url) && method === "POST") {
     // The account limit: one new request per 10 s while credit < $5.
@@ -95,7 +95,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (get && method === "GET") {
     const p = P.preds.get(get[1]); if (!p) return json({ detail: "Not found" }, 404);
     if (p.status === "processing" && clock >= p.doneAt) p.status = p.stitch || p.upscale ? (p.fail ? "failed" : "succeeded") : p.outcome === "fail" ? "failed" : "succeeded";
-    return json({ id: get[1], status: p.status, output: p.status === "succeeded" ? `https://replicate.delivery/${get[1]}.mp4` : null, error: p.status === "failed" ? "Engine error" : null });
+    return json({ id: get[1], status: p.status, output: p.status === "succeeded" ? (P.viduHost && !p.stitch && !p.upscale ? `https://video.cf.vidu.com/infer/${get[1]}/final_video.mp4?Expires=1&Signature=x` : `https://replicate.delivery/${get[1]}.mp4`) : null, error: p.status === "failed" ? "Engine error" : null });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -913,6 +913,20 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   const input = lib.buildEngineInput("vidu3turbo", { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 6, resolution: "1080p", aspectRatio: "16:9" });
   check("32a Vidu Q3 Turbo is sent to Replicate's vidu/q3-turbo with the photo as the start frame, silent, at 1080p", lib.ENGINE_ENDPOINTS.vidu3turbo.endsWith("/vidu/q3-turbo/predictions") && input.start_image === "https://x.test/p.jpg" && input.audio === false && input.resolution === "1080p" && input.duration === 6 && !("aspect_ratio" in input), JSON.stringify(input).slice(0, 160));
   check("32b its prompt keeps the camera-only lock and the photo shape is kept", /STRICT: only the camera moves/.test(String(input.prompt)), "");
+}
+
+/* 33. Vidu hosts its own video and cannot read Replicate's file store (found on the first real Vidu run) */
+{
+  check("33a a finished video from Vidu's own host is accepted, and look-alike hosts are not", Boolean(lib.safeReplicateUrl("https://video.cf.vidu.com/infer/x/final_video.mp4?Expires=1")) && !lib.safeReplicateUrl("https://video.cf.vidu.com.evil.test/x.mp4") && !lib.safeReplicateUrl("https://evilvidu.com/x.mp4") && !lib.safeReplicateUrl("http://video.cf.vidu.com/x.mp4") && Boolean(lib.safeReplicateUrl("https://replicate.delivery/x.mp4")), "");
+  resetProvider({ sceneMs: 60_000 }); P.viduHost = true;
+  const env = env0(); await setLimit(env, 1);
+  const id = await newJob(env, 1, { kind: "studio-single", tag: "s33" });
+  const manifest = await lib.loadManifest(env, id); manifest.engine = "vidu3turbo"; manifest.endpoint = lib.ENGINE_ENDPOINTS.vidu3turbo; await lib.saveManifest(env, id, manifest);
+  await start(env, id);
+  const end = await runToEnd(env, id);
+  const mine = P.creates.filter((c) => c.job === "s33");
+  check("33b a Vidu scene is handed our private link on the first try, finishes on that one try, and is kept", end.status === "succeeded" && mine.length === 1 && mine[0].via === "link", `${end.status} tries=${mine.length} via=${mine.map((c) => c.via).join(",")}`);
+  P.viduHost = false;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

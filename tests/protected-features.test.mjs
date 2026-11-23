@@ -87,3 +87,9 @@ assert.ok(readFileSync("app/studio/production.tsx", "utf8").includes("confirmSpe
 // Frame sizes in Edit film: original + 16:9, 9:16, 1:1, 4:5; several at once; the price is shown.
 for (const text of ["frame-tiles", "FRAME_CHOICES", "SIZE_CENTS", "Original size", "This film now", '"square"', '"portrait"']) assert.ok(editFilm.includes(text), `Edit film lost: ${text}`);
 assert.ok(readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes('body.frame === "square" || body.frame === "portrait"'), "The edit lost the 1:1 and 4:5 sizes");
+
+// Vidu's video lives on its own host and it cannot read Replicate's file store: both fixes must stay.
+const hosts = readFileSync("app/api/_lib/engine-hosts.ts", "utf8");
+assert.ok(hosts.includes("vidu.com"), "Vidu's video host is no longer accepted");
+const prod = readFileSync("app/api/_lib/production.ts", "utf8");
+assert.ok(prod.includes('READS_PRIVATE_LINK = new Set(["vidu3turbo"])'), "Vidu is no longer handed the private photo link first");
