@@ -163,7 +163,7 @@ test("keeps manager Google authentication server-side and exposes admin navigati
     readFile(new URL("../app/api/auth/logout/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/replicates/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/admin/replicates/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/replicates/spend-account.tsx", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0008_google_auth_sessions.sql", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
   ]);
