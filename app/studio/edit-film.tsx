@@ -185,19 +185,20 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
   const vertical = data?.aspect === "vertical";
   return <div className="fin-overlay" role="dialog" aria-modal="true" aria-label="Edit film" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="fin-sheet">
-      <header className="fin-sheet-head"><div><span className="label">EDIT FILM</span><h2>Change your finished film</h2><p>Scenes you leave alone are kept as they are and cost nothing again.</p></div><button type="button" className="fin-close" onClick={onClose} aria-label="Close">×</button></header>
+      <header className="fin-sheet-head"><div><span className="label">EDIT FILM</span><h2>Change your finished film</h2><p>Anything you leave alone is kept and costs nothing.</p></div><button type="button" className="fin-close" onClick={onClose} aria-label="Close">×</button></header>
       {loadError ? <div className="fin-problem">{loadError}</div> : !data ? <p className="fin-quiet">Opening your film…</p> : <div className="fin-sheet-body">
-        {data.queue?.length ? <FinalSection title="In line" note="Edits waiting for this film. Each one starts on its own when the one before it finishes — you don't need to do anything.">
+        <div className="fin-strip" aria-label="Your film, scene by scene">{data.scenes.map((scene) => <figure key={`strip-${scene.index}`}><img src={newPhotos[scene.index] || scene.photo} alt=""/><figcaption>{scene.index + 1}</figcaption></figure>)}<p className="fin-strip-meta"><strong>{data.count} scene{data.count === 1 ? "" : "s"}</strong><span>{Math.round(data.duration)} s · {data.engineName} · {data.resolution}</span></p></div>
+        {data.queue?.length ? <FinalSection title="In line" note="Each starts on its own when the one before it finishes.">
           <div className="fin-queue">{data.queue.map((entry) => <div className="fin-queue-row" key={entry.id}><div><strong>Edit {entry.position} in line</strong><small>{entry.label}</small>{entry.status === "held" ? <span className="fin-queue-held">{entry.holdReason || "Held — the film stopped."} Resume the film, or cancel this edit.</span> : <span>Starts when the current one finishes.</span>}</div><button type="button" className="fin-link" disabled={cancelling === entry.id} onClick={() => cancelQueued(entry.id)}>{cancelling === entry.id ? "Cancelling…" : "Cancel"}</button></div>)}</div>
         </FinalSection> : null}
         {data.count > 1 && !data.photoEngine && <Variants jobId={jobId} count={data.count} onStarted={onStarted}/>}
-        {data.count > 1 && !data.photoEngine && <FinalSection fold title="Your clips" note="Each scene as the engine made it. Edit them again with a template at no engine cost; untick a clip to leave it out.">
+        {data.count > 1 && !data.photoEngine && <FinalSection fold title="Your clips" note="Each scene as made. Edit again with a template at no engine cost.">
           <div className="fin-scenes">{data.scenes.map((scene) => <div className="fin-scene" key={`clip-${scene.index}`}>{scene.clip ? <video src={scene.clip} poster={scene.photo} controls muted playsInline preload="none" aria-label={`Clip ${scene.index + 1}`}/> : <img src={scene.photo} alt={`Scene ${scene.index + 1}`}/>}<div><strong>Clip {scene.index + 1}</strong><small>{scene.clip ? "Saved" : "Not saved"}</small></div>
             {wrenId ? <label className="fin-use"><input type="checkbox" checked={!skipped.includes(scene.index)} onChange={(event) => setSkipped((current) => event.target.checked ? current.filter((value) => value !== scene.index) : [...current, scene.index])}/> Use</label> : null}</div>)}</div>
           {fitting.length ? <label className="fin-fields"><span className="label">Edit again with a template</span><select value={wrenId} onChange={(event) => setWrenId(event.target.value)} aria-label="Template"><option value="">Keep the current edit</option>{fitting.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
         </FinalSection>}
 
-        <FinalSection title="Frame" note={`Pick one or more sizes. Each one becomes its own new version, cut from your film — about ${SIZE_CENTS}¢ each, and no scenes are made again. The floor stays in the picture; a vertical keeps the middle.`}>
+        <FinalSection title="Frame" note={`Each size is a new version cut from your film: about ${SIZE_CENTS}¢ each, nothing made again.`}>
           <div className="frame-tiles" role="group" aria-label="Sizes">
             {([{ key: "made" as FrameKey, ratio: madeShapeLabel(data.aspect, data.frameRatio), shape: data.aspect === "vertical" ? 9 / 16 : data.aspect === "square" ? 1 : data.aspect === "cinematic" ? 2.39 : data.frameRatio || 16 / 9, note: data.cut ? "Original size · go back to it" : "Original size" }, ...FRAME_CHOICES.filter((choice) => choice.key !== data.aspect && choice.ratio !== madeShapeLabel(data.aspect, data.frameRatio))] as { key: FrameKey; ratio: string; shape: number; note: string }[]).map((choice) => {
               const current = choice.key === currentFrame; const picked = frames.includes(choice.key) && !current;
@@ -211,7 +212,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           {sizes.length ? <p className="frame-sum">{sizes.length} new version{sizes.length === 1 ? "" : "s"} · about {sizes.length * SIZE_CENTS}¢ in all</p> : null}
         </FinalSection>
 
-        <FinalSection fold title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Turn on Recreate for the scenes you want made again, with the same movement or a new one, and optionally a new photo — ${dollars(data.remakeCostCents)} per scene on ${data.engineName}. Scenes you leave off are kept.`}>
+        <FinalSection fold title="Scenes and movement" note={data.photoEngine ? "Camera moves on photos are free to change." : `Switch on Recreate to make a scene again: ${dollars(data.remakeCostCents)} each on ${data.engineName}. The rest are kept.`}>
           <div className="fin-scenes">{data.scenes.map((scene) => { const on = Boolean(recreate[scene.index]) || Boolean(moves[scene.index]); return <div className={on && !data.photoEngine ? "fin-scene fin-scene-open" : "fin-scene"} key={scene.index}><img src={newPhotos[scene.index] || scene.photo} alt={`Scene ${scene.index + 1}`}/><div><strong>Scene {scene.index + 1}</strong><small>{scene.motion ? (data.photoEngine ? prettyMove(scene.motion) : scene.motion) : "Movement as made"}</small></div>
             {data.photoEngine
               ? <select value={moves[scene.index] || ""} onChange={(event) => setMoves((current) => ({ ...current, [scene.index]: event.target.value }))} aria-label={`New movement for scene ${scene.index + 1}`}><option value="">Keep as is</option>{PHOTO_MOVE_KEYS.map((key) => <option key={key} value={key}>{prettyMove(key)}</option>)}</select>
@@ -223,7 +224,7 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           </div>; })}</div>
         </FinalSection>
 
-        <FinalSection fold title="Listing cards" note="Turn a card on to add or change it; turn it off to remove it from the film.">
+        <FinalSection fold title="Listing cards" note="Switch a card on to add it, off to remove it.">
           <div className="fin-cards">
             <div className="fin-card-block"><div className="fin-card-head"><div><strong>Opening card</strong><small>The property, over the first seconds</small></div><button type="button" className={openingOn ? "fin-switch on" : "fin-switch"} onClick={() => setOpeningOn(!openingOn)} aria-pressed={openingOn} aria-label="Opening card"><i/></button></div>
               {openingOn && <div className="fin-fields"><label><span className="label">Property name or address</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="21 Beacon Street, Boston"/></label><label><span className="label">Details</span><input value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="3 beds · 2 baths · $1,250,000"/></label><label><span className="label">Short message</span><input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Open house Sunday" maxLength={80}/></label></div>}</div>
@@ -233,9 +234,9 @@ export default function EditFilm({ jobId, onClose, onStarted, motions, sceneProm
           </div>
         </FinalSection>
 
-        <FinalSection fold title="Titles" note="Add, change or remove the words at the start and the end."><TitlesPanel value={titles} onChange={setTitles} disabled={busy}/></FinalSection>
+        <FinalSection fold title="Titles" note="Words at the start and the end."><TitlesPanel value={titles} onChange={setTitles} disabled={busy}/></FinalSection>
 
-        <FinalSection fold title="Sound" note="Music, voiceover and sound effects are mixed again under your film.">
+        <FinalSection fold title="Sound" note="Music, voiceover and effects.">
           <FinalSoundPanel sound={sound} setSound={setSound} count={data.count} sceneSeconds={data.sceneSeconds} totalSeconds={data.duration} jobId={jobId} sceneThumbs={data.scenes.map((scene) => scene.photo)} showMusic={data.count > 1} allowKeepMusic musicNote="Pick a different style to replace the current music, or keep it." disabled={busy}/>
         </FinalSection>
         {problem && <div className="fin-problem" role="alert"><span>{problem.message}</span>{problem.fix === "elevenlabs" && <a href="https://elevenlabs.io/app/subscription" target="_blank" rel="noreferrer">Open ElevenLabs plans →</a>}</div>}
