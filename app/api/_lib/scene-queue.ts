@@ -1,3 +1,4 @@
+import { saveEngineReport, reportLine } from "./engine-report";
 import { MAX_ATTEMPTS, staleAfterMs, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
 import { engineCost, engineKeepsPhotoShape, engineUpscales, filmSceneDurations, studioEngine, type StudioEngineKey } from "../../engine-catalog";
@@ -134,9 +135,11 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
       if (seen[index]?.status !== status) seen[index] = { status, since: now };
       const limit = staleAfterMs(status, manifest.sceneSeconds || 5);
       const stale = !failed && manifest.startedAt[index] > 0 && now - manifest.startedAt[index] > limit;
+      // The engine deletes its logs after about an hour: copy them now, before anything is cancelled or sent again.
+      const report = (failed || stale) ? await saveEngineReport(env, jobId, index, manifest.attempts[index] || 0, studioEngine(manifest.engine as StudioEngineKey)?.name || String(manifest.engine || ""), failed ? "failed" : "stalled", result).catch(() => null) : null;
       if (stale) {
         await hooks.cancel(token, id).catch(() => undefined);
-        await alertManagers(env, `Video engine slow · scene ${index + 1} · ${jobId.slice(0, 8)}`, `The video engine reported "${status}" for ${Math.round((now - manifest.startedAt[index]) / 60000)} minutes on scene ${index + 1} (attempt ${manifest.attempts[index]}), so it was stopped and is being sent again. This is the engine being slow, not your photo.`).catch(() => undefined);
+        await alertManagers(env, `Video engine slow · scene ${index + 1} · ${jobId.slice(0, 8)}`, `The video engine reported "${status}" for ${Math.round((now - manifest.startedAt[index]) / 60000)} minutes on scene ${index + 1} (attempt ${manifest.attempts[index]}), so it was stopped and is being sent again. This is the engine being slow, not your photo.${report ? ` Engine report: ${reportLine(report)}.` : ""}`).catch(() => undefined);
       }
       // A scene that stalled with the engine is sent once to the backup engine instead of waiting through the same slow engine again.
       // Scenes still to be made go with it (the engine is the film's); finished scenes are kept.

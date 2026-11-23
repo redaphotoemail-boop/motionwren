@@ -1,5 +1,6 @@
 import { jsonError, requireAdmin } from "../../../_lib/account";
 import { getRenderJob, jobScenes, publicJob, runJobAction, startOverJob } from "../../../_lib/render-jobs";
+import { readEngineReports } from "../../../_lib/engine-report";
 import type { JobAction } from "../../../_lib/scene-queue";
 
 /* Manager actions on any video (a client's order or a Studio video):
@@ -29,5 +30,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if ("error" in result) return Response.json({ error: result.error }, { status: 409 });
     const fresh = await getRenderJob(env, id);
     return Response.json({ redo: result.redo, job: fresh ? { ...publicJob(fresh), scenes: await jobScenes(env, fresh) } : null });
+  } catch (error) { return jsonError(error); }
+}
+
+/* What the engine said about each scene that stalled or failed, saved at the time (the engine's own logs last about an hour). */
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params;
+    const { env } = await import("cloudflare:workers");
+    await requireAdmin(env);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: "Video not found." }, { status: 404 });
+    return Response.json({ reports: await readEngineReports(env, id) });
   } catch (error) { return jsonError(error); }
 }

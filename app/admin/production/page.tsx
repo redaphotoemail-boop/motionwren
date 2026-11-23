@@ -225,6 +225,7 @@ export default function ProductionPage() {
             {!isActive(job) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "start-over", undefined, `Start over with the same photos and settings? Every scene is made again (~$${(job.costCents / 100).toFixed(2)}).`)}>Start over</button>}
             {!isActive(job) && allReady && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => act(job, "reassemble", undefined, "Join the finished scenes again into a new version of the film?")}>Re-join scenes</button>}
           </div>
+          {(job.status === "failed" || scenes.some((scene) => scene.attempt > 1)) && <EngineReports id={job.id} />}
           {scenes.length > 0 && <ol className="prodm-scenes">
             {scenes.map((scene, index) => <li key={index}>
               <span className="prodm-n">{index + 1}</span>
@@ -281,4 +282,27 @@ export default function ProductionPage() {
       <EnginePanels part="overview" />
     </details>
   </div>;
+}
+
+
+type Report = { scene: number; attempt: number; engine: string; why: string; status: string; error: string; logs: string; queuedSeconds: number | null; runningSeconds: number | null; predictionId: string; savedAt: number };
+
+/* What the engine itself said when a scene stalled or failed, copied at the time (its own logs are deleted after about an hour). */
+function EngineReports({ id }: { id: string }) {
+  const [reports, setReports] = useState<Report[] | null>(null);
+  async function open(event: React.SyntheticEvent<HTMLDetailsElement>) {
+    if (!event.currentTarget.open || reports) return;
+    const response = await fetch(`/api/admin/production/${id}`, { cache: "no-store" }).catch(() => null);
+    const data = response?.ok ? await response.json().catch(() => null) : null;
+    setReports(data?.reports || []);
+  }
+  return <details className="prodm-report" onToggle={open}>
+    <summary>What the engine said</summary>
+    {reports === null ? <small>Loading…</small> : reports.length === 0 ? <small>Nothing was saved for this video. Reports are saved from now on whenever a scene stalls or fails.</small> : reports.map((report) => <div key={`${report.scene}-${report.attempt}`}>
+      <strong>Scene {report.scene + 1} · try {report.attempt} · {report.engine}</strong>
+      <small>{[report.why === "stalled" ? "Stalled" : "Failed", report.status, report.queuedSeconds != null ? `waited ${Math.round(report.queuedSeconds)}s to start` : "", report.runningSeconds != null ? `ran ${Math.round(report.runningSeconds)}s` : "never started running", report.predictionId].filter(Boolean).join(" · ")}</small>
+      {report.error && <small>Error: {report.error}</small>}
+      <pre>{report.logs || "The engine wrote no log lines."}</pre>
+    </div>)}
+  </details>;
 }
