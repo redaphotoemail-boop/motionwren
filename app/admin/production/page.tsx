@@ -31,6 +31,8 @@ const ago = (value: number, now: number) => { const minutes = Math.round((now - 
 
 export default function ProductionPage() {
   const [health, setHealth] = useState<Health | null>(null);
+  const [credit, setCredit] = useState<{ saved: { cents: number; at: number } | null; spentCents: number; estimateCents: number | null } | null>(null);
+  const [creditInput, setCreditInput] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -43,7 +45,19 @@ export default function ProductionPage() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Production could not be loaded.");
     setHealth(data.health); setJobs(data.jobs || []); setNow(Date.now());
+    const creditResponse = await fetch("/api/admin/replicate-credit", { cache: "no-store" }).catch(() => null);
+    if (creditResponse?.ok) setCredit(await creditResponse.json().catch(() => null));
   }, []);
+
+  async function saveCredit() {
+    setError(""); setMessage("");
+    const dollars = Number(creditInput);
+    if (!Number.isFinite(dollars) || dollars < 0) { setError("Enter the balance in dollars, for example 25."); return; }
+    const response = await fetch("/api/admin/replicate-credit", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ balanceCents: Math.round(dollars * 100) }) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(data.error || "The balance could not be saved."); return; }
+    setCredit(data); setCreditInput(""); setMessage("Balance saved.");
+  }
 
   const live = jobs.some(isActive);
   useEffect(() => {
@@ -146,7 +160,7 @@ export default function ProductionPage() {
       <a href="#videos">Videos</a>
       <a href="#controls">Controls</a>
       <a href="#engines">Engines</a>
-      <a className="btn btn-ink btn-xs" href="https://replicate.com/account/billing" target="_blank" rel="noreferrer">Open Replicate billing</a>
+      <a href="#credit">Credit</a>
     </nav>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
     {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
@@ -172,6 +186,22 @@ export default function ProductionPage() {
         </li>)}
       </ul>
     </section>}
+
+    <section id="credit" className="prodm-block" aria-label="Replicate credit">
+      <h2>Replicate credit</h2>
+      <div className="prodm-credit">
+        <div>
+          <strong>{credit?.estimateCents == null ? "Not set yet" : `About ${cents(Math.max(0, credit.estimateCents))} left`}</strong>
+          <small>{credit?.saved ? `You had ${cents(credit.saved.cents)} on ${new Date(credit.saved.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}; ${cents(credit.spentCents)} used since. An estimate, Replicate does not share the real balance.` : "Type what Replicate shows and the page keeps count from there."}</small>
+          <small><i className={`dot ${health?.paused ? "dot-bad" : health?.lowCredit || (credit?.estimateCents != null && credit.estimateCents < 500) ? "dot-warn" : "dot-ok"}`} />{health?.paused ? "Videos are paused: out of credit" : health?.lowCredit || (credit?.estimateCents != null && credit.estimateCents < 500) ? "Running low" : "Credit looks fine"}</small>
+        </div>
+        <div className="prodm-fixes">
+          <a className="btn btn-ink btn-xs" href="https://replicate.com/account/billing" target="_blank" rel="noreferrer">Open Replicate billing</a>
+          <input aria-label="Balance in dollars" inputMode="decimal" placeholder="Balance, $" value={creditInput} onChange={(event) => setCreditInput(event.target.value.replace(/[^0-9.]/g, ""))} />
+          <button type="button" className="btn btn-soft btn-xs" disabled={!creditInput} onClick={saveCredit}>Save balance</button>
+        </div>
+      </div>
+    </section>
 
     <section id="videos" className="prodm-block" aria-label="Videos">
       <h2>Videos <small>last 24 hours{jobs.length ? ` · ${jobs.filter(isActive).length} making · ${jobs.filter((job) => !isActive(job) && job.status !== "failed").length} ready · ${stopped.length} stopped` : ""}</small></h2>
