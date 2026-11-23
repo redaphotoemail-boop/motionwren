@@ -2080,3 +2080,48 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
   .fin-sheet-foot { padding: 14px 18px calc(14px + env(safe-area-inset-bottom)); }
   .frame-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Finance: one visual page (spending, costs, gifts folded in as quiet sections) */
+.fin-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; list-style: none; font-weight: 500; }
+.fin-more > summary::-webkit-details-marker { display: none; }
+.fin-more > summary::after { content: "+"; flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--paper); color: var(--muted); font-size: 18px; line-height: 1; }
+.fin-more[open] > summary::after { content: "–"; }
+.fin-more > summary span { display: grid; gap: 2px; }
+.fin-more > summary small { color: var(--muted); font-weight: 400; font-size: 13px; }
+.fin-more[open] > summary { margin-bottom: 18px; }
+.fin-inline { margin-top: 14px; }
+.fin-inline > summary { font-size: 14px; color: var(--muted); }
+.fin-gifts .gift { max-width: none; }
+.fin-gifts .gift-stats { margin: 8px 0 28px; }
+.fin-gifts .gift-list { margin-top: 36px; }
+.fin-gifts .gift-make { padding: 28px; }
+.fin-guard .fin-guard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.fin-guard.fin-ok .panel-title::before, .fin-guard.fin-bad .panel-title::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--ok); vertical-align: middle; }
+.fin-guard.fin-bad .panel-title::before { background: var(--bad); }
+.fin-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; margin: 22px 0 8px; }
+.fin-meter { display: grid; gap: 10px; }
+.fin-meter-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 14px; }
+.fin-meter-head strong { color: var(--ink); font: 600 26px/1 var(--display, var(--body)); letter-spacing: -.02em; }
+.fin-meter-head small { color: var(--muted); font: 400 14px var(--body); letter-spacing: 0; }
+.fin-meter-bar { height: 12px; border-radius: 999px; background: var(--paper); overflow: hidden; }
+.fin-meter-bar i { display: block; height: 100%; border-radius: 999px; background: var(--ok); transition: width .3s ease; }
+.fin-meter-bar.warn i { background: #D99A2B; }
+.fin-meter-bar.full i { background: var(--bad); }
+.fin-stack { display: flex; gap: 3px; height: 22px; margin: 20px 0 18px; border-radius: 999px; overflow: hidden; background: var(--paper); }
+.fin-stack i { display: block; min-width: 6px; }
+.fin-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fin-legend li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 44px; align-items: center; gap: 12px; font-size: 15px; }
+.fin-legend li i { width: 14px; height: 14px; border-radius: 5px; }
+.fin-legend li small { color: var(--muted); text-align: right; }
+.fin-c0 { background: #2F3A4A; } .fin-c1 { background: #C58A5B; } .fin-c2 { background: #7E9C8A; }
+.fin-c3 { background: #B9A27E; } .fin-c4 { background: #8A8FB5; } .fin-c5 { background: #C97C7C; }
+.fin-account { display: grid; gap: 16px; }
+.fin-account .btn { justify-self: start; }
+@media (max-width: 640px) { .fin-meters { grid-template-columns: 1fr; gap: 20px; } .fin-meter-head strong { font-size: 22px; } }
+
+/* Edit film: the sections beyond Frame fold away so the sheet stays short */
+.fin-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.fin-fold > summary::-webkit-details-marker { display: none; }
+.fin-fold > summary::after { content: "+"; flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--paper); color: var(--muted); font-size: 18px; }
+.fin-fold[open] > summary::after { content: "–"; }
+.fin-fold[open] > summary { margin-bottom: 16px; }

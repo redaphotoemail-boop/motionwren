@@ -212,6 +212,7 @@ export async function smallPhoto(source: string, side = 640): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.8);
 }
 
-export function FinalSection({ title, note, children, number }: { title: string; note?: string; children: ReactNode; number?: string }) {
+export function FinalSection({ title, note, children, number, fold }: { title: string; note?: string; children: ReactNode; number?: string; fold?: boolean }) {
+  if (fold) return <details className="fin-panel fin-fold"><summary><div><h3>{title}</h3>{note && <p>{note}</p>}</div></summary>{children}</details>;
   return <div className="fin-panel"><div className="fin-panel-head">{number && <span>{number}</span>}<div><h3>{title}</h3>{note && <p>{note}</p>}</div></div>{children}</div>;
 }
