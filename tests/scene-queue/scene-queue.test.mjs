@@ -633,7 +633,7 @@ const stitchCreates = () => P.stitchInputs.length;
   check("21a with credit, 6 scenes at a time: all 25 finish, never over the limit, no duplicates", done === 25 && maxRunning <= 6 && maxRunning >= 4 && P.creates.length === 75 && C.starts.length === 25, `succeeded=${done} maxRunning=${maxRunning} creates=${P.creates.length} minutes=${Math.round((clock - t0) / 60000)}`);
 }
 
-/* 22. The fix loop: a failed check re-makes only the flagged scene with an ADDED instruction, at most twice */
+/* 22. The fix loop: a failed check re-makes only the flagged scene with an ADDED instruction, at most once on its own */
 {
   resetProvider();
   const { C, binding } = makeComposer();
@@ -648,8 +648,8 @@ const stitchCreates = () => P.stitchInputs.length;
   const m = await lib.loadManifest(env, id);
   const base = made.filter((c) => c.scene === 1)[0].prompt;
   const fixed = made.filter((c) => c.scene === 1).slice(1);
-  check("22a a film that keeps failing is made 3 times at most (first + 2 fixes), then delivered", end.status === "succeeded" && C.starts.length === 3 && m.fix?.round === 2, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
-  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 2, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
+  check("22a a film that keeps failing is made 2 times at most (first + 1 automatic fix), then delivered", end.status === "succeeded" && C.starts.length === 2 && m.fix?.round === 1, `${end.status} edits=${C.starts.length} round=${m.fix?.round}`);
+  check("22b only the flagged scene is made again", made.filter((c) => c.scene === 0).length === 1 && made.filter((c) => c.scene === 2).length === 1 && fixed.length === 1, `scene0=${made.filter((c) => c.scene === 0).length} scene1=${made.filter((c) => c.scene === 1).length} scene2=${made.filter((c) => c.scene === 2).length}`);
   check("22c a fix adds an instruction after the scene's own prompt, which is never edited", fixed.every((c) => c.prompt.startsWith(base) && /Fix:/.test(c.prompt)) && !/Fix:/.test(base) && !/Fix:/.test(String(m.inputs[1].prompt)), `${fixed.map((c) => c.prompt.slice(-90)).join(" | ")}`);
   const cost1 = env.DB.raw.prepare("SELECT cost_cents AS c FROM render_jobs WHERE id = ?").get(id).c;
   check("22d each fix is added to the order's cost", cost1 > cost0, `${cost0} -> ${cost1}`);

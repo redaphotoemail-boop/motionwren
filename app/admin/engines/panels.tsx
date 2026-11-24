@@ -110,7 +110,7 @@ export default function EnginePanels({ part }: { part: "controls" | "overview" }
         {([
           ["Cloudflare AI review", review.cloudflare, review.connected.cloudflare ? "Looks at stills and compares each one with its source photo, about a cent or two a film" : "Not connected yet", () => saveReview({ review: { cloudflare: !review.cloudflare } })],
           ["Claude review", review.claude, review.connected.claude ? "Sharper eyes, a few cents a film" : "Needs an Anthropic key", () => saveReview({ review: { claude: !review.claude } })],
-          ["Fix automatically", review.autoFix, "Re-makes a flagged scene, up to 2 more times", () => saveReview({ autoFix: !review.autoFix })],
+          ["Fix automatically", review.autoFix, "Re-makes a flagged scene once. If most scenes are flagged, it delivers and alerts you instead", () => saveReview({ autoFix: !review.autoFix })],
         ] as Array<[string, boolean, string, () => void]>).map(([label, on, note, toggle]) => <button key={label} type="button" className={on ? "choice active" : "choice"} aria-pressed={on} onClick={toggle}><strong>{label}: {on ? "On" : "Off"}</strong><small>{note}</small></button>)}
       </div>
       {aiMessage && <p className="muted small" role="status">{aiMessage}</p>}
