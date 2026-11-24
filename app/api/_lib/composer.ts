@@ -141,8 +141,8 @@ export async function editFile(env: unknown, jobId: string, key: string, which: 
 /* OpenCV's numbers for a film's photos (and small copies for the AI reader when asked): the
    container's POST /movements. Photos are given as links the container can open. */
 export type MovementRead = { opencv?: string; photos: (import("./movement-plan").Measure & { thumb?: string })[] };
-export async function measureMovements(env: unknown, name: string, links: string[], thumbs: boolean, timeoutMs = 50_000): Promise<MovementRead> {
-  const response = await stub(env, `movement-${name}`).fetch("http://composer/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photos: links.map((link) => ({ url: link })), thumbs }), signal: AbortSignal.timeout(timeoutMs) });
+export async function measureMovements(env: unknown, name: string, links: (string | { data: string })[], thumbs: boolean, timeoutMs = 50_000): Promise<MovementRead> {
+  const response = await stub(env, `movement-${name}`).fetch("http://composer/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photos: links.map((link) => typeof link === "string" ? { url: link } : { data: link.data }), thumbs }), signal: AbortSignal.timeout(timeoutMs) });
   const data = await response.json().catch(() => null) as (MovementRead & { error?: string }) | null;
   if (!response.ok || !data?.photos) throw new Error(data?.error || `The photo reader did not answer (HTTP ${response.status}).`);
   return data;
