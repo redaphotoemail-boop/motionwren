@@ -43,6 +43,8 @@ export type ProductionManifest = {
   engine: StudioEngineKey;
   /** The engine the video was started with. `engine` moves when a scene is re-made or sent to the backup engine; History names this one. */
   startedEngine?: StudioEngineKey;
+  /** Smart movement: how each photo's camera move was chosen (see movement-read.ts). */
+  movementPlan?: { mode: string; used: string; picks: { move: string; why: string }[]; rooms?: string[]; costCents: number; note?: string };
   endpoint: string;
   sceneSeconds: number;
   inputs: Record<string, unknown>[];
