@@ -86,7 +86,7 @@ function run(command, args, { timeoutMs = 15 * 60 * 1000 } = {}) {
   });
 }
 
-const EDITOR_BUILD = "2026-11-23-smart-movement";
+const EDITOR_BUILD = "2026-11-23-smooth-check";
 async function probe(file) {
   const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate,duration", "-of", "json", file], { timeoutMs: 60_000 });
   const data = JSON.parse(stdout);
@@ -799,7 +799,7 @@ async function compose(key, spec) {
     if (check.width !== spec.width || check.height !== spec.height) throw new Error(`The edit came out ${check.width}×${check.height}.`);
     if ((music || voiceover) && check.audioStreams !== 1) throw new Error("The edit is missing its sound.");
     // The free quality check: it only reports, it never fails or changes the film.
-    if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards) }); }
+    if (spec.qc !== false) { job.stage = "quality"; job.qc = await qualityCheck(output, { width: check.width, height: check.height, duration: check.duration, sceneSeconds: spec.sceneSeconds, crossfade: files.length > 1 ? crossfade : 0, hasCards: Boolean(cards), fps: check.fps, smooth: !spec.templateRecipe && !spec.recipe && !(spec.moves || []).some(Boolean) }); }
     // The template's own mechanical check, same rule: report only.
     if (spec.templateRecipe && spec.qc !== false) { job.stage = "template quality"; job.templateQc = await templateQualityCheck(output, { recipe: templateInput.template, width: check.width, height: check.height, fps }); }
     if (spec.stills) { try { job.stills = (await extractStills(output, dir, { duration: check.duration, count: Number.isInteger(spec.stills) ? Math.max(4, Math.min(24, spec.stills)) : 4 })).length; } catch (error) { job.stills = 0; console.warn(`stills: ${error.message}`); } }

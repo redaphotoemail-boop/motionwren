@@ -85,7 +85,7 @@ async function remember(env: Env, plan: MovementPlan) {
 }
 
 /** Plans one movement per photo. `links` are links the composer can open (the provider links of the photos). */
-export async function planMovements(env: Env, name: string, links: string[], mode?: MovementMode): Promise<MovementPlan> {
+export async function planMovements(env: Env, name: string, links: (string | { data: string })[], mode?: MovementMode, options: { remember?: boolean } = {}): Promise<MovementPlan> {
   const wanted = mode || await movementMode(env);
   const fallback = (note: string): MovementPlan => ({ mode: wanted, used: "off", picks: cyclePicks(links.length), costCents: 0, note, at: Date.now() });
   if (wanted === "off") return fallback("Smart movement is off: the standard order.");
@@ -114,6 +114,6 @@ export async function planMovements(env: Env, name: string, links: string[], mod
   } catch (error) {
     plan = fallback(`The photos could not be read (${String(error instanceof Error ? error.message : error).slice(0, 140)}); the standard order was used.`);
   }
-  await remember(env, plan);
+  if (options.remember !== false) await remember(env, plan);
   return plan;
 }

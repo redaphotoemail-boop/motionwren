@@ -113,3 +113,11 @@ assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("remadeOn"),
   assert.ok(readFileSync("app/admin/engines/panels.tsx", "utf8").includes('id="movement"'), "The Camera movement switch must stay in Engines"); }
 
 assert.ok(readFileSync("app/api/_lib/film-review.ts", "utf8").includes("notes = cfFindings"), "Cloudflare-only remarks must stay notes and never flag a film");
+
+assert.ok(readFileSync("composer/qc.mjs", "utf8").includes("shakeFlag") && readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("shake:"), "The camera smoothness check must stay in the quality check");
+
+{ const page = readFileSync("app/studio/page.tsx", "utf8");
+  assert.ok(page.includes("<SmartMoves") && page.includes("<SuggestEdit"), "Studio keeps both the edit suggestion and the Smart choice of movements");
+  assert.ok(page.includes("onChange={(e) => updateShot(shot.id, { motion: e.target.value as MotionKey })"), "Every scene keeps its own movement list");
+  const route = readFileSync("app/api/studio/movements/route.ts", "utf8");
+  assert.ok(route.includes("requireAdmin") && route.includes("remember: false"), "Smart choice is owner-only and leaves the Admin last-film note alone"); }
