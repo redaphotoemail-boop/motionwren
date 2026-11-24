@@ -1,4 +1,4 @@
-import { PIPELINE } from "./pipeline-steps";
+import { HOME_STAGES } from "./pipeline-steps";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
@@ -92,12 +92,16 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
     <section id="care" className="band site-wrap care" aria-labelledby="care-title">
       <div className="band-head">
         <p className="eyebrow">Why it&apos;s different</p>
-        <h2 id="care-title">{PIPELINE.length} steps of care.<br />Not one click of luck.</h2>
-        <p className="band-sub">Most AI video tools make a clip and hand it over. Every MotionWren film is read, checked and finished before you see it.</p>
+        <h2 id="care-title">Not just generated.<br />Directed.</h2>
       </div>
-      <ol className="care-list">
-        {PIPELINE.map((step) => <li key={step.n} className="reveal"><span className="step-n">{String(step.n).padStart(2, "0")}</span><h3>{step.title}</h3><p>{step.line}</p></li>)}
-      </ol>
+      <div className="care-compare">
+        <div className="care-row care-plain"><span className="care-tag">A typical AI video</span><div className="care-track" aria-hidden="true"><i /><b /></div><span className="care-note">One click. One guess.</span></div>
+        <div className="care-row care-ours"><span className="care-tag">MotionWren</span>
+          <ol className="care-track">
+            {HOME_STAGES.map((stage, index) => <li key={stage.title} className="reveal"><i aria-hidden="true">{index + 1}</i><strong>{stage.title}</strong><span>{stage.line}</span></li>)}
+          </ol>
+        </div>
+      </div>
     </section>
 
     <section className="band site-wrap accuracy" aria-labelledby="accuracy-title">
