@@ -39,7 +39,7 @@ function TwentySecondBreakdown() {
     ["Video engine", video, `${engine.name} at ${res}, ${BREAKDOWN_SECONDS} seconds of scenes at its list price`],
     ["Music", music, `One track, ${BREAKDOWN_SECONDS + COST_RATES.musicExtraSeconds} seconds at $${COST_RATES.musicPerMinute.toFixed(2)} a minute`],
     ["Editing", edit, "Joining the scenes and mixing the music"],
-    ["Quality review", review, "Automatic check of the finished film"],
+    ["AI reading and review", review, "The AI photo reader and the automatic check of the finished film"],
   ];
   return <details className="panel fin-more" aria-label="One 20-second video">
     <summary><span><strong>One 20-second video, every cost</strong><small>Pick an engine and see the line-by-line price</small></span></summary>
@@ -102,7 +102,7 @@ export default function FinancePage() {
       { label: "Video engine", cents: data.videoCents, note: "Replicate: generating every scene" },
       { label: "Music", cents: data.musicCents, note: `ElevenLabs: one track per film, about $${costs.rates.musicPerMinute.toFixed(2)} a minute` },
       { label: "Editing", cents: data.editCents, note: "Cloudflare: joining scenes and mixing the music" },
-      { label: "Quality review", cents: data.reviewCents, note: `The free check costs nothing; the AI review is about ${costs.rates.reviewCloudflareCents}¢ a film on Cloudflare, ${costs.rates.reviewClaudeCents}¢ on Claude (estimates). Scenes re-made by a fix are in Video engine.` },
+      { label: "AI reading and review", cents: data.reviewCents, note: `The free measured checks and OpenCV reading cost nothing; the AI photo reader is about 4¢ a film (Claude) and the AI review is about ${costs.rates.reviewCloudflareCents}¢ a film on Cloudflare, ${costs.rates.reviewClaudeCents}¢ on Claude (estimates). Scenes re-made by a fix are in Video engine.` },
       ...(period === "month" ? [{ label: "Monthly plans", cents: fixedCents, note: `Cloudflare $${costs.fixedMonthly.cloudflare} + ElevenLabs $${costs.fixedMonthly.elevenLabs}, paid whether or not anyone orders` }] : []),
       ...(orders ? [{ label: "Card fees (projected)", cents: feeCents, note: `${costs.rates.cardPercent}% + $${costs.rates.cardFixed.toFixed(2)} per order once payments are on` }] : []),
     ];
