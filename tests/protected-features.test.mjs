@@ -106,3 +106,8 @@ const renderJobsSrc = readFileSync("app/api/_lib/render-jobs.ts", "utf8");
 assert.ok(readFileSync("app/api/_lib/production.ts", "utf8").includes("startedEngine: engine"), "New videos must record the engine they were started with");
 assert.ok(/const engine = manifest\?\.startedEngine \|\| manifest\?\.fix\?\.firstEngine/.test(renderJobsSrc), "History must be saved under the engine the video was started with");
 assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("remadeOn"), "History must say when a scene was re-made on another engine");
+
+{ const plan = readFileSync("app/api/_lib/customer-production.ts", "utf8");
+  assert.ok(plan.includes("planMovements(") && plan.includes("MOVE_PHRASE") && plan.includes("${STATIC_LOCK}"), "Customer films choose movements through the planner and keep the static lock prompt");
+  assert.ok(readFileSync("app/api/_lib/movement-plan.ts", "utf8").includes("a slow stabilized push-in"), "Smart movement must use the existing movement phrases");
+  assert.ok(readFileSync("app/admin/engines/panels.tsx", "utf8").includes('id="movement"'), "The Camera movement switch must stay in Engines"); }
