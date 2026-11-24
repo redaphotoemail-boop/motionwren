@@ -236,11 +236,11 @@ export default function ProductionPage() {
 
     <section id="pipeline" className="prodm-block" aria-label="How every film is made">
       <h2>How every film is made <small>{PIPELINE.length} steps</small></h2>
-      <p className="muted">Every customer film goes through all {PIPELINE.length} steps. A plain AI video tool makes one clip and hands it over.</p>
-      <ol className="pipe-list">
+      <p className="muted">Every customer film goes through all {PIPELINE.length}. A plain AI video tool makes one clip and stops.</p>
+      <ol className="pipe-track">
         {PIPELINE.map((step) => {
-          const state = !step.switch || !switches ? "" : step.switch === "movement" ? (switches.movement === "off" ? "Off" : switches.movement === "ai" ? "AI reader" : "OpenCV") : step.switch === "cloudflare" ? (switches.cloudflare || switches.claude ? `On · ${[switches.cloudflare && "Cloudflare", switches.claude && "Claude"].filter(Boolean).join(" + ")}` : "Off") : (switches.autoFix ? "On" : "Off");
-          return <li key={step.n}><span className="pipe-n">{step.n}</span><div><strong>{step.title}</strong><span className="muted">{step.how}</span></div>{state && <em className={state === "Off" ? "pipe-chip off" : "pipe-chip"}>{state}</em>}</li>;
+          const state = !step.switch || !switches ? "" : step.switch === "movement" ? (switches.movement === "off" ? "Off" : switches.movement === "ai" ? "AI reader" : "OpenCV") : step.switch === "cloudflare" ? (switches.cloudflare || switches.claude ? "On" : "Off") : (switches.autoFix ? "On" : "Off");
+          return <li key={step.n} className={state === "Off" ? "is-off" : ""}><details><summary><i>{step.n}</i><strong>{step.title}</strong>{state && <em className={state === "Off" ? "pipe-chip off" : "pipe-chip"}>{state}</em>}</summary><p className="muted">{step.how}</p></details></li>;
         })}
       </ol>
     </section>

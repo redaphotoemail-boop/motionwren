@@ -2223,10 +2223,15 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 }
 
 /* Pipeline: the owner's numbered list and the customer's "why it's different" section. */
-.pipe-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
-.pipe-list li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 0; border-bottom: 1px solid rgba(0,0,0,.06); }
-.pipe-list li div { display: grid; gap: 2px; min-width: 0; }
-.pipe-n { font: 500 13px/1.6 var(--mono); color: var(--amber-ink); }
+.pipe-track { list-style: none; margin: 12px 0 0; padding: 0 0 0 0; display: grid; position: relative; }
+.pipe-track::before { content: ""; position: absolute; left: 14px; top: 18px; bottom: 18px; width: 2px; background: var(--amber-ink); opacity: .3; }
+.pipe-track li { position: relative; }
+.pipe-track summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 16px; padding: 10px 0; }
+.pipe-track summary::-webkit-details-marker { display: none; }
+.pipe-track summary i { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--amber-ink); color: #fff; display: grid; place-items: center; font: 500 13px/1 var(--mono); font-style: normal; position: relative; }
+.pipe-track li.is-off summary i { background: #cfc8bd; }
+.pipe-track summary strong { font-size: 17px; font-weight: 500; letter-spacing: -.01em; }
+.pipe-track details p { margin: 0 0 10px 46px; max-width: 62ch; }
 .pipe-chip { font-style: normal; font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #e8f3ea; color: #1f5a2c; white-space: nowrap; }
 .pipe-chip.off { background: #f1ece4; color: var(--muted); }
 .care-compare { margin-top: clamp(56px, 7vw, 96px); display: grid; gap: clamp(40px, 5vw, 64px); }
