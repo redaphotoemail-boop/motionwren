@@ -12,7 +12,7 @@ import { ENGINE_ORDER } from "../../engine-order";
 import { isEngineVideoHost } from "./engine-hosts";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
-import { fixEngine } from "../../fix-engine";
+import { AUTO_FIX_ROUNDS, autoRemake, fixEngine } from "../../fix-engine";
 import { fixInstruction } from "../../fix-notes";
 import { motionLabel } from "../../motion-label";
 import { videoRef } from "../../video-ref";
@@ -743,7 +743,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     await saveManifest(env, row.id, manifest);
     const round = manifest.fix?.round || 0;
     const scenes = [...reasons.keys()].filter((scene) => !manifest.photoMoves?.[scene]);
-    if (scenes.length && round < MAX_FIX_ROUNDS && await fixSetting(env)) {
+    if (autoRemake({ round, flagged: scenes.length, total: count, enabled: scenes.length > 0 && await fixSetting(env) }).go) {
       const notes = [...(manifest.fix?.notes || Array(count).fill(""))];
       const sent = [...(manifest.fix?.sent || [])];
       for (const scene of scenes) {
@@ -759,7 +759,7 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
       await saveManifest(env, row.id, manifest);
     }
     if (alertText.trim()) {
-      if (round >= MAX_FIX_ROUNDS) {
+      if (round >= AUTO_FIX_ROUNDS) {
         await alertManagers(env, `Quality problem not fixed · ${videoRef(row.id)}`, `${videoRef(row.id)}: still has a problem after ${round + 1} attempts. ${alertText.trim()} Order ${row.id}. It is marked red in History: open it, tap Quality to see the flagged scenes full screen, and decide whether to deliver it or re-make it yourself.`);
       } else {
         await alertManagers(env, "A film has a quality problem", `${videoRef(row.id)}: ${alertText.trim()} Order ${row.id}. The film was delivered; open History, find ${videoRef(row.id)} and tap Quality to preview the flagged scenes and decide whether to re-make it.`);
@@ -828,7 +828,7 @@ async function remakeScenes(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rend
     if (manifest.fix) { const history = [...manifest.fix.history]; const last = history[history.length - 1]; if (last) history[history.length - 1] = { ...last, cents: extra }; manifest.fix = { ...manifest.fix, history }; }
     await saveManifest(env, row.id, manifest);
     await env.DB.prepare(`UPDATE render_jobs SET status = 'generating', cost_cents = cost_cents + ?, prediction_ids = ?, segment_urls = ?, stitch_prediction_id = NULL, history_id = NULL, error = NULL, updated_at = ? WHERE id = ?`).bind(extra, JSON.stringify(ids), JSON.stringify(segments), Date.now(), row.id).run();
-    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (${(manifest.fix?.round || 1) > MAX_FIX_ROUNDS ? "fixed by hand" : `attempt ${(manifest.fix?.round || 1) + 1} of ${MAX_FIX_ROUNDS + 1}`} on ${studioEngine(manifest.engine).name}, about $${(extra / 100).toFixed(2)} more). Open History, find ${videoRef(row.id)} and tap Quality to preview what was flagged.`);
+    await alertManagers(env, "A film is being fixed", `${videoRef(row.id)}: the quality check found a problem, so ${scenes.length === 1 ? `scene ${scenes[0] + 1}` : `scenes ${scenes.map((scene) => scene + 1).join(", ")}`} of order ${row.id} ${scenes.length === 1 ? "is" : "are"} being made again with an added fix instruction (${(manifest.fix?.round || 1) > MAX_FIX_ROUNDS ? "fixed by hand" : `attempt ${(manifest.fix?.round || 1) + 1} of ${AUTO_FIX_ROUNDS + 1}`} on ${studioEngine(manifest.engine).name}, about $${(extra / 100).toFixed(2)} more). Open History, find ${videoRef(row.id)} and tap Quality to preview what was flagged.`);
     return true;
   } finally { await releaseLease(env, `job-lock:${row.id}`, lease); }
 }
