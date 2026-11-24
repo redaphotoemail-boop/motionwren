@@ -1,3 +1,4 @@
+import { PIPELINE } from "./pipeline-steps";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
@@ -86,6 +87,17 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <figure className="reveal"><PropertyFilm format="tall" start={0} hud="label" interval={4400} label="Sample vertical reel." /><figcaption>Reel · 9:16</figcaption></figure>
         <figure className="reveal"><PropertyFilm format="square" start={2} hud="label" interval={6000} label="Sample square feed post." /><figcaption>Feed · 1:1</figcaption></figure>
       </div>
+    </section>
+
+    <section id="care" className="band site-wrap care" aria-labelledby="care-title">
+      <div className="band-head">
+        <p className="eyebrow">Why it&apos;s different</p>
+        <h2 id="care-title">{PIPELINE.length} steps of care.<br />Not one click of luck.</h2>
+        <p className="band-sub">Most AI video tools make a clip and hand it over. Every MotionWren film is read, checked and finished before you see it.</p>
+      </div>
+      <ol className="care-list">
+        {PIPELINE.map((step) => <li key={step.n} className="reveal"><span className="step-n">{String(step.n).padStart(2, "0")}</span><h3>{step.title}</h3><p>{step.line}</p></li>)}
+      </ol>
     </section>
 
     <section className="band site-wrap accuracy" aria-labelledby="accuracy-title">
