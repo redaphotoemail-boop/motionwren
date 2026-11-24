@@ -244,8 +244,7 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
     if (existing && manifest) { manifest.versions = [...(manifest.versions || []), historyId]; await saveManifest(env, row.id, manifest).catch(() => undefined); }
     // One "ready" email per finished video, even if this step runs twice.
     const first = await env.DB.prepare(`INSERT OR IGNORE INTO platform_settings (key, value, updated_at) VALUES (?1, '1', ?2)`).bind(`ready-email:${historyId}`, Date.now()).run().catch(() => null);
-    // Only customer orders get the email: the owner's own Studio films (studio-*) already show in Studio and History.
-    if (first?.meta?.changes && !row.kind.startsWith("studio-")) await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", READY_TEXT, readyEmailHtml());
+    if (first?.meta?.changes) await sendAccountEmail(env, row.ownerId, "Your MotionWren video is ready", READY_TEXT, readyEmailHtml());
     // Scene photos and finished scenes are kept (regenerate a scene, re-join) until the retention clean-up.
   } catch (error) {
     await env.BUCKET.delete(r2Key);
