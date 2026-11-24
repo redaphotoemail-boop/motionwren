@@ -29,7 +29,7 @@ export default function ManagerShell({ children }: { children: React.ReactNode }
   return (
     <div className="mgr">
       <aside className="mgr-side">
-        <Link href="/admin" className="mgr-brand" aria-label="MotionWren Manager">
+        <Link href="/" className="mgr-brand" aria-label="MotionWren home page">
           <WrenMark size={30} />
           <span><strong>MotionWren</strong><small>Manager</small></span>
         </Link>
