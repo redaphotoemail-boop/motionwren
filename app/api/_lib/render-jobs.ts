@@ -223,7 +223,9 @@ async function storeFinishedFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const existing = await env.DB.prepare(`SELECT id FROM generation_history WHERE id = ?`).bind(row.id).first();
   const historyId = existing ? crypto.randomUUID() : row.id;
   const manifest = await loadManifest(env, row.id);
-  const engine = manifest?.engine || KIND_ENGINE[row.kind] || "studio";
+  // History names the engine the video was made with: the one that was chosen. A quality re-make can move a scene to
+  // another engine (manifest.engine then names that one), so the chosen engine is kept in startedEngine (older films: fix.firstEngine).
+  const engine = manifest?.startedEngine || manifest?.fix?.firstEngine || manifest?.engine || KIND_ENGINE[row.kind] || "studio";
   const r2Key = `generation-history/${row.ownerId}/${historyId}.mp4`;
   // A response with a known size streams straight into storage; one without
   // (chunked) is read in full first, since storage needs the size up front.
@@ -1077,7 +1079,7 @@ export async function jobSceneDetail(env: { BUCKET: R2Bucket }, row: RenderJobRo
     // A stopped video's finished scene whose engine copy has expired and was never kept: Resume makes it again.
     expired: row.status === "failed" && (finishing ? false : state === "ready") && !manifest.saved[index] && Date.now() - (manifest.readyAt[index] || 0) > 45 * 60 * 1000,
   }));
-  return { scenes, engine: String(manifest.engine || ""), firstEngine: String(manifest.fix?.firstEngine || manifest.engine || ""), fix: (manifest.fix?.history || []).map((item) => ({ round: item.round, scenes: item.scenes, why: item.why, cents: item.cents || 0, engine: item.engine || "", at: item.at || 0 })) };
+  return { scenes, engine: String(manifest.engine || ""), firstEngine: String(manifest.startedEngine || manifest.fix?.firstEngine || manifest.engine || ""), fix: (manifest.fix?.history || []).map((item) => ({ round: item.round, scenes: item.scenes, why: item.why, cents: item.cents || 0, engine: item.engine || "", at: item.at || 0 })) };
 }
 
 /* What the provider is doing right now, for the progress views. */
