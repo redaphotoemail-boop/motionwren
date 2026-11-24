@@ -5,10 +5,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && (curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod 755 /usr/local/bin/yt-dlp || echo 'yt-dlp not installed: social links will ask for an upload')
 # Bump this when the editor code must reach production: it changes the image, so a new container is always built from the new code.
-ARG EDITOR_IMAGE=2026-11-23-smart-movement
+ARG EDITOR_IMAGE=2026-11-23-smooth-check
 LABEL editor.image=$EDITOR_IMAGE
 WORKDIR /app
-COPY movement.py movement.mjs server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs template-recipe.mjs verify-template.mjs ./
+COPY movement.py movement.mjs smooth.mjs server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs template-recipe.mjs verify-template.mjs ./
 COPY fonts ./fonts
 COPY luts ./luts
 COPY templates ./templates

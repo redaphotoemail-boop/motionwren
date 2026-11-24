@@ -4,6 +4,7 @@
    sudden jumps and flicker. Pure maths on the frames, no AI, no cost.
    It never changes the film and never fails it: it only reports. */
 import { spawn } from "node:child_process";
+import { smoothness } from "./smooth.mjs";
 
 export const QC_FPS = 4;
 
@@ -101,7 +102,7 @@ export function analyzeFrames(frames, { width, height, fps = QC_FPS, duration, b
 }
 
 /* The whole check for one finished film. Never throws. */
-export async function qualityCheck(file, { width, height, duration, sceneSeconds, crossfade = 0, hasCards = false }) {
+export async function qualityCheck(file, { width, height, duration, sceneSeconds, crossfade = 0, hasCards = false, fps = 0, smooth = true }) {
   try {
     const scale = 480 / Math.max(width, height);
     const w = Math.max(64, Math.round((width * scale) / 2) * 2); const h = Math.max(64, Math.round((height * scale) / 2) * 2);
@@ -109,6 +110,23 @@ export async function qualityCheck(file, { width, height, duration, sceneSeconds
     const step = sceneSeconds ? Math.max(1, sceneSeconds - crossfade) : 0;
     const boundaries = []; if (step) for (let t = step; t < duration - 0.5; t += step) boundaries.push(Math.round(t * 10) / 10);
     const { metrics, flags } = analyzeFrames(frames, { width: w, height: h, duration, boundaries, hasCards });
+    // Smoothness: measured on every frame at the film's own frame rate; never lets the rest of the check fail.
+    if (smooth && fps >= 12 && fps <= 61) {
+      try {
+        const sw = 160; const sh = Math.max(48, Math.round((sw * height) / width / 2) * 2);
+        const all = await sampleFrames(file, { width: sw, height: sh, fps, timeoutMs: 3 * 60 * 1000 });
+        const edge = hasCards ? 1.2 : 0.4; const cut = crossfade / 2 + 0.3;
+        const measured = smoothness(all, { width: sw, height: sh, fps, skip: (t) => t < edge || t > duration - edge || boundaries.some((b) => Math.abs(b - t) <= cut) });
+        if (measured.ok) {
+          const pct = (v) => Math.round(v * 100000) / 1000; // percent of the picture width
+          metrics.shakeTypical = pct(measured.typical); metrics.shakeWorst = pct(measured.worst);
+          metrics.cameraSpeed = Math.round(measured.speed * 100000) / 1000;
+          // a fast camera move makes the measurement itself less exact: then the check reports but does not judge
+          const flag = measured.speed > 0.0025 ? null : shakeFlag(metrics.shakeTypical, metrics.shakeWorst, measured.worstAt);
+          if (flag) flags.push(flag);
+        }
+      } catch { /* the smoothness check never sinks the quality check */ }
+    }
     const status = flags.some((f) => f.level === "fail") ? "fail" : flags.length ? "warn" : "pass";
     return { status, flags, metrics, checkedAt: Date.now() };
   } catch (error) {
@@ -183,4 +201,15 @@ export async function structureHeld(aiFile, refFile, { width, height }) {
   const [a, b] = await Promise.all([sampleFrames(aiFile, { width: w, height: h, fps: 3 }), sampleFrames(refFile, { width: w, height: h, fps: 3 })]);
   const score = structureScore(a, b, w, h);
   return { ...score, held: score.mean >= STRUCTURE_MEAN && score.min >= STRUCTURE_MIN };
+}
+
+/* Camera shake, in percent of the picture width (measured on real films: steady ones read 0.001–0.007 typical and
+   under 0.02 at worst; the ones that visibly shiver read 0.024 and up, 0.055 and up at worst). */
+export const SHAKE_WARN = { typical: 0.012, worst: 0.03 };
+export const SHAKE_FAIL = { typical: 0.018, worst: 0.05 };
+export function shakeFlag(typical, worst, at) {
+  const t = Math.round(at * 10) / 10;
+  if (typical > SHAKE_FAIL.typical || worst > SHAKE_FAIL.worst) return { level: "fail", code: "shake", at: t, message: `The camera shakes slightly around ${t} s (measured ${worst.toFixed(3)}% of the picture width; steady is under 0.02%).` };
+  if (typical > SHAKE_WARN.typical || worst > SHAKE_WARN.worst) return { level: "warn", code: "shake", at: t, message: `The camera is a little unsteady around ${t} s (measured ${worst.toFixed(3)}%).` };
+  return null;
 }

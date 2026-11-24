@@ -113,3 +113,5 @@ assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("remadeOn"),
   assert.ok(readFileSync("app/admin/engines/panels.tsx", "utf8").includes('id="movement"'), "The Camera movement switch must stay in Engines"); }
 
 assert.ok(readFileSync("app/api/_lib/film-review.ts", "utf8").includes("notes = cfFindings"), "Cloudflare-only remarks must stay notes and never flag a film");
+
+assert.ok(readFileSync("composer/qc.mjs", "utf8").includes("shakeFlag") && readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("shake:"), "The camera smoothness check must stay in the quality check");
