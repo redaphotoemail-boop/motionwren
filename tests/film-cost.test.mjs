@@ -12,4 +12,7 @@ check("unedited has only the engine", filmCostLines({ ...base, edited: false, mu
 const r = filmCostLines({ ...base, engineCents: 70, remakeCents: 216, remakeRounds: 2 });
 check("re-makes get their own line", r.lines[0].label === "Video scenes (first attempt)" && r.lines[1].label === "Automatic re-makes" && r.lines[1].cents === 216);
 check("total includes the re-makes", r.totalCents === r.lines.reduce((s, l) => s + l.cents, 0) && r.totalCents > 286);
+const m = filmCostLines({ ...base, reviewCents: 3, movementCents: 4 });
+check("the AI photo reader gets its own line, and the total counts it", m.lines.some((l) => l.label === "Camera movement reading" && l.cents === 4) && m.totalCents === m.lines.reduce((s, l) => s + l.cents, 0) && m.totalCents === a.totalCents + 3 + 4);
+check("OpenCV reading adds no line", !filmCostLines({ ...base, movementCents: 0 }).lines.some((l) => l.label === "Camera movement reading"));
 process.exit(fail ? 1 : 0);

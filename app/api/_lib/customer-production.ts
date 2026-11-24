@@ -115,6 +115,8 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     if (movement) manifest.movementPlan = { mode: movement.mode, used: movement.used, picks: movement.picks, rooms: movement.rooms, costCents: movement.costCents, note: movement.note };
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
+    // The AI photo reader costs a few cents: record it with the film's AI cost so Spend, Finance and the spend limits count it.
+    if (movement?.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${jobId}`, String(movement.costCents), Date.now()).run().catch(() => undefined);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
       env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(Date.now(), project.id, ownerId),
