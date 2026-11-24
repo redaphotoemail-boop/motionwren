@@ -687,6 +687,7 @@ async function upscaleFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: Rende
    added instruction that names it. The scene's own prompt is never touched. */
 const FIX_NOTES: Record<string, string> = {
   jump: "Fix: the previous attempt had a sudden jump. Keep one continuous, smooth camera movement from the first frame to the last, with no cuts.",
+  shake: "Fix: the previous attempt had a slight camera shake. The camera must glide with perfectly constant, buttery-smooth motion: no jitter, no vibration, no wobble, no micro-shake, one steady speed from the first frame to the last.",
   black: "Fix: the previous attempt had black frames. The picture must stay fully lit and visible from the first frame to the last.",
 };
 const VEHICLE_WORDS = /\b(car|cars|vehicle|vehicles|truck|suv|van|automobile)\b/i;
