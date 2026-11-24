@@ -899,12 +899,18 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   process.env.RESEND_API_KEY = "re_test"; process.env.FRAME_MOTION_FROM_EMAIL = "MotionWren <hello@motionwren.test>";
   const env = env0(); await setLimit(env, 1);
   env.DB.raw.prepare("INSERT OR REPLACE INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('owner-1', 'agent@example.test', 'Agent', 'customer', 'active', 'free', 0, 0, 0)").run();
-  const id = await newJob(env, 1, { tag: "s31" });
+  const id = await newJob(env, 1, { tag: "s31", kind: "customer-series" });
   await start(env, id);
   const end = await runToEnd(env, id);
   const ready = P.emails.filter((mail) => /ready/i.test(mail.subject));
   check("31a a finished video sends the customer exactly one ready email", end.status === "succeeded" && ready.length === 1 && ready[0].to[0] === "agent@example.test", `${end.status} emails=${ready.length}`);
   check("31b the email has a button to the dashboard and says how long it is kept", ready.length === 1 && /motionwren\.com\/dashboard/.test(ready[0].html || "") && /90 days/.test(ready[0].text), "");
+  // The owner's own Studio films never send the email.
+  P.emails = [];
+  const studioId = await newJob(env, 1, { tag: "s31s" });
+  await start(env, studioId);
+  const studioEnd = await runToEnd(env, studioId);
+  check("31c a finished Studio film sends no ready email", studioEnd.status === "succeeded" && P.emails.filter((mail) => /ready/i.test(mail.subject)).length === 0, `${studioEnd.status} emails=${P.emails.length}`);
   delete process.env.RESEND_API_KEY; delete process.env.FRAME_MOTION_FROM_EMAIL;
 }
 
