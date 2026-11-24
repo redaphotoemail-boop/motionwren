@@ -9,6 +9,8 @@ import { PHOTO_MOVE_CYCLE, newManifest, saveManifest } from "./production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
 import { guardCheck } from "./spend-guard";
+import { MOVE_PHRASE, cyclePicks } from "./movement-plan";
+import { planMovements } from "./movement-read";
 
 /* Starts production of a customer's order: plans the scenes from their
    photos, creates the job and puts it in the scene queue. Used by the
@@ -94,9 +96,15 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
       const asset = scenes[index];
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, ownerId).run();
-      const imageUrl = `${origin}/api/provider-assets/${asset.id}?token=${assetToken}`;
-      photos.push({ key: asset.r2Key, link: imageUrl });
-      inputs.push(buildEngineInput(engine, { imageUrl, prompt: `${MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
+      photos.push({ key: asset.r2Key, link: `${origin}/api/provider-assets/${asset.id}?token=${assetToken}` });
+    }
+    // The photos are read once, here: each photo's camera movement is chosen by the scene first, then the story
+    // (Admin → Engines → Camera movement). Only the fixed movement phrases are used; the baked prompt is untouched.
+    // Any trouble falls back to the standard order; an order never waits on this.
+    const movement = await planMovements(env, project.id, photos.map((photo) => photo.link)).catch(() => null);
+    const picks = movement?.picks.length === photos.length ? movement.picks : cyclePicks(photos.length);
+    for (let index = 0; index < photos.length; index += 1) {
+      inputs.push(buildEngineInput(engine, { imageUrl: photos[index].link, prompt: `${MOVE_PHRASE[picks[index].move] || MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
     }
     // Into the scene queue: scenes are made one after another as the engine
     // allows (waits and retries are automatic); the customer can leave.
@@ -104,6 +112,7 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // The final edit: each scene's share on screen and the film's one music track.
     if (engine === "photo") manifest.photoMoves = inputs.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
+    if (movement) manifest.movementPlan = { mode: movement.mode, used: movement.used, picks: movement.picks, rooms: movement.rooms, costCents: movement.costCents, note: movement.note };
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }

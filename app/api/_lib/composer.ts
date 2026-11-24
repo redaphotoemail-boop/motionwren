@@ -138,6 +138,16 @@ export async function editFile(env: unknown, jobId: string, key: string, which: 
 
 /* The manager's music check (Production page): a 5-second ElevenLabs track
    made in its own container instance, with no backup. */
+/* OpenCV's numbers for a film's photos (and small copies for the AI reader when asked): the
+   container's POST /movements. Photos are given as links the container can open. */
+export type MovementRead = { opencv?: string; photos: (import("./movement-plan").Measure & { thumb?: string })[] };
+export async function measureMovements(env: unknown, name: string, links: string[], thumbs: boolean, timeoutMs = 50_000): Promise<MovementRead> {
+  const response = await stub(env, `movement-${name}`).fetch("http://composer/movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photos: links.map((link) => ({ url: link })), thumbs }), signal: AbortSignal.timeout(timeoutMs) });
+  const data = await response.json().catch(() => null) as (MovementRead & { error?: string }) | null;
+  if (!response.ok || !data?.photos) throw new Error(data?.error || `The photo reader did not answer (HTTP ${response.status}).`);
+  return data;
+}
+
 export async function checkMusic(env: unknown): Promise<{ ok: boolean; error?: string; duration?: number }> {
   // A fresh instance every time: a running container keeps the keys it
   // started with, so a just-changed key is only seen by a new one.

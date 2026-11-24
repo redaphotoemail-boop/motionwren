@@ -20,6 +20,8 @@ export default function EnginePanels({ part }: { part: "controls" | "overview" }
   const [ordersMessage, setOrdersMessage] = useState("");
   const [review, setReview] = useState<{ cloudflare: boolean; claude: boolean; autoFix: boolean; connected: { cloudflare: boolean; claude: boolean } }>({ cloudflare: false, claude: false, autoFix: true, connected: { cloudflare: false, claude: false } });
   const [aiMessage, setAiMessage] = useState("");
+  const [movement, setMovement] = useState<{ mode: "off" | "opencv" | "ai"; reader: { photoReader: boolean; claude: boolean; cloudflare: boolean }; last: { at: number; used: string; note: string; costCents: number; moves: number } | null }>({ mode: "opencv", reader: { photoReader: false, claude: false, cloudflare: false }, last: null });
+  const [movementMessage, setMovementMessage] = useState("");
   const [freeFirst, setFreeFirst] = useState(false);
   const [freeMessage, setFreeMessage] = useState("");
 
@@ -29,6 +31,7 @@ export default function EnginePanels({ part }: { part: "controls" | "overview" }
       if (typeof result.defaultEngine === "string" && studioEngines.some((engine) => engine.key === result.defaultEngine)) setDefaultEngine(result.defaultEngine);
       setOrders({ mode: result.customerProduction === "automatic" ? "automatic" : "approval", payments: Boolean(result.paymentsConnected) });
       setReview({ cloudflare: result.review?.cloudflare === true, claude: result.review?.claude === true, autoFix: result.autoFix !== false, connected: { cloudflare: result.reviewConnected?.cloudflare === true, claude: result.reviewConnected?.claude === true } });
+      if (result.movement) setMovement(result.movement);
       setFreeFirst(result.freeFirstVideo === true);
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -69,6 +72,15 @@ export default function EnginePanels({ part }: { part: "controls" | "overview" }
     setOrdersMessage(mode === "automatic" ? "New orders start on their own." : "New orders wait for you to press Start production.");
   }
 
+  async function saveMovement(mode: "off" | "opencv" | "ai") {
+    setMovementMessage("");
+    const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ movementMode: mode }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { setMovementMessage(result.error || "The setting could not be saved."); return; }
+    if (result.movement) setMovement(result.movement);
+    setMovementMessage(mode === "off" ? "New films use the standard movement order." : mode === "opencv" ? "New films choose each movement by reading the photos with OpenCV." : "New films choose each movement with the AI reader and OpenCV.");
+  }
+
   async function saveFreeFirst(next: boolean) {
     setFreeMessage("");
     const response = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ freeFirstVideo: next }) });
@@ -102,6 +114,15 @@ export default function EnginePanels({ part }: { part: "controls" | "overview" }
         ] as Array<[string, boolean, string, () => void]>).map(([label, on, note, toggle]) => <button key={label} type="button" className={on ? "choice active" : "choice"} aria-pressed={on} onClick={toggle}><strong>{label}: {on ? "On" : "Off"}</strong><small>{note}</small></button>)}
       </div>
       {aiMessage && <p className="muted small" role="status">{aiMessage}</p>}
+    </section>
+    <section className="panel" id="movement">
+      <div className="panel-head"><h2>Camera movement</h2><span className="muted small">{movement.mode === "off" ? "Standard order" : movement.mode === "opencv" ? "OpenCV" : "AI reader"}</span></div>
+      <p className="muted">Each photo is read once when production starts, and its movement is chosen by the scene first, then by the story: open by moving in, close by pulling back, never the same move twice. The fixed prompt is never changed.</p>
+      <div className="choice-row">
+        {([["opencv", "OpenCV", movement.reader.photoReader ? "Measures lines, depth and sky in each photo. Free" : "Reads photos in the editing service"], ["ai", "AI reader", movement.reader.claude ? "Looks at every photo with Claude, plus OpenCV. About 4 cents a film" : movement.reader.cloudflare ? "Looks at every photo with Cloudflare AI, plus OpenCV" : "Needs an AI key; OpenCV is used until then"], ["off", "Off", "Standard order, as before"]] as Array<["off" | "opencv" | "ai", string, string]>).map(([value, label, note]) => <button key={value} type="button" className={movement.mode === value ? "choice active" : "choice"} aria-pressed={movement.mode === value} onClick={() => saveMovement(value)}><strong>{label}{movement.mode === value ? ": On" : ""}</strong><small>{note}</small></button>)}
+      </div>
+      {movement.last && <p className="muted small">Last film: {movement.last.used === "off" ? "standard order" : movement.last.used === "ai" ? "AI reader" : "OpenCV"} · {new Date(movement.last.at).toLocaleString()} · {movement.last.note}</p>}
+      {movementMessage && <p className="note" role="status">{movementMessage}</p>}
     </section>
     <section className="panel" id="free-first-video">
       <div className="panel-head"><h2>Free first video</h2><span className="muted small">{freeFirst ? "On" : "Off"}</span></div>

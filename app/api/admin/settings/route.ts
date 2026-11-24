@@ -1,5 +1,6 @@
 import { HttpError, jsonError, requireAdmin } from "../../_lib/account";
 import { isEngineKey } from "../../../engine-providers";
+import { MOVEMENT_KEY, movementStatus } from "../../_lib/movement-read";
 import { REVIEW_CLAUDE_KEY, REVIEW_CLOUDFLARE_KEY, reviewSettings, reviewersConnected } from "../../_lib/film-review";
 
 const DEFAULT_SECONDS = "auto"; // unset means automatic scene timing (scenePlan)
@@ -21,14 +22,14 @@ export async function GET() {
 async function orderSettings(env: { DB: D1Database } & Record<string, unknown>) {
   const row = await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'customer_production'").first<{ value?: string }>();
   const free = await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'free_first_video'").first<{ value?: string }>();
-  return { freeFirstVideo: free?.value === "on", customerProduction: row?.value === "automatic" ? "automatic" : "approval", paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY), review: await reviewSettings(env), reviewConnected: reviewersConnected(env), autoFix: (await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'auto_fix'").first<{ value?: string }>())?.value !== "off" };
+  return { freeFirstVideo: free?.value === "on", customerProduction: row?.value === "automatic" ? "automatic" : "approval", paymentsConnected: Boolean(process.env.STRIPE_SECRET_KEY), review: await reviewSettings(env), reviewConnected: reviewersConnected(env), autoFix: (await env.DB.prepare("SELECT value FROM platform_settings WHERE key = 'auto_fix'").first<{ value?: string }>())?.value !== "off", movement: await movementStatus(env) };
 }
 
 export async function PUT(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
     const admin = await requireAdmin(env);
-    const body = await request.json() as { multiShotSecondsPerImage?: unknown; defaultEngine?: unknown; customerProduction?: unknown; review?: { cloudflare?: unknown; claude?: unknown }; autoFix?: unknown; freeFirstVideo?: unknown };
+    const body = await request.json() as { multiShotSecondsPerImage?: unknown; defaultEngine?: unknown; customerProduction?: unknown; review?: { cloudflare?: unknown; claude?: unknown }; autoFix?: unknown; freeFirstVideo?: unknown; movementMode?: unknown };
     let seconds: 3 | 5 | "auto" | null = null;
     if (body.multiShotSecondsPerImage !== undefined) {
       const value = body.multiShotSecondsPerImage === "auto" ? "auto" : Number(body.multiShotSecondsPerImage);
@@ -44,6 +45,10 @@ export async function PUT(request: Request) {
       if (typeof value !== "boolean") throw new HttpError(400, "Choose on or off.");
       await env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(key, value ? "on" : "off", Date.now()).run();
     };
+    if (body.movementMode !== undefined) {
+      if (!["off", "opencv", "ai"].includes(String(body.movementMode))) return Response.json({ error: "Choose off, OpenCV or AI." }, { status: 400 });
+      await env.DB.prepare("INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(MOVEMENT_KEY, String(body.movementMode), Date.now()).run();
+    }
     await flag(REVIEW_CLOUDFLARE_KEY, body.review?.cloudflare);
     await flag(REVIEW_CLAUDE_KEY, body.review?.claude);
     await flag("auto_fix", body.autoFix);
