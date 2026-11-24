@@ -100,3 +100,9 @@ assert.ok(order.includes('["wan3", "h3lite", "h3", "hailuo23"]'), "The engine or
 assert.ok(!studio.includes("VisualStyleControl") && studio.includes("Video format") && studio.includes("Classic listing film") && studio.includes("Luxury cinematic") && studio.includes("Vertical property reel"), "Video style and Frame size must stay one control");
 assert.ok(!studio.includes('label: "Focus shift"'), "Focus shift is not offered any more");
 assert.ok(studio.includes('focus: "The camera remains stationary while the lens performs a slow, gentle focus shift within the property scene"'), "The baked movement prompt text was changed");
+
+// History names the engine a video was started with, even after a quality re-make or a stall switch moved a scene to another engine.
+const renderJobsSrc = readFileSync("app/api/_lib/render-jobs.ts", "utf8");
+assert.ok(readFileSync("app/api/_lib/production.ts", "utf8").includes("startedEngine: engine"), "New videos must record the engine they were started with");
+assert.ok(/const engine = manifest\?\.startedEngine \|\| manifest\?\.fix\?\.firstEngine/.test(renderJobsSrc), "History must be saved under the engine the video was started with");
+assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("remadeOn"), "History must say when a scene was re-made on another engine");
