@@ -111,3 +111,5 @@ assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("remadeOn"),
   assert.ok(plan.includes("planMovements(") && plan.includes("MOVE_PHRASE") && plan.includes("${STATIC_LOCK}"), "Customer films choose movements through the planner and keep the static lock prompt");
   assert.ok(readFileSync("app/api/_lib/movement-plan.ts", "utf8").includes("a slow stabilized push-in"), "Smart movement must use the existing movement phrases");
   assert.ok(readFileSync("app/admin/engines/panels.tsx", "utf8").includes('id="movement"'), "The Camera movement switch must stay in Engines"); }
+
+assert.ok(readFileSync("app/api/_lib/film-review.ts", "utf8").includes("notes = cfFindings"), "Cloudflare-only remarks must stay notes and never flag a film");

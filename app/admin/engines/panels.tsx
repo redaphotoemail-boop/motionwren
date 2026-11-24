@@ -108,8 +108,8 @@ export default function EnginePanels({ part }: { part: "controls" | "overview" }
       <p className="muted">Every film is measured for sharpness, black or frozen picture, sudden jumps and flicker. Problems reach you as an alert; the film is still delivered.</p>
       <div className="choice-row">
         {([
-          ["Cloudflare AI review", review.cloudflare, review.connected.cloudflare ? "Looks at stills and compares each one with its source photo, about a cent or two a film" : "Not connected yet", () => saveReview({ review: { cloudflare: !review.cloudflare } })],
-          ["Claude review", review.claude, review.connected.claude ? "Sharper eyes, a few cents a film" : "Needs an Anthropic key", () => saveReview({ review: { claude: !review.claude } })],
+          ["Cloudflare AI review", review.cloudflare, review.connected.cloudflare ? "First look. Its remarks are notes only: they never flag a film or cost a re-make" : "Not connected yet", () => saveReview({ review: { cloudflare: !review.cloudflare } })],
+          ["Claude review", review.claude, review.connected.claude ? "Confirms what is real. Only a confirmed problem flags a film or re-makes a scene" : "Needs an Anthropic key", () => saveReview({ review: { claude: !review.claude } })],
           ["Fix automatically", review.autoFix, "Re-makes a flagged scene once. If most scenes are flagged, it delivers and alerts you instead", () => saveReview({ autoFix: !review.autoFix })],
         ] as Array<[string, boolean, string, () => void]>).map(([label, on, note, toggle]) => <button key={label} type="button" className={on ? "choice active" : "choice"} aria-pressed={on} onClick={toggle}><strong>{label}: {on ? "On" : "Off"}</strong><small>{note}</small></button>)}
       </div>
