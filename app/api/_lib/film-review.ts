@@ -28,7 +28,7 @@ export const REALITY_SOURCE_MAX_BYTES = 1_400_000;
 
 type AiBinding = { run(model: string, input: Record<string, unknown>): Promise<{ response?: string } | string> };
 export type Finding = { at: number; issue: string };
-export type AiReview = { status: "pass" | "flag" | "error"; reviewer: "cloudflare" | "claude" | "cloudflare+claude"; findings: Finding[]; reviewedAt: number; error?: string; costCents?: number; realityFindings?: number; realityError?: string };
+export type AiReview = { status: "pass" | "flag" | "error"; reviewer: "cloudflare" | "claude" | "cloudflare+claude"; findings: Finding[]; reviewedAt: number; error?: string; costCents?: number; realityFindings?: number; realityError?: string; /** Cloudflare AI remarks that no stronger check confirmed: kept for the owner, never flagged, never re-made. */ notes?: Finding[] };
 
 const secret = (name: string) => (typeof process !== "undefined" ? process.env?.[name] : undefined) || undefined;
 
@@ -52,14 +52,14 @@ export async function aiReviewOn(env: { DB: D1Database }) {
   return settings.cloudflare || settings.claude;
 }
 
-const QUESTION = `This is a frame from a real-estate promo video that was made from a still photograph by an AI video model. Only the camera should move; the room must stay exactly as photographed. Look for AI video artifacts: straight lines (walls, door frames, rooflines, window frames) that bend or wave, objects that look moved, duplicated, invented or melting, smeared or hazy patches, distorted cars, furniture or faces. Pay special attention to cars and other vehicles: a parked car must look parked and in its place. Be strict but do not invent problems.`;
+const QUESTION = `This is a frame from a real-estate promo video that was made from a still photograph by an AI video model. Only the camera should move; the room must stay exactly as photographed. Report a problem ONLY if you can clearly and unmistakably see it in this frame: a straight line (wall, door frame, roofline, window frame) that is visibly bent or wavy, an object that is visibly melting or doubled, or a smeared patch. Most frames are fine. If you are not sure, or the frame only looks soft or has a different angle, the answer is OK. Never mention an object that is not visible in this frame, and never mention a car, person or animal unless one is clearly visible.`;
 
 /* Reality check: the source photograph is described first, then each video
    frame is compared with that description. Camera movement, cropping,
    lighting, and sharpness are not problems — only things the video added,
    removed, or changed versus the photograph. */
 const REALITY_DESCRIBE = `Describe this real-estate photograph in one short paragraph: the room and its layout, the furniture, fixtures, finishes, windows and doors, and what is visible outside the windows. List only what is actually visible, under 60 words. State exactly where each parked car or vehicle is (for example: silver car on the left of the driveway).`;
-const REALITY_CHECK = (inventory: string) => `This is a frame from a video made from the photograph described below. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Compare the frame with the description and flag it ONLY if something in the frame was added, removed, or changed versus the photograph: furniture, fixtures, finishes, walls, windows, doors, layout, or anything outside the windows. Pay special attention to cars and other vehicles: if a car or vehicle is not where the photograph has it, or has turned, rolled or moved, flag it and say "car moved". Do not flag camera movement, cropping, lighting, or sharpness. Answer with exactly one line: "OK" if nothing was added, removed, or changed, or "ISSUE: <what changed, under 15 words>". Description: ${inventory}`;
+const REALITY_CHECK = (inventory: string) => `This is a frame from a video made from the photograph described below. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Flag the frame ONLY if you can clearly see that something the description lists is now missing or changed, or that a clearly visible new object appears that the description does not list. If you are not sure, answer OK. Only mention a car or vehicle if the description lists one. Do not flag camera movement, cropping, lighting, or sharpness. Answer with exactly one line: "OK", or "ISSUE: <what changed, under 15 words>". Description: ${inventory}`;
 
 const clean = (text: string) => text.replace(/[^\p{L}\p{N} ,.;:'()%/-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 140);
 
@@ -142,7 +142,7 @@ async function reviewRealityWithClaude(sources: (Uint8Array | null)[], stills: U
     content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: toBase64(still) } });
   });
   if (!pair) return [];
-  content.push({ type: "text", text: `Compare each video frame with its source photograph. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Flag a pair ONLY if something in the frame was added, removed, or changed versus the photograph: furniture, fixtures, finishes, walls, windows, doors, layout, or anything outside the windows. Do not flag camera movement, cropping, lighting, or sharpness.\nReply with JSON only: {"issues":[{"frame":<pair number>,"issue":"<what changed, under 15 words>"}]}. Use {"issues":[]} when every frame matches its photograph.` });
+  content.push({ type: "text", text: `Compare each video frame with its source photograph. The camera may have panned, zoomed, or cropped the photograph — that is fine and is not a problem. Flag a pair ONLY if something in the frame was added, removed, or changed versus the photograph: furniture, fixtures, finishes, walls, windows, doors, layout, or anything outside the windows. Do not flag camera movement, cropping, lighting, or sharpness. If you are not sure, do not flag. Never mention a car, person or object that is not clearly visible.\nReply with JSON only: {"issues":[{"frame":<pair number>,"issue":"<what changed, under 15 words>"}]}. Use {"issues":[]} when every frame matches its photograph.` });
   const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": secret("ANTHROPIC_API_KEY") || "", "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 600, messages: [{ role: "user", content }] }) });
   const data = await response.json().catch(() => null) as { content?: { text?: string }[]; error?: { message?: string } } | null;
   if (!response.ok) throw new Error(data?.error?.message || `Claude answered HTTP ${response.status}.`);
@@ -160,24 +160,35 @@ export async function reviewStills(env: unknown, stills: Uint8Array[], times: nu
   const base = { reviewedAt: Date.now() };
   if (!useCf && !useClaude) return { ...base, status: "error", reviewer: use.claude && !use.cloudflare ? "claude" : "cloudflare", findings: [], error: use.claude && !use.cloudflare ? "Claude is switched on but no Anthropic key is set." : "Cloudflare Workers AI is switched on but not connected." };
   try {
-    let findings: Finding[] = [];
+    /* Only a CONFIRMED finding flags a film (and can cause a re-make): Claude's own reading of the frames.
+       Cloudflare's small model guesses too often (it has "seen" cars that were never in a photo), so its
+       remarks are kept as notes only: they are never flagged, alerted, or paid for. */
+    let confirmed: Finding[] = [];
+    let notes: Finding[] = [];
     let costCents = 0;
     const scale = Math.max(1, stills.length / 4); // the cost model is per four frames
-    if (useCf) { findings = await reviewWithCloudflare(env, stills, times); costCents += CF_REVIEW_CENTS * scale; }
-    if (useClaude && (!useCf || findings.length)) { findings = await reviewWithClaude(stills, times); costCents += CLAUDE_REVIEW_CENTS; } // Claude double-checks what Cloudflare flagged
+    const pairs = (sources || []).filter((source, index) => index < stills.length && source && source.byteLength <= REALITY_SOURCE_MAX_BYTES).length;
+    let cfFindings: Finding[] = [];
     let realityFindings = 0;
     let realityError: string | undefined;
-    const pairs = (sources || []).filter((source, index) => index < stills.length && source && source.byteLength <= REALITY_SOURCE_MAX_BYTES).length;
-    if (pairs > 0) {
-      try {
-        let reality: Finding[] = [];
-        if (useCf) { reality = await reviewRealityWithCloudflare(env, sources || [], stills, times); costCents += 2 * CF_REVIEW_CENTS * scale; }
-        if (useClaude && (!useCf || reality.length)) { reality = await reviewRealityWithClaude(sources || [], stills, times); costCents += CLAUDE_REVIEW_CENTS; } // Claude double-checks what Cloudflare flagged
-        findings = [...findings, ...reality];
-        realityFindings = reality.length;
-      } catch (error) { realityError = String(error instanceof Error ? error.message : error).slice(0, 300); }
+    if (useCf) {
+      cfFindings = await reviewWithCloudflare(env, stills, times); costCents += CF_REVIEW_CENTS * scale;
+      if (pairs > 0) {
+        try { cfFindings = [...cfFindings, ...await reviewRealityWithCloudflare(env, sources || [], stills, times)]; costCents += 2 * CF_REVIEW_CENTS * scale; }
+        catch (error) { realityError = String(error instanceof Error ? error.message : error).slice(0, 300); }
+      }
     }
-    return { ...base, status: findings.length ? "flag" : "pass", reviewer: useCf && useClaude ? "cloudflare+claude" : useCf ? "cloudflare" : "claude", findings, costCents, realityFindings, ...(realityError ? { realityError } : {}) };
+    if (useClaude && (!useCf || cfFindings.length)) { // Claude looks (again) when Cloudflare remarked on something, or when it is the only reviewer
+      confirmed = await reviewWithClaude(stills, times); costCents += CLAUDE_REVIEW_CENTS;
+      if (pairs > 0) {
+        try { const reality = await reviewRealityWithClaude(sources || [], stills, times); costCents += CLAUDE_REVIEW_CENTS; confirmed = [...confirmed, ...reality]; realityFindings = reality.length; }
+        catch (error) { realityError = String(error instanceof Error ? error.message : error).slice(0, 300); }
+      }
+      notes = cfFindings.filter((remark) => !confirmed.some((item) => Math.abs(item.at - remark.at) < 0.6));
+    } else {
+      notes = cfFindings;
+    }
+    return { ...base, status: confirmed.length ? "flag" : "pass", reviewer: useCf && useClaude ? "cloudflare+claude" : useCf ? "cloudflare" : "claude", findings: confirmed, ...(notes.length ? { notes } : {}), costCents, realityFindings, ...(realityError ? { realityError } : {}) };
   } catch (error) {
     return { ...base, status: "error", reviewer: useCf ? "cloudflare" : "claude", findings: [], error: String(error instanceof Error ? error.message : error).slice(0, 300) };
   }

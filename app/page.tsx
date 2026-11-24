@@ -1,3 +1,4 @@
+import { HOME_STAGES } from "./pipeline-steps";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
@@ -85,6 +86,21 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <figure className="reveal"><PropertyFilm format="wide" start={1} hud="label" listing interval={5200} label="Sample hero listing film, widescreen, with the listing's address, price and size on screen." /><figcaption>Hero film · 16:9</figcaption></figure>
         <figure className="reveal"><PropertyFilm format="tall" start={0} hud="label" interval={4400} label="Sample vertical reel." /><figcaption>Reel · 9:16</figcaption></figure>
         <figure className="reveal"><PropertyFilm format="square" start={2} hud="label" interval={6000} label="Sample square feed post." /><figcaption>Feed · 1:1</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="care" className="band site-wrap care" aria-labelledby="care-title">
+      <div className="band-head">
+        <p className="eyebrow">Why it&apos;s different</p>
+        <h2 id="care-title">Not just generated.<br />Directed.</h2>
+      </div>
+      <div className="care-compare">
+        <div className="care-row care-plain"><span className="care-tag">A typical AI video</span><div className="care-track" aria-hidden="true"><i /><b /></div><span className="care-note">One click. One guess.</span></div>
+        <div className="care-row care-ours"><span className="care-tag">MotionWren</span>
+          <ol className="care-track">
+            {HOME_STAGES.map((stage, index) => <li key={stage.title} className="reveal"><i aria-hidden="true">{index + 1}</i><strong>{stage.title}</strong><span>{stage.line}</span></li>)}
+          </ol>
+        </div>
       </div>
     </section>
 

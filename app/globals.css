@@ -2221,3 +2221,37 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
   .fin-scene select { grid-column: auto; }
   .fin-panel { padding-top: 30px; }
 }
+
+/* Pipeline: the owner's numbered list and the customer's "why it's different" section. */
+.pipe-track { list-style: none; margin: 12px 0 0; padding: 0 0 0 0; display: grid; position: relative; }
+.pipe-track::before { content: ""; position: absolute; left: 14px; top: 18px; bottom: 18px; width: 2px; background: var(--amber-ink); opacity: .3; }
+.pipe-track li { position: relative; }
+.pipe-track summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 16px; padding: 10px 0; }
+.pipe-track summary::-webkit-details-marker { display: none; }
+.pipe-track summary i { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--amber-ink); color: #fff; display: grid; place-items: center; font: 500 13px/1 var(--mono); font-style: normal; position: relative; }
+.pipe-track li.is-off summary i { background: #cfc8bd; }
+.pipe-track summary strong { font-size: 17px; font-weight: 500; letter-spacing: -.01em; }
+.pipe-track details p { margin: 0 0 10px 46px; max-width: 62ch; }
+.pipe-chip { font-style: normal; font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #e8f3ea; color: #1f5a2c; white-space: nowrap; }
+.pipe-chip.off { background: #f1ece4; color: var(--muted); }
+.care-compare { margin-top: clamp(56px, 7vw, 96px); display: grid; gap: clamp(40px, 5vw, 64px); }
+.care-row { display: grid; gap: 22px; }
+.care-tag { font: 500 13px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.care-ours .care-tag { color: var(--amber-ink); }
+.care-plain .care-track { position: relative; height: 12px; margin: 0; }
+.care-plain .care-track i { position: absolute; left: 0; top: 0; width: 12px; height: 12px; border-radius: 50%; background: #cfc8bd; }
+.care-plain .care-track b { position: absolute; left: 12px; right: 0; top: 5px; height: 2px; background: repeating-linear-gradient(90deg, #d9d3c9 0 6px, transparent 6px 14px); }
+.care-note { color: var(--muted); font-size: 18px; }
+.care-ours .care-track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; position: relative; }
+.care-ours .care-track::before { content: ""; position: absolute; left: 14px; right: 14px; top: 14px; height: 2px; background: var(--amber-ink); opacity: .35; }
+.care-ours .care-track li { position: relative; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.care-ours .care-track i { width: 30px; height: 30px; border-radius: 50%; background: var(--amber-ink); color: #fff; display: grid; place-items: center; font: 500 13px/1 var(--mono); font-style: normal; position: relative; }
+.care-ours .care-track strong { font-size: 22px; letter-spacing: -.01em; margin-top: 12px; }
+.care-ours .care-track span { color: var(--muted); font-size: 16px; line-height: 1.4; }
+@media (max-width: 760px) {
+  .care-ours .care-track { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .care-ours .care-track::before { left: 14px; right: auto; top: 14px; bottom: 14px; width: 2px; height: auto; }
+  .care-ours .care-track li { grid-template-columns: 30px minmax(0, 1fr); column-gap: 18px; }
+  .care-ours .care-track strong { margin-top: 0; }
+  .care-ours .care-track span { grid-column: 2; }
+}
