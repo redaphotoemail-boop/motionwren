@@ -26,3 +26,12 @@ export const PIPELINE: PipelineStep[] = [
   { n: 10, title: "True crossfades and one soundtrack", line: "Scenes are joined by our own editor, with one music track throughout.", how: "Server-side assembly in the composer: real crossfades, engine sound dropped, one music track under the film." },
   { n: 11, title: "Cards, saved, delivered", line: "Listing details are added sharp, the film is saved and you are emailed.", how: "Opening and closing cards and titles are burned in, the film is stored durably (R2, with history in D1), and the ready email is sent." },
 ];
+
+/* The same care in five short stages, for the customer's homepage. */
+export const HOME_STAGES: { title: string; line: string }[] = [
+  { title: "Read", line: "AI studies every room." },
+  { title: "Direct", line: "Movement matched to the room and the story." },
+  { title: "Lock", line: "The home stays exactly as photographed." },
+  { title: "Check", line: "AI checks quality. Flaws are fixed." },
+  { title: "Finish", line: "Smooth cuts, music, your details." },
+];
