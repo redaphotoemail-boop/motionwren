@@ -8,6 +8,7 @@ import { PageHead, cents } from "../ui";
 import { studioEngines } from "../../engine-catalog";
 import EnginePanels from "../engines/panels";
 import { ProductionView, isActive, sceneLabel, type StudioJob } from "../../studio/production";
+import { PIPELINE } from "../../pipeline-steps";
 import { ISSUE_WORDS, type IssueCode } from "../../problem-words";
 import type { Issue, TimelineEvent } from "../../api/_lib/job-diagnosis";
 
@@ -42,6 +43,7 @@ const ago = (value: number, now: number) => { const minutes = Math.round((now - 
 
 export default function ProductionPage() {
   const [health, setHealth] = useState<Health | null>(null);
+  const [switches, setSwitches] = useState<{ movement?: string; cloudflare?: boolean; claude?: boolean; autoFix?: boolean } | null>(null);
   const [credit, setCredit] = useState<{ saved: { cents: number; at: number } | null; spentCents: number; estimateCents: number | null } | null>(null);
   const [creditInput, setCreditInput] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -111,6 +113,9 @@ export default function ProductionPage() {
   const loadSamples = useCallback(async () => {
     const response = await fetch("/api/admin/music-samples", { cache: "no-store" });
     if (response.ok) setSamples((await response.json()).samples);
+  }, []);
+  useEffect(() => {
+    fetch("/api/admin/settings", { cache: "no-store" }).then((response) => response.json()).then((result) => setSwitches({ movement: result.movement?.mode, cloudflare: result.review?.cloudflare === true, claude: result.review?.claude === true, autoFix: result.autoFix !== false })).catch(() => undefined);
   }, []);
   useEffect(() => { void Promise.resolve().then(loadSamples).catch(() => undefined); }, [loadSamples]);
 
@@ -185,6 +190,7 @@ export default function ProductionPage() {
     <PageHead eyebrow="Production" title="Production" sub="Is it running, what needs you, and every video being made." />
     <nav className="mgr-jump" aria-label="On this page">
       {problemCount > 0 && <a href="#problems">Problems <b>{problemCount}</b></a>}
+      <a href="#pipeline">Pipeline</a>
       <a href="#videos">Videos</a>
       <a href="#controls">Controls</a>
       <a href="#engines">Engines</a>
@@ -227,6 +233,17 @@ export default function ProductionPage() {
         </div>)}
       </details>}
     </section>}
+
+    <section id="pipeline" className="prodm-block" aria-label="How every film is made">
+      <h2>How every film is made <small>{PIPELINE.length} steps</small></h2>
+      <p className="muted">Every customer film goes through all {PIPELINE.length} steps. A plain AI video tool makes one clip and hands it over.</p>
+      <ol className="pipe-list">
+        {PIPELINE.map((step) => {
+          const state = !step.switch || !switches ? "" : step.switch === "movement" ? (switches.movement === "off" ? "Off" : switches.movement === "ai" ? "AI reader" : "OpenCV") : step.switch === "cloudflare" ? (switches.cloudflare || switches.claude ? `On · ${[switches.cloudflare && "Cloudflare", switches.claude && "Claude"].filter(Boolean).join(" + ")}` : "Off") : (switches.autoFix ? "On" : "Off");
+          return <li key={step.n}><span className="pipe-n">{step.n}</span><div><strong>{step.title}</strong><span className="muted">{step.how}</span></div>{state && <em className={state === "Off" ? "pipe-chip off" : "pipe-chip"}>{state}</em>}</li>;
+        })}
+      </ol>
+    </section>
 
     <section id="credit" className="prodm-block" aria-label="Replicate credit">
       <h2>Replicate credit</h2>
