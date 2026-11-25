@@ -4,7 +4,7 @@
 
 export const PLAN_DOLLARS = 5; // the Workers Paid plan, per month
 
-export type CategoryKey = "requests" | "cpu" | "d1Read" | "d1Write" | "d1Storage" | "r2Storage" | "r2A" | "r2B" | "ai" | "containers";
+export type CategoryKey = "requests" | "cpu" | "d1Read" | "d1Write" | "d1Storage" | "r2Storage" | "r2A" | "r2B" | "ai" | "containers" | "containerCpu" | "containerDisk";
 export type CategoryDef = { key: CategoryKey; group: string; label: string; unit: string; included: number; perUnit: number; unitSize: number; note?: string };
 
 /* perUnit is dollars for every `unitSize` units beyond the included amount. */
@@ -18,11 +18,13 @@ export const CATEGORIES: CategoryDef[] = [
   { key: "r2A", group: "Photos and videos", label: "Saves and lists", unit: "operations", included: 1_000_000, perUnit: 4.50, unitSize: 1_000_000 },
   { key: "r2B", group: "Photos and videos", label: "Reads", unit: "operations", included: 10_000_000, perUnit: 0.36, unitSize: 1_000_000 },
   { key: "ai", group: "AI", label: "Photo and film checks", unit: "neurons", included: 0, perUnit: 0.011, unitSize: 1_000, note: "The first 10,000 each day are free." },
-  { key: "containers", group: "Editing server", label: "Editing time (estimate)", unit: "GiB-hours", included: 25, perUnit: 0.0000025 * 3600, unitSize: 1, note: "Estimated from this month's finished films at about 4 minutes each on 6 GiB." },
+  { key: "containers", group: "Editing server", label: "Machine memory", unit: "GiB-hours", included: 25, perUnit: 0.0000025 * 3600, unitSize: 1, note: "Billed for as long as a machine is on, busy or not. Read from Cloudflare; without that, estimated from this month's finished films." },
+  { key: "containerCpu", group: "Editing server", label: "Machine processing", unit: "vCPU-minutes", included: 375, perUnit: 0.00002 * 60, unitSize: 1, note: "Only while a machine is actually working." },
+  { key: "containerDisk", group: "Editing server", label: "Machine disk", unit: "GB-hours", included: 200, perUnit: 0.00000007 * 3600, unitSize: 1, note: "Billed for as long as a machine is on." },
 ];
 
 export const AI_FREE_PER_DAY = 10_000;
-export const CONTAINER_GIB_HOURS_PER_FILM = (6 * 4 * 60) / 3600; // 6 GiB for about 4 minutes
+export const CONTAINER_GIB_HOURS_PER_FILM = (3 * 4 * 60) / 3600; // 3 GiB (since Nov 25, 2026) for about 4 minutes
 
 export type Usage = Partial<Record<CategoryKey, number>>;
 export type Priced = CategoryDef & { used: number | null; share: number; overageCents: number };

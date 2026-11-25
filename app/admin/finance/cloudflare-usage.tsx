@@ -5,10 +5,26 @@ import { cents } from "../ui";
 import { CATEGORIES, PLAN_DOLLARS } from "../../cloudflare-cost";
 
 type Row = { key: string; group: string; label: string; unit: string; included: number; note?: string; used: number | null; share: number; overageCents: number };
-type Report = { connected: false } | { connected: true; at: number; since: string; rows: Row[]; overageCents: number; totalCents: number; problems: Record<string, string> };
+type Watchdog = { lastSweepAt?: number; stoppedToday?: number; day?: string; lastStoppedAt?: number; spendCheckedAt?: number; todayDollars?: number | null; spendError?: string; limitDollars?: number };
+type Report = ({ connected: false } | { connected: true; at: number; since: string; rows: Row[]; overageCents: number; totalCents: number; problems: Record<string, string> }) & { watchdog?: Watchdog };
+
+const ago = (ms: number) => { const minutes = Math.round((Date.now() - ms) / 60000); return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`; };
+
+/* The editing-machine watchdog in one line: when it last looked, what it put to sleep today, today's spend. */
+function WatchdogLine({ watchdog }: { watchdog?: Watchdog }) {
+  if (!watchdog) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const limit = (watchdog.limitDollars || 1).toFixed(2);
+  const parts = [
+    watchdog.lastSweepAt ? `checked for idle editing machines ${ago(watchdog.lastSweepAt)}` : "has not checked the editing machines yet (it looks every 10 minutes)",
+    `${watchdog.day === today ? watchdog.stoppedToday || 0 : 0} put to sleep today`,
+    typeof watchdog.todayDollars === "number" ? `editing machines today: $${watchdog.todayDollars.toFixed(2)} of the $${limit} daily limit` : watchdog.spendError ? `today's spend could not be read (${watchdog.spendError})` : `alerts above $${limit} a day once Cloudflare is connected`,
+  ];
+  return <p className="fine">Watchdog: {parts.join(" · ")}.</p>;
+}
 
 const amount = (value: number, unit: string) => {
-  if (unit === "GB" || unit === "GiB-hours") return `${value < 10 ? value.toFixed(2) : value.toFixed(1)} ${unit === "GB" ? "GB" : "GiB-hours"}`;
+  if (unit === "GB" || unit === "GiB-hours" || unit === "GB-hours" || unit === "vCPU-minutes") return `${value < 10 ? value.toFixed(2) : value.toFixed(1)} ${unit}`;
   if (value >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
   if (value >= 1e6) return `${(value / 1e6).toFixed(value >= 1e7 ? 0 : 1)}M`;
   if (value >= 1e3) return `${(value / 1e3).toFixed(value >= 1e4 ? 0 : 1)}K`;
@@ -62,7 +78,8 @@ export function CloudflareUsage() {
           </div>;
         })}
       </div>)}
-      <p className="fine">Since the 1st of the month (UTC), straight from Cloudflare except the editing server, which is counted from our finished films. Cloudflare&apos;s billing page stays the final word. Logs and traces start billing on December 1.</p>
+      <p className="fine">Since the 1st of the month (UTC), straight from Cloudflare. Cloudflare&apos;s billing page stays the final word. Logs and traces start billing on December 1.</p>
     </>}
+    <WatchdogLine watchdog={report?.watchdog} />
   </section>;
 }

@@ -18,7 +18,7 @@ export function monthWindow(now = new Date()) {
   return { start: start.toISOString(), end: now.toISOString(), startDay: day(start), endDay: day(now), startMs: start.getTime() };
 }
 
-async function query(dataset: string, args: string, body: string): Promise<Rows> {
+export async function query(dataset: string, args: string, body: string): Promise<Rows> {
   const account = secret("CLOUDFLARE_ACCOUNT_ID")!;
   const response = await fetch(ENDPOINT, {
     method: "POST",
@@ -75,10 +75,20 @@ export async function readCloudflareUsage(env: Env, now = new Date()): Promise<U
       for (const row of rows) { const day = String(row.dimensions?.date); perDay.set(day, (perDay.get(day) || 0) + (Number(row.sum?.totalNeurons) || 0)); }
       usage.ai = aiBillableNeurons([...perDay.values()]);
     }),
-    attempt(["containers"], async () => {
-      // Cloudflare does not hand us container time, so this one is counted from our own finished films.
-      const row = await env.DB.prepare(`SELECT COUNT(*) AS films FROM render_jobs WHERE status = 'succeeded' AND kind IN ('customer-series','studio-series') AND created_at >= ?`).bind(w.startMs).first<{ films: number }>();
-      usage.containers = (Number(row?.films) || 0) * CONTAINER_GIB_HOURS_PER_FILM;
+    attempt(["containers", "containerCpu", "containerDisk"], async () => {
+      // The editing machines' billed usage, as Cloudflare counts it (memory and disk for as long as a machine is on).
+      try {
+        const rows = await query("containersUsageAdaptiveGroups", `limit: 100, filter: { ${days} }`, "sum { cpuTimeSec allocatedMemory allocatedDisk }");
+        usage.containers = sum(rows, (row) => row.sum?.allocatedMemory) / GB / 3600;
+        usage.containerCpu = sum(rows, (row) => row.sum?.cpuTimeSec) / 60;
+        usage.containerDisk = sum(rows, (row) => row.sum?.allocatedDisk) / 1e9 / 3600;
+      } catch (error) {
+        // Not answered: memory is estimated from our own finished films, and processing and disk show as not available.
+        const row = await env.DB.prepare(`SELECT COUNT(*) AS films FROM render_jobs WHERE status = 'succeeded' AND kind IN ('customer-series','studio-series') AND created_at >= ?`).bind(w.startMs).first<{ films: number }>();
+        usage.containers = (Number(row?.films) || 0) * CONTAINER_GIB_HOURS_PER_FILM;
+        const reason = String(error instanceof Error ? error.message : error).slice(0, 160);
+        problems.containerCpu = reason; problems.containerDisk = reason;
+      }
     }),
   ]);
   return { usage, problems };

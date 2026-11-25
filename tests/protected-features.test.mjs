@@ -137,3 +137,14 @@ assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("<Cloudfla
   assert.ok(finance.includes("One film cost") && finance.includes("scenePlan(") && finance.includes("VIDEO_LENGTHS.map"), "The 20-second box keeps its One film cost tab, one cost for each offered length, planned like a real order");
   assert.ok(finance.includes("20-second video") && finance.includes("Pick an engine"), "The original 20-second view stays");
   assert.ok(readFileSync("app/admin/replicates/spend-breakdown.tsx", "utf8").includes("useSpendBreakdowns"), "Both spending periods load once so tapping Today or This month does not wait"); }
+// Editing-machine safeguards (Nov 2026 bill): see PROTECTED_FEATURES.md "Editing-machine safeguards".
+{ const machine = readFileSync("worker/composer.ts", "utf8");
+  assert.ok(machine.includes('sleepAfter = "5m"') && machine.includes("STUCK_AFTER_MS") && machine.includes("isActivityExpired") && machine.includes("SLEEP_PATH"), "The editing machine keeps its 5-minute sleep, the stuck-reply reset and the watchdog's knock");
+  const site = readFileSync("app/api/_lib/composer.ts", "utf8");
+  assert.ok(site.includes("export async function release") && site.includes("await noteMachine(env, name)"), "Machine calls keep release() and keep writing each machine down for the watchdog");
+  const heartbeat = readFileSync("app/api/heartbeat/route.ts", "utf8");
+  assert.ok(heartbeat.includes("watchMachines(env)"), "The heartbeat keeps running the editing-machine watchdog");
+  const watch = readFileSync("app/api/_lib/editor-machines.ts", "utf8");
+  assert.ok(watch.includes("busyName") && watch.includes("render_jobs WHERE status NOT IN") && watch.includes("alertManagers"), "The watchdog keeps skipping machines that are still working, and keeps its spend alert");
+  assert.ok(readFileSync("scripts/build-verified.sh", "utf8").includes("tests/container-replies.test.mjs"), "The build keeps checking that every machine reply is read");
+  assert.ok(readFileSync("app/admin/finance/cloudflare-usage.tsx", "utf8").includes("<WatchdogLine"), "Finance keeps showing the watchdog line"); }

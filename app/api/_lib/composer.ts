@@ -110,11 +110,33 @@ export function composerBinding(env: unknown): Namespace | null {
   return binding && typeof binding.idFromName === "function" ? binding : null;
 }
 
-function stub(env: unknown, jobId: string) {
+/* Every way the site talks to an editing machine goes through here, so each machine it uses is written down
+   (editor_machines) before the call. The watchdog (editor-machines.ts) reads that list to put to sleep any
+   machine nobody has used for a while. */
+export function machineStub(env: unknown, name: string): Stub {
   const namespace = composerBinding(env);
   if (!namespace) throw new Error("The editing service is not available.");
-  return namespace.getByName ? namespace.getByName(jobId) : namespace.get(namespace.idFromName(jobId));
+  const real = namespace.getByName ? namespace.getByName(name) : namespace.get(namespace.idFromName(name));
+  return { fetch: async (input, init) => { await noteMachine(env, name); return real.fetch(input, init); } };
 }
+const stub = machineStub;
+
+const noted = new Map<string, number>();
+let machinesTableReady = false;
+/* Best effort and bounded: a slow or failing database never holds up or breaks a film. At most one write a
+   minute per machine. */
+export async function noteMachine(env: unknown, name: string) {
+  const db = (env as { DB?: D1Database } | null)?.DB;
+  const now = Date.now();
+  if (!db || typeof db.prepare !== "function" || now - (noted.get(name) || 0) < 60_000) return;
+  noted.set(name, now);
+  const write = (async () => {
+    if (!machinesTableReady) { await db.prepare(MACHINES_TABLE).run(); machinesTableReady = true; }
+    await db.prepare(`INSERT INTO editor_machines (name, last_used) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET last_used = excluded.last_used`).bind(name, now).run();
+  })().catch(() => undefined);
+  await Promise.race([write, new Promise((resolve) => setTimeout(resolve, 2000))]);
+}
+export const MACHINES_TABLE = `CREATE TABLE IF NOT EXISTS editor_machines (name TEXT PRIMARY KEY, last_used INTEGER NOT NULL, stopped_at INTEGER)`;
 
 const url = (key: string, suffix = "") => `http://composer/jobs/${key}${suffix}`;
 
