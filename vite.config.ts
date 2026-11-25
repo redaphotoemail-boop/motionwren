@@ -37,7 +37,7 @@ const localBindingConfig = {
   vars: {
     STRIPE_PRICE_SINGLE: "price_1UfZpnIypmSMFeRmJ3YQ8sex",
     STRIPE_PRICE_FIVE_PACK: "price_1UfZpoIypmSMFeRmzeA5rVtT",
-    STRIPE_PRICE_PRO: "price_1UfZppIypmSMFeRm9NGQjsPe",
+    STRIPE_PRICE_PRO: "price_1UfoDtIypmSMFeRmj7TR5609", // Membership $99 a month (test mode); was Pro $199
   },
   durable_objects: { bindings: [{ name: "COMPOSER", class_name: "Composer" }] },
   migrations: [{ tag: "composer-v1", new_sqlite_classes: ["Composer"] }],
