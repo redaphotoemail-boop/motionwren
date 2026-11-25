@@ -17,7 +17,7 @@ export default function TermsPage() {
         <p className="policy-date">Last updated November 25, 2026</p>
         <section>
           <h2>Who we are</h2>
-          <p>MotionWren is a property-video service operated from Boston, Massachusetts, United States. Contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
+          <p>MotionWren is a property-video service of REDA.PHOTO, operated from Boston, Massachusetts, United States. Contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
         </section>
         <section>
           <h2>Who can use MotionWren</h2>
