@@ -9,6 +9,9 @@
    or before the first container deploy), films use the backup joiner. */
 
 import { SAMPLE_SECONDS, defaultMusicId, musicTemplate } from "../../music-catalog";
+import { machineFeature } from "../../cloudflare-bill";
+
+export const FEATURE_HEADER = "x-motionwren-feature"; // must match worker/composer.ts
 
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
 type Namespace = { getByName?: (name: string) => Stub; idFromName: (name: string) => unknown; get: (id: unknown) => Stub };
@@ -117,7 +120,13 @@ export function machineStub(env: unknown, name: string): Stub {
   const namespace = composerBinding(env);
   if (!namespace) throw new Error("The editing service is not available.");
   const real = namespace.getByName ? namespace.getByName(name) : namespace.get(namespace.idFromName(name));
-  return { fetch: async (input, init) => { await noteMachine(env, name); return real.fetch(input, init); } };
+  // Each machine is labelled with the feature it works for, so Finance can show what each feature costs.
+  return { fetch: async (input, init) => {
+    await noteMachine(env, name);
+    const headers = new Headers(init?.headers);
+    headers.set(FEATURE_HEADER, machineFeature(name));
+    return real.fetch(input, { ...init, headers });
+  } };
 }
 const stub = machineStub;
 

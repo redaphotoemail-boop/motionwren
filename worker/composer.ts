@@ -16,6 +16,7 @@ type ComposerEnv = {
    minute while a film is being edited, so a real edit never gets near it. */
 const STUCK_AFTER_MS = 30 * 60 * 1000;
 export const SLEEP_PATH = "/__motionwren/sleep";
+const FEATURE_HEADER = "x-motionwren-feature"; // must match app/api/_lib/composer.ts
 
 export class Composer extends Container<ComposerEnv> {
   defaultPort = 8080;
@@ -42,7 +43,13 @@ export class Composer extends Container<ComposerEnv> {
      (30 minutes at least) and no reply is still being sent. Every other request is passed on unchanged. */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname !== SLEEP_PATH) return super.fetch(request);
+    if (url.pathname !== SLEEP_PATH) {
+      // The feature this machine works for (film editing, photo reading…), as a label Cloudflare keeps with its
+      // usage, so Finance can split the machines' cost by feature. Only takes effect when the machine starts.
+      const feature = request.headers.get(FEATURE_HEADER) || "";
+      if (/^[a-z-]{1,32}$/.test(feature)) (this as unknown as { labels: Record<string, string> }).labels = { feature };
+      return super.fetch(request);
+    }
     const running = Boolean(this.ctx.container?.running);
     if (!running) return Response.json({ running: false, stopped: false, reason: "asleep" });
     const saved = Number(await this.ctx.storage.get("lastUseAt")) || 0;
