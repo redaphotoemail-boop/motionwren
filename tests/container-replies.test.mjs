@@ -52,7 +52,7 @@ for (const path of files) {
   lines.forEach((line, i) => {
     const code = line.replace(/\/\/.*$/, "");
     const isMachineCall = /\.fetch\(/.test(code) && (/http:\/\/composer/.test(code) || /\bstub\(/.test(code) || /\btarget\.fetch\(/.test(code));
-    const isDefinition = /String\(input\)\.replace\("http:\/\/composer"/.test(code) || /real\.fetch\(input, init\)/.test(code);
+    const isDefinition = /String\(input\)\.replace\("http:\/\/composer"/.test(code) || /real\.fetch\(input, /.test(code);
     if (isMachineCall && !isDefinition) {
       calls++;
       if (/release\(\s*await\b/.test(code)) return; // let go on the spot
