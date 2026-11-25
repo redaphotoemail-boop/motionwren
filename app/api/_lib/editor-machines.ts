@@ -61,6 +61,8 @@ export async function sweepIdleMachines(env: Env, idleMs = IDLE_MS, now = Date.n
   if (!rows.results.length) {
     // Old entries are dropped from the list after a week.
     await env.DB.prepare(`DELETE FROM editor_machines WHERE last_used < ?`).bind(now - FORGET_AFTER_MS).run().catch(() => undefined);
+    // Recorded even when nothing was idle, so Finance shows the watchdog is looking.
+    await saveState(env, { lastSweepAt: now });
     return { checked: 0, stopped: 0 };
   }
   const active = new Set<string>((await env.DB.prepare(`SELECT id FROM render_jobs WHERE status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')`).all<{ id: string }>()).results.map((row) => row.id));
