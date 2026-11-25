@@ -4,7 +4,7 @@
    video is never kept: the composer deletes it after reading, and only the
    recipe (numbers) is stored under the name "MotionWren N". */
 
-import { composerBinding, release } from "./composer";
+import { machineStub, release } from "./composer";
 import { parseRecipe, recipeEffects, recipePhotoGuide, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
 import { SOCIAL_SPECS, buildSocialRecipe, keptActs, socialGuide, socialSpec } from "../../social-templates";
 import { smoothRecipe } from "../../wrencut-fit";
@@ -157,11 +157,8 @@ export async function linkedKey(env: Env, id: string, token: string) {
 
 /* ---------- reading a reference through the composer ---------- */
 
-function stub(env: unknown, name: string): Stub {
-  const namespace = composerBinding(env);
-  if (!namespace) throw new Error("The editing service is not available.");
-  return namespace.getByName ? namespace.getByName(name) : namespace.get(namespace.idFromName(name));
-}
+// Through the composer's stub, so every machine used here is written down for the watchdog too.
+const stub = (env: unknown, name: string): Stub => machineStub(env, name);
 
 export type ReadState = { status: "running" | "done" | "failed" | "unknown"; stage?: string; error?: string; recipe?: WrenRecipe };
 
