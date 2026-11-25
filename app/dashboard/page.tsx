@@ -109,7 +109,7 @@ export default function CustomerDashboard() {
     void Promise.resolve().then(() => {
       const billing = new URLSearchParams(window.location.search).get("billing");
       if (billing === "success") setMessage("Payment received. Thank you.");
-      else if (billing === "cancelled") setMessage("Checkout was cancelled. Nothing was charged.");
+      else if (billing === "cancelled") setMessage("Checkout was canceled. Nothing was charged.");
     });
   }, []);
   useEffect(() => {
@@ -290,6 +290,7 @@ export default function CustomerDashboard() {
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
           <SaveVideo className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`} fileName={`motionwren-${String(project.finalHistoryId).slice(0, 8)}.mp4`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5M5 20h14" /></svg>Download</SaveVideo>
+          <Link className="btn btn-soft btn-xs" href={`/dashboard/edit/${project.id}`}>Edit</Link>
         </>}
         {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
         {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
@@ -386,6 +387,7 @@ export default function CustomerDashboard() {
                 {project.finalHistoryId && <>
                   <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: project.title, historyId: project.finalHistoryId as string, vertical })}>Watch</button>
                   <SaveVideo className="btn btn-ink btn-xs" href={`/api/history/${project.finalHistoryId}/video?download=1`} fileName={`motionwren-${project.finalHistoryId.slice(0, 8)}.mp4`}>Download</SaveVideo>
+                  <Link className="btn btn-soft btn-xs" href={`/dashboard/edit/${project.id}`}>Edit</Link>
                 </>}
                 {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
                 {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}

@@ -11,6 +11,10 @@ export const metadata: Metadata = {
     title: "MotionWren",
     description: "Professional property videos from listing photographs.",
     images: ["/og.png"],
+    url: "https://motionwren.com",
+    siteName: "MotionWren",
+    type: "website",
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
@@ -21,6 +25,7 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
+    apple: "/apple-touch-icon.png",
   },
 };
 

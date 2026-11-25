@@ -1,4 +1,4 @@
-import { jsonError, requireAccount } from "../../_lib/account";
+import { customerError, requireAccount } from "../../_lib/account";
 
 export async function GET() {
   try {
@@ -13,5 +13,5 @@ export async function GET() {
       env.DB.prepare(`SELECT type, title, message, read_at AS readAt, created_at AS createdAt FROM notifications WHERE owner_id = ? ORDER BY created_at DESC`).bind(account.id).all(),
     ]);
     return Response.json({ exportedAt: new Date().toISOString(), account, projects: projects.results, history: history.results, subscriptions: subscriptions.results, payments: payments.results, credits: credits.results, notifications: notifications.results }, { headers: { "Content-Disposition": `attachment; filename="motionwren-data.json"`, "Cache-Control": "no-store" } });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

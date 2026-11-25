@@ -2258,3 +2258,42 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 
 /* The per-length price line under the plans. */
 .plans-note{text-align:center;margin:28px auto 0;max-width:560px;font-size:14px;line-height:1.5}
+
+/* ---------- The client's film editor (app/dashboard/edit/[id]) ---------- */
+.fe { max-width: 880px; margin: 0 auto; padding: 32px 20px 96px; font-family: var(--body); color: var(--ink); }
+.fe h1 { font-family: var(--display); font-size: clamp(28px, 5vw, 40px); font-weight: 600; letter-spacing: -0.02em; margin: 18px 0 6px; }
+.fe h2 { font-family: var(--display); font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+.fe-back { color: var(--muted); font-size: 14px; text-decoration: none; }
+.fe-back:hover { color: var(--ink); }
+.fe-lead, .fe-muted { color: var(--muted); font-size: 15px; line-height: 1.5; margin: 0 0 14px; }
+.fe-notice { background: var(--amber-soft); color: var(--amber-ink); border-radius: var(--r-sm); padding: 12px 16px; font-weight: 500; }
+.fe-error { background: var(--bad-soft); color: var(--bad); border-radius: var(--r-sm); padding: 12px 16px; font-weight: 500; }
+.fe-block { background: var(--surface); border-radius: var(--r); box-shadow: var(--lift); padding: 22px; margin-top: 18px; }
+.fe-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.fe-choice { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; background: var(--paper); border: 2px solid transparent; border-radius: var(--r-sm); padding: 12px 14px; font: inherit; color: inherit; cursor: pointer; }
+.fe-choice small { color: var(--muted); }
+.fe-choice.on { border-color: var(--amber); background: var(--amber-soft); }
+.fe-choice:disabled { cursor: default; }
+.fe-scenes { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.fe-scene { display: grid; grid-template-columns: 132px 1fr; gap: 14px; align-items: start; background: var(--paper); border-radius: var(--r-sm); padding: 10px; }
+.fe-scene img { width: 132px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 10px; display: block; }
+.fe-scene-body { display: grid; gap: 6px; min-width: 0; }
+.fe-scene-body small { color: var(--muted); }
+.fe-scene-actions, .fe-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.fe-takes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 8px; }
+.fe-takes figure { margin: 0; display: grid; gap: 6px; }
+.fe-takes video { width: 100%; border-radius: 10px; background: var(--screen); }
+.fe-takes figcaption { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.fe-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 12px; }
+.fe fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.fe legend { font-weight: 600; margin-bottom: 4px; }
+.fe label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+.fe input, .fe select, .fe textarea { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; width: 100%; max-width: 100%; box-sizing: border-box; }
+.fe select { width: auto; min-width: 220px; }
+.fe textarea { margin-top: 10px; resize: vertical; }
+.fe audio { height: 36px; max-width: 100%; }
+@media (max-width: 560px) {
+  .fe-scene { grid-template-columns: 1fr; }
+  .fe-scene img { width: 100%; }
+  .fe select { min-width: 0; width: 100%; }
+}

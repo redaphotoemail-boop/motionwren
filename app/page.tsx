@@ -1,4 +1,5 @@
 import { HOME_STAGES } from "./pipeline-steps";
+import { priceForSeconds } from "./pricing";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
@@ -8,6 +9,20 @@ import PropertyFilm from "./components/property-film";
 import SiteNav from "./components/site-nav";
 
 export const dynamic = "force-dynamic";
+
+export const metadata = { alternates: { canonical: "/" } };
+
+/* What search engines and AI search read about MotionWren: who runs it and what it sells, with the prices from pricing.ts. */
+const STRUCTURED_DATA = {
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "Organization", "@id": "https://motionwren.com/#org", name: "MotionWren", url: "https://motionwren.com", logo: "https://motionwren.com/apple-touch-icon.png" },
+    {
+      "@type": "Service", name: "Property videos from listing photos", serviceType: "Real estate video production", provider: { "@id": "https://motionwren.com/#org" }, areaServed: "US",
+      offers: [20, 30, 60].map((seconds) => ({ "@type": "Offer", name: `${seconds}-second listing film`, price: (priceForSeconds(seconds) / 100).toFixed(2), priceCurrency: "USD" })),
+    },
+  ],
+};
 
 const steps = [
   { n: "01", title: "Answer four questions", text: "Goal, property, channels, feel.", visual: "questions" },
@@ -43,6 +58,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
   const accountPath = session ? (configuredAdmins(env).has(session.email.toLowerCase()) ? "/admin" : "/dashboard") : "/signin";
 
   return <main className="site" id="main-content">
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }} />
     <SiteNav accountPath={accountPath} signedIn={Boolean(session)} />
 
     {/* Full-bleed hero: the listing itself fills the first screen, in motion. */}
@@ -80,11 +96,12 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
       <div className="band-head">
         <p className="eyebrow">One upload</p>
         <h2 id="formats-title">Every channel.<br />One upload.</h2>
-        <p className="band-sub">A hero film for the listing. A reel for social.</p>
+        <p className="band-sub">A hero film for the listing. A reel for social. A square for the feed.</p>
       </div>
       <div className="formats">
         <figure className="reveal"><PropertyFilm format="wide" start={1} hud="label" listing interval={5200} label="Sample hero listing film, widescreen, with the listing's address, price and size on screen." /><figcaption>Hero film · 16:9</figcaption></figure>
         <figure className="reveal"><PropertyFilm format="tall" start={0} hud="label" interval={4400} label="Sample vertical reel." /><figcaption>Reel · 9:16</figcaption></figure>
+        <figure className="reveal"><PropertyFilm format="square" start={2} hud="label" interval={6000} label="Sample square feed post." /><figcaption>Feed · 1:1</figcaption></figure>
       </div>
     </section>
 

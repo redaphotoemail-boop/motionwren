@@ -1,5 +1,6 @@
 import { autoQuote } from "../../pricing";
-import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
+import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineKeepsPhotoShape, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
+import { filmShape } from "../../original-shape";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
 import { HttpError } from "./account";
 import { musicPrompt } from "./composer";
@@ -8,7 +9,7 @@ import { PHOTO_MOVE_CYCLE, cleanCards, newManifest, saveManifest } from "./produ
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
 import { guardCheck } from "./spend-guard";
-import { planTrueToPhoto, truePicks, truePrompt } from "./true-to-photo";
+import { planMoves, planTrueToPhoto, truePicks, truePrompt } from "./true-to-photo";
 
 /* Starts production of a customer's order: plans the scenes from their
    photos, creates the job and puts it in the scene queue. Used by the
@@ -113,22 +114,38 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     const order = trueToPhoto && trueToPhoto.order.length === poolPhotos.length ? trueToPhoto.order : poolPhotos.map((_, index) => index);
     const used = order.slice(0, plan.count);
     const photos = used.map((index) => poolPhotos[index]);
-    for (const index of used) {
-      inputs.push(buildEngineInput(engine, { imageUrl: poolPhotos[index].link, prompt: truePrompt(trueToPhoto?.focus[index] || "center", STATIC_LOCK), duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
-    }
+    // Made once in the photos' own shape, then cut to what the client asked for (16:9, 9:16, 1:1, 4:5) by the
+    // final edit. A later change of frame is only a new cut, never a new film (Reda, Nov 25 2026).
+    const measured = used.map((index) => trueToPhoto?.shapes[index] || 0).filter((shape) => shape > 0);
+    const ownShape = engine !== "photo" && engineKeepsPhotoShape(engine) && measured.length ? filmShape(measured) : null;
+    // The camera moves (Reda, Nov 25 2026): mostly push-ins and gentle arcs, a pull-back to close, a rare glide;
+    // every one stays inside the photo, and each scene goes the way the one before it went (matched cuts).
+    const moves = planMoves(trueToPhoto || { focus: poolPhotos.map(() => "center"), shapes: poolPhotos.map(() => 0), rooms: poolPhotos.map(() => null) }, used);
+    used.forEach((index, at) => {
+      inputs.push(buildEngineInput(engine, { imageUrl: poolPhotos[index].link, prompt: truePrompt(moves[at], STATIC_LOCK), duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
+    });
     // Into the scene queue: scenes are made one after another as the engine
     // allows (waits and retries are automatic); the customer can leave.
     const manifest = newManifest(engine, ENGINE_ENDPOINTS[engine], sceneSeconds, inputs, undefined, photos);
+    if (ownShape) manifest.frame = { ratio: ownShape };
+    // The line guard (composer/lines.mjs): every engine scene is checked against its photo in the final edit; one whose
+    // straight lines move, or that shows anything beyond the photo, becomes a still-photo move made from the photo.
+    if (engine !== "photo") manifest.lineGuard = { modes: moves.map((move) => move.guard), reverse: moves.map((move) => move.reverse), stills: moves.map((move) => move.still) };
     // The final edit: each scene's share on screen and the film's one music track.
     if (engine === "photo") manifest.photoMoves = inputs.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
     const cards = await readCardsChoice(env, project.id);
     if (cards) manifest.cards = cards;
     if (trueToPhoto) {
-      const plannedPicks = truePicks(trueToPhoto).slice(0, plan.count);
+      const plannedPicks = truePicks(trueToPhoto, moves).slice(0, plan.count);
       manifest.movementPlan = { mode: "ai", used: trueToPhoto.reader === "none" ? "opencv" : "ai", picks: plannedPicks, rooms: used.map((index) => trueToPhoto.rooms[index] || ""), costCents: trueToPhoto.costCents, note: `True to the photo. ${trueToPhoto.note}`.trim() };
     }
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
+    if (ownShape) {
+      const cut = project.aspect === "vertical" ? "vertical" : project.aspect === "square" ? "square" : project.aspect === "portrait" ? "portrait" : "horizontal";
+      manifest.edit.reframe = cut;
+      await env.DB.prepare(`UPDATE render_jobs SET aspect = 'original' WHERE id = ?`).bind(jobId).run();
+    }
     await saveManifest(env, jobId, manifest);
     // The AI photo reader costs a few cents: record it with the film's AI cost so Spend, Finance and the spend limits count it.
     if (trueToPhoto?.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${jobId}`, String(trueToPhoto.costCents), Date.now()).run().catch(() => undefined);

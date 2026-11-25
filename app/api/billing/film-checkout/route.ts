@@ -1,4 +1,4 @@
-import { enforceRateLimit, jsonError, requireAccount } from "../../_lib/account";
+import { enforceRateLimit, customerError, requireAccount } from "../../_lib/account";
 import { createPackageCheckout, filmQuote, type FilmQuote } from "../../_lib/film-checkout";
 
 /* One checkout for every film of an order that still needs paying. Credits
@@ -31,5 +31,5 @@ export async function POST(request: Request) {
     const url = await createPackageCheckout({ secret, origin: new URL(request.url).origin, ownerId: account.id, email: account.email, films });
     if (!url) return Response.json({ error: "We couldn't open checkout just now. Your order is saved; please try again in a moment." }, { status: 502 });
     return Response.json({ url, due });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

@@ -1,4 +1,4 @@
-import { audit, enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
+import { audit, enforceRateLimit, customerError, requireAccount } from "../../../_lib/account";
 
 const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -39,5 +39,5 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     } catch (error) { await env.BUCKET.delete(r2Key); throw error; }
     await audit(env, account.id, "asset.uploaded", "project", projectId, { assetId, sizeBytes: file.size });
     return Response.json({ asset: { id: assetId, fileName: file.name, contentType: file.type, sizeBytes: file.size, sortOrder, createdAt: now } }, { status: 201 });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

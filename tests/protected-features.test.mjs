@@ -110,6 +110,10 @@ assert.ok(readFileSync("app/api/history/route.ts", "utf8").includes("remadeOn"),
 { const plan = readFileSync("app/api/_lib/customer-production.ts", "utf8");
   // Reda, Nov 25 2026: customer films are true to the photo (slow push-ins in walkthrough order); the baked lock stays word for word.
   assert.ok(plan.includes("planTrueToPhoto(") && plan.includes("truePrompt(") && plan.includes("STATIC_LOCK)"), "Customer films are planned true to the photo and keep the static lock prompt");
+  assert.ok(plan.includes("manifest.lineGuard =") && plan.includes("planMoves("), "Customer films carry the line guard plan and the true-to-photo move mix");
+  const composer = readFileSync(new URL("../composer/server.mjs", import.meta.url), "utf8");
+  assert.ok(composer.includes("guardScene(") && readFileSync(new URL("../composer/lines.py", import.meta.url), "utf8").includes("def check("), "The composer runs the line guard on engine scenes");
+  assert.ok(plan.includes("manifest.frame = { ratio: ownShape }"), "Customer films are made once in the photos' own shape and cut to the chosen frame");
   assert.ok(readFileSync("app/api/_lib/movement-plan.ts", "utf8").includes("a slow stabilized push-in"), "Smart movement must use the existing movement phrases");
   assert.ok(readFileSync("app/admin/engines/panels.tsx", "utf8").includes('id="movement"'), "The Camera movement switch must stay in Engines"); }
 

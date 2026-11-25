@@ -30,19 +30,38 @@ const CLAUDE_MODEL = "claude-sonnet-5-5";
 const CF_CENTS_PER_PHOTO = 0.5;
 const CLAUDE_CENTS = 4;
 
-/** The only camera moves a customer film uses: slow, short push-ins that stay inside the photo. */
+/* The camera moves a customer film uses (Reda, Nov 25 2026: "mostly pushing, orbits right or left, pull back
+   especially at the end, side moves rare"). Every one of them pushes in a little, so the frame only ever shows less
+   of the photo, never more: nothing has to be invented. Each starts and ends softly at one slow, steady speed.
+   The closing pull-back is not asked of the engine (pulling back would reveal space beyond the photo): the engine
+   makes a push-in and the editor plays it backwards. Words that slow a scene in the edit (orbit, pan, lateral
+   slide: see isSidewaysMove) are avoided on purpose. */
+const EASE = "starting and ending softly at one slow, steady speed";
 export const TRUE_MOVE: Record<Focus, string> = {
-  center: "A very slow, gentle push-in toward the centre of the photo, travelling only a short distance over the whole shot",
-  left: "A very slow, gentle push-in drifting slightly toward the left of the photo, travelling only a short distance over the whole shot",
-  right: "A very slow, gentle push-in drifting slightly toward the right of the photo, travelling only a short distance over the whole shot",
+  center: `A very slow, gentle push-in toward the centre of the photo, travelling only a short distance over the whole shot, ${EASE}`,
+  left: `A very slow, gentle push-in drifting slightly toward the left of the photo, travelling only a short distance over the whole shot, ${EASE}`,
+  right: `A very slow, gentle push-in drifting slightly toward the right of the photo, travelling only a short distance over the whole shot, ${EASE}`,
+};
+export type Side = "left" | "right";
+/** A gentle orbit, done the true-to-photo way: a slow push-in that arcs a little around the room's focal point. */
+export const TRUE_ARC: Record<Side, string> = {
+  left: `A very slow, gentle push-in that arcs slightly to the left around the room's focal point, travelling only a short distance over the whole shot, ${EASE}`,
+  right: `A very slow, gentle push-in that arcs slightly to the right around the room's focal point, travelling only a short distance over the whole shot, ${EASE}`,
+};
+/** The rare side move: a slow glide across a wide view, pushing in slightly so the frame stays inside the photo. */
+export const TRUE_GLIDE: Record<Side, string> = {
+  left: `A very slow, gentle push-in that glides slightly sideways to the left across the view, travelling only a short distance over the whole shot, ${EASE}`,
+  right: `A very slow, gentle push-in that glides slightly sideways to the right across the view, travelling only a short distance over the whole shot, ${EASE}`,
 };
 
 /** Added after the movement and the baked lock: the camera never leaves the photograph. */
-export const FRAME_LOCK = "The camera stays inside the original photograph for the whole shot: it never reveals anything beyond the edges of the photo, never turns, never travels into another room, and never adds rooms, walls, windows, doors, furniture, landscaping or architecture that are not in the photo. Calm, cinematic pace.";
+export const FRAME_LOCK = "The camera stays inside the original photograph for the whole shot: it never reveals anything beyond the edges of the photo, never turns away from the photo's view, never travels into another room, and never adds rooms, walls, windows, doors, furniture, landscaping or architecture that are not in the photo. Straight lines such as window frames, door frames, walls and ceilings stay perfectly straight and still. Calm, cinematic pace.";
 
 export type TrueToPhotoPlan = {
   order: number[];
   focus: Focus[];
+  /** Each photo's shape (width ÷ height) as OpenCV measured it; 0 when unknown. */
+  shapes: number[];
   rooms: (Room | null)[];
   reader: SceneReader | "none";
   ordered: boolean;
@@ -99,7 +118,7 @@ async function roomsWithClaude(thumbs: string[]): Promise<(Room | null)[]> {
 /** Plans a customer film so it stays true to the photos. Never throws. */
 export async function planTrueToPhoto(env: { DB: D1Database } & Record<string, unknown>, name: string, links: string[]): Promise<TrueToPhotoPlan> {
   const identity = links.map((_, index) => index);
-  const base: TrueToPhotoPlan = { order: identity, focus: links.map(() => "center"), rooms: links.map(() => null), reader: "none", ordered: false, costCents: 0, note: "", at: Date.now() };
+  const base: TrueToPhotoPlan = { order: identity, focus: links.map(() => "center"), shapes: links.map(() => 0), rooms: links.map(() => null), reader: "none", ordered: false, costCents: 0, note: "", at: Date.now() };
   if (links.length < 1) return { ...base, note: "No photos to read." };
   const wanted = await sceneReader(env);
   let thumbs: string[] = [];
@@ -107,6 +126,7 @@ export async function planTrueToPhoto(env: { DB: D1Database } & Record<string, u
     const read = await measureMovements(env, `true-${name}`, links, wanted !== "off");
     if (read.photos.length === links.length) {
       base.focus = read.photos.map((photo) => photo.error ? "center" : focusFrom(photo.vanishing?.x));
+      base.shapes = read.photos.map((photo) => (!photo.error && typeof photo.aspect === "number" && Number.isFinite(photo.aspect) ? photo.aspect : 0));
       thumbs = read.photos.map((photo) => photo.thumb || "");
       base.note = `OpenCV read ${read.photos.filter((photo) => !photo.error).length} of ${links.length} photos.`;
     } else base.note = "The photo reader returned the wrong number of photos; moves are centred.";
@@ -137,12 +157,69 @@ export async function planTrueToPhoto(env: { DB: D1Database } & Record<string, u
   }
 }
 
-/** The movement plan as the rest of the app records it (History, Edit film): every scene a push-in. */
-export function truePicks(plan: TrueToPhotoPlan): Pick[] {
-  return plan.order.map((original) => ({ move: "push", why: `${plan.rooms[original] ? `${plan.rooms[original]}: ` : ""}a slow push-in that stays inside the photo${plan.focus[original] !== "center" ? `, leaning ${plan.focus[original]}` : ""}` }));
+export type TrueMoveKind = "push" | "arc" | "glide" | "close";
+export type TrueMove = {
+  kind: TrueMoveKind;
+  /** push and close: where the push leans; arc and glide: which way they go. */
+  lean: Focus;
+  /** How strict the line guard is: a push may not move any line; an arc or glide may let near and far drift apart smoothly. */
+  guard: "push" | "arc";
+  /** The closing pull-back is the engine's push-in played backwards. */
+  reverse: boolean;
+  /** The still-photo move used if the scene fails the line guard (made from the photo; can never warp). */
+  still: "push" | "pull" | "slide-left" | "slide-right";
+};
+
+const WIDE_VIEW = 1.7; // a glide only crosses a photo at least this wide (width ÷ height)
+const GLIDE_ROOMS = new Set<Room | null>(["outdoor", "exterior", "living"]);
+
+/* The move for each scene, in film order (`used` holds the photo indexes in the order they play):
+   - the first scene pushes in;
+   - the last pulls back (a push-in played backwards), when the film has three scenes or more;
+   - between them, every other scene arcs; the rest push in;
+   - at most one glide, only in a film of five scenes or more, only across a wide outdoor, front or living-room view;
+   - matched cuts: each scene leans or arcs the way the one before it went, unless its photo's focal point says otherwise. */
+export function planMoves(plan: { focus: Focus[]; shapes: number[]; rooms: (Room | null)[] }, used: number[]): TrueMove[] {
+  const count = used.length;
+  let side: Side = "right";
+  const firstLean = used.map((index) => plan.focus[index]).find((focus) => focus !== "center");
+  if (firstLean === "left") side = "left";
+  let glideAt = -1;
+  if (count >= 5) {
+    let widest = 0;
+    for (let at = 1; at < count - 1; at += 1) {
+      const index = used[at];
+      const shape = plan.shapes[index] || 0;
+      if (shape >= WIDE_VIEW && GLIDE_ROOMS.has(plan.rooms[index] ?? null) && shape > widest) { widest = shape; glideAt = at; }
+    }
+  }
+  return used.map((index, at) => {
+    const focus = plan.focus[index] || "center";
+    if (focus !== "center") side = focus;
+    if (at === count - 1 && count >= 3) return { kind: "close", lean: focus, guard: "push", reverse: true, still: "pull" };
+    if (at === glideAt) return { kind: "glide", lean: side, guard: "arc", reverse: false, still: side === "left" ? "slide-left" : "slide-right" };
+    if (at % 2 === 1 && at < count - 1) return { kind: "arc", lean: side, guard: "arc", reverse: false, still: "push" };
+    return { kind: "push", lean: focus === "center" && at > 0 ? side : focus, guard: "push", reverse: false, still: "push" };
+  });
 }
 
-/** The engine prompt for one scene: the true move, the baked lock (unchanged), then the frame lock. */
-export function truePrompt(focus: Focus, staticLock: string) {
-  return `${TRUE_MOVE[focus]}. ${staticLock} ${FRAME_LOCK}`;
+const MOVE_WORDS: Record<TrueMoveKind, string> = { push: "a slow push-in", arc: "a gentle arc", glide: "a slow glide across the view", close: "a slow pull-back to close" };
+
+/** The movement plan as the rest of the app records it (History, Edit film). */
+export function truePicks(plan: TrueToPhotoPlan, moves?: TrueMove[]): Pick[] {
+  return plan.order.map((original, at) => {
+    const move = moves?.[at];
+    const kind = move?.kind || "push";
+    const lean = move ? move.lean : plan.focus[original];
+    return { move: kind === "close" ? "pull" : kind === "glide" ? (lean === "left" ? "slideLeft" : "slideRight") : "push", why: `${plan.rooms[original] ? `${plan.rooms[original]}: ` : ""}${MOVE_WORDS[kind]} that stays inside the photo${lean !== "center" ? `, ${kind === "push" || kind === "close" ? "leaning " : "to the "}${lean}` : ""}` };
+  });
+}
+
+/** The engine prompt for one scene: the true move, the baked lock (unchanged), then the frame lock.
+    A close is made as a push-in (it is played backwards in the edit). */
+export function truePrompt(move: Focus | TrueMove, staticLock: string) {
+  const m: TrueMove = typeof move === "string" ? { kind: "push", lean: move, guard: "push", reverse: false, still: "push" } : move;
+  const side: Side = m.lean === "left" ? "left" : "right";
+  const words = m.kind === "arc" ? TRUE_ARC[side] : m.kind === "glide" ? TRUE_GLIDE[side] : TRUE_MOVE[m.lean];
+  return `${words}. ${staticLock} ${FRAME_LOCK}`;
 }

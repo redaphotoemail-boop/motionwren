@@ -40,6 +40,9 @@ export type EditSpec = {
   qc?: boolean;
   /** Hybrid scenes: the measured (mechanical) clip behind an AI clip; used instead when the AI clip bent its lines. */
   refs?: (string | null)[];
+  /** The line guard (composer/lines.mjs), per scene: the photo to check against, how strict, whether the scene is played
+      backwards (a closing pull-back), the still-photo move used when it fails, and whether to stabilize (2% trim at most). */
+  guard?: { photos: (string | null)[]; modes?: ("push" | "arc")[]; reverse?: boolean[]; fallbacks?: ("push" | "pull" | "slide-left" | "slide-right")[]; stabilize?: boolean };
   /** Per scene playback speed (1 = as made); orbit and pan scenes run slower so less is invented. */
   speeds?: number[];
   /** Keep a few stills of the finished film for the AI review. */
@@ -85,7 +88,11 @@ export type EditState = {
   depthError?: string;
   cards?: boolean;
   cardsError?: string;
+  /** What the line guard did for each scene: kept the engine's scene, or used the still-photo move (and why). */
+  lineGuard?: LineGuardRecord[];
 };
+
+export type LineGuardRecord = { scene: number; used: "ai" | "still"; mode?: string; reversed?: boolean; stabilized?: boolean; reason?: string; error?: string; verdict?: { held?: boolean; reason?: string; leastCover?: number; moved?: number } };
 
 export type FilmCheck = { status: "pass" | "warn" | "fail" | "error"; flags: { level: "warn" | "fail"; code: string; at?: number; message: string }[]; metrics?: Record<string, number>; error?: string; checkedAt: number };
 

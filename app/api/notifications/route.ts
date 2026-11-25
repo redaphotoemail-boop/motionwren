@@ -1,4 +1,4 @@
-import { jsonError, requireAccount } from "../_lib/account";
+import { customerError, requireAccount } from "../_lib/account";
 
 export async function GET() {
   try {
@@ -6,7 +6,7 @@ export async function GET() {
     const account = await requireAccount(env);
     const result = await env.DB.prepare(`SELECT id, type, title, message, read_at AS readAt, created_at AS createdAt FROM notifications WHERE owner_id = ? ORDER BY created_at DESC LIMIT 20`).bind(account.id).all();
     return Response.json({ notifications: result.results, unread: result.results.filter((item) => !item.readAt).length });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }
 
 export async function PATCH(request: Request) {
@@ -21,5 +21,5 @@ export async function PATCH(request: Request) {
       await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE owner_id = ? AND read_at IS NULL`).bind(Date.now(), account.id).run();
     }
     return Response.json({ ok: true });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

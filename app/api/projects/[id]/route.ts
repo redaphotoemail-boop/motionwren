@@ -1,6 +1,6 @@
 import { createFilmCheckout } from "../../_lib/film-checkout";
 import { submitOrder } from "../../_lib/submit-order";
-import { audit, jsonError, requireAccount } from "../../_lib/account";
+import { audit, customerError, requireAccount } from "../../_lib/account";
 import { dropMusicChoiceStatement } from "../../_lib/customer-production";
 import { deleteJobFiles } from "../../_lib/production";
 
@@ -14,7 +14,7 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
     const project = await ownedProject(env, id, account.id); if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
     const assets = await env.DB.prepare(`SELECT id, kind, file_name AS fileName, content_type AS contentType, size_bytes AS sizeBytes, sort_order AS sortOrder, created_at AS createdAt FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at`).bind(id, account.id).all();
     return Response.json({ project: { ...project, assets: assets.results } });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }
 
 export async function DELETE(_: Request, context: { params: Promise<{ id: string }> }) {
@@ -41,7 +41,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
     ]);
     await audit(env, account.id, "project.deleted", "project", id);
     return Response.json({ ok: true });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -61,5 +61,5 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return Response.json({ error: message, billingRequired: true, checkoutUrl: url, quote }, { status: 402 });
     }
     return Response.json({ error: "A video credit is required before this project can enter production.", billingRequired: true }, { status: 402 });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

@@ -116,6 +116,15 @@ export function jsonError(error: unknown) {
   return Response.json({ error: error instanceof Error ? error.message : "The request could not be completed." }, { status: 500 });
 }
 
+/* For the routes clients use: an expected refusal (HttpError) keeps its own words; anything unexpected is logged in
+   full for the owner (Cloudflare's logs) and the client sees a plain sentence instead of the server's raw text. */
+export const CUSTOMER_ERROR = "Something went wrong on our side. Please try again in a minute.";
+export function customerError(error: unknown) {
+  if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status });
+  console.error("customer route error:", error instanceof Error ? error.stack || error.message : String(error));
+  return Response.json({ error: CUSTOMER_ERROR }, { status: 500 });
+}
+
 export async function audit(env: { DB: D1Database }, actorId: string, action: string, entityType: string, entityId?: string, metadata: Record<string, unknown> = {}) {
   await env.DB.prepare(`INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(crypto.randomUUID(), actorId, action, entityType, entityId || null, JSON.stringify(metadata), Date.now()).run();
 }
