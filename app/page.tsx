@@ -80,12 +80,11 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
       <div className="band-head">
         <p className="eyebrow">One upload</p>
         <h2 id="formats-title">Every channel.<br />One upload.</h2>
-        <p className="band-sub">A hero film for the listing. A reel for social. A square for the feed.</p>
+        <p className="band-sub">A hero film for the listing. A reel for social.</p>
       </div>
       <div className="formats">
         <figure className="reveal"><PropertyFilm format="wide" start={1} hud="label" listing interval={5200} label="Sample hero listing film, widescreen, with the listing's address, price and size on screen." /><figcaption>Hero film · 16:9</figcaption></figure>
         <figure className="reveal"><PropertyFilm format="tall" start={0} hud="label" interval={4400} label="Sample vertical reel." /><figcaption>Reel · 9:16</figcaption></figure>
-        <figure className="reveal"><PropertyFilm format="square" start={2} hud="label" interval={6000} label="Sample square feed post." /><figcaption>Feed · 1:1</figcaption></figure>
       </div>
     </section>
 
