@@ -40,6 +40,29 @@ export async function spentSince(env: GuardEnv, since: number) {
   return { engineCents: engine, reviewCents: review, editCents: edit, totalCents: engine + review + edit };
 }
 
+/* The same spend as spentSince, opened up: by kind of cost, by who it was for, and film by film, so every figure on the
+   Today and This month bars can be traced. The totals use exactly the same sums as spentSince, so they always agree. */
+export async function spendBreakdown(env: GuardEnv, since: number) {
+  const rows = await env.DB.prepare(`SELECT j.id AS id, j.kind AS kind, j.status AS status, j.category AS title, j.duration AS duration, j.created_at AS createdAt,
+      COALESCE(j.cost_cents, 0) AS engine, COALESCE(CAST(rc.value AS REAL), 0) AS review,
+      CASE WHEN j.kind IN (${KINDS}) AND j.status = 'succeeded' THEN 1 ELSE 0 END AS edited
+    FROM render_jobs j LEFT JOIN platform_settings rc ON rc.key = 'review-cost:' || j.id WHERE j.created_at >= ? ORDER BY j.created_at DESC`).bind(since).all<{ id: string; kind: string; status: string; title: string; duration: number; createdAt: number; engine: number; review: number; edited: number }>().catch(() => ({ results: [] as { id: string; kind: string; status: string; title: string; duration: number; createdAt: number; engine: number; review: number; edited: number }[] }));
+  const editCents = Math.round(COST_RATES.editPerFilm * 100);
+  const films = rows.results.map((row) => {
+    const engine = Number(row.engine) || 0, review = Number(row.review) || 0, edit = row.edited ? editCents : 0;
+    return { id: row.id, title: String(row.title || "Video").replace(/^Studio · /, ""), segment: String(row.kind).startsWith("customer") ? "customer" : "studio", status: row.status, duration: row.duration, createdAt: row.createdAt, engineCents: engine, reviewCents: review, editCents: edit, totalCents: engine + review + edit };
+  });
+  const total = (pick: (film: (typeof films)[number]) => number, only?: string) => Math.round(films.filter((film) => !only || film.segment === only).reduce((sum, film) => sum + pick(film), 0));
+  const customer = films.filter((film) => film.segment === "customer"), studio = films.filter((film) => film.segment === "studio");
+  const sum = (list: typeof films) => Math.round(list.reduce((acc, film) => acc + film.totalCents, 0));
+  return {
+    films: films.length,
+    categories: { engineCents: total((film) => film.engineCents), reviewCents: total((film) => film.reviewCents), editCents: total((film) => film.editCents) },
+    segments: { customer: { films: customer.length, cents: sum(customer) }, studio: { films: studio.length, cents: sum(studio) } },
+    top: [...films].sort((a, b) => b.totalCents - a.totalCents).slice(0, 40),
+  };
+}
+
 export async function guardStatus(env: GuardEnv) {
   const settings = await readGuardSettings(env);
   const { dayStart, monthStart, dayKey, monthKey } = periodStarts();
