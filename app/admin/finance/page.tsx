@@ -8,7 +8,8 @@ import { SpendAccount } from "../replicates/spend-account";
 import { CloudflareUsage } from "./cloudflare-usage";
 import { OneFilmCost } from "./one-film-cost";
 import { COST_RATES, cardFeeCents, musicCentsForSeconds } from "../../cost-model";
-import { engineCost, studioEngines } from "../../engine-catalog";
+import { VIDEO_LENGTHS, engineCost, scenePlan, studioEngines } from "../../engine-catalog";
+import { quoteFor } from "../../pricing";
 import type { StudioEngineKey } from "../../engine-catalog";
 
 type Lines = { videoCents: number; musicCents: number; editCents: number; reviewCents: number; totalCents: number };
@@ -23,42 +24,60 @@ const placed = (value: number) => new Date(value).toLocaleString(undefined, { mo
 
 /* One 20-second video, line by line, from the catalog prices. An estimate: the video engine's list price × seconds, music and editing from cost-model.ts. */
 const BREAKDOWN_SECONDS = 20;
-const SINGLE_PRICE_CENTS = 2900;
 function TwentySecondBreakdown() {
   const engines = studioEngines.filter((engine) => !engine.unavailable);
+  const [view, setView] = useState<"video" | "film">("video");
+  const [length, setLength] = useState<(typeof VIDEO_LENGTHS)[number]>(VIDEO_LENGTHS[0]);
   const [key, setKey] = useState<StudioEngineKey>((engines.find((engine) => engine.key === "photo3") || engines[0]).key);
   const engine = engines.find((item) => item.key === key) || engines[0];
   const [resolution, setResolution] = useState(engine.resolutions.includes("1080p") ? "1080p" : engine.resolutions[engine.resolutions.length - 1]);
   const res = (engine.resolutions as string[]).includes(resolution) ? resolution : engine.resolutions[engine.resolutions.length - 1];
-  const video = Math.round(engineCost(engine.key, res as never, BREAKDOWN_SECONDS) * 100);
-  const music = musicCentsForSeconds(BREAKDOWN_SECONDS + COST_RATES.musicExtraSeconds);
-  const edit = Math.round(COST_RATES.editPerFilm * 100);
-  const review = Math.round(COST_RATES.reviewCloudflareCents + COST_RATES.reviewClaudeCents);
-  const total = video + music + edit + review;
-  const fee = cardFeeCents(SINGLE_PRICE_CENTS, 1);
-  const left = SINGLE_PRICE_CENTS - total - fee;
+  /* One real film of a sold length: the scenes are planned exactly as an order is (scenePlan), every scene is made at its full engine length, then music, editing and the AI steps. */
+  const filmFor = (seconds: number) => {
+    const plan = scenePlan(engine.key, res as never, seconds, 24);
+    const engineSeconds = plan.sceneSeconds * plan.count;
+    const video = Math.round(engineCost(engine.key, res as never, engineSeconds) * 100);
+    const music = musicCentsForSeconds(seconds + COST_RATES.musicExtraSeconds);
+    const edit = Math.round(COST_RATES.editPerFilm * 100);
+    const review = Math.round(COST_RATES.reviewCloudflareCents + COST_RATES.reviewClaudeCents);
+    const price = quoteFor(seconds, 0).cents;
+    const total = video + music + edit + review;
+    const fee = cardFeeCents(price, 1);
+    return { plan, engineSeconds, video, music, edit, review, price, total, fee, left: price - total - fee };
+  };
+  const films = VIDEO_LENGTHS.map((value) => [value, filmFor(value)] as const);
+  const shown = view === "film" ? filmFor(length) : filmFor(BREAKDOWN_SECONDS);
+  const seconds = view === "film" ? length : BREAKDOWN_SECONDS;
+  const { video, music, edit, review, total, fee, left, price: salePrice } = shown;
   const lines: Array<[string, number, string]> = [
-    ["Video engine", video, `${engine.name} at ${res}, ${BREAKDOWN_SECONDS} seconds of scenes at its list price`],
-    ["Music", music, `One track, ${BREAKDOWN_SECONDS + COST_RATES.musicExtraSeconds} seconds at $${COST_RATES.musicPerMinute.toFixed(2)} a minute`],
+    ["Video engine", video, view === "film" ? `${engine.name} at ${res}: ${shown.plan.count} scenes × ${shown.plan.sceneSeconds} seconds = ${shown.engineSeconds} seconds made, at its list price` : `${engine.name} at ${res}, ${BREAKDOWN_SECONDS} seconds of scenes at its list price`],
+    ["Music", music, `One track, ${seconds + COST_RATES.musicExtraSeconds} seconds at $${COST_RATES.musicPerMinute.toFixed(2)} a minute`],
     ["Editing", edit, "Joining the scenes and mixing the music"],
     ["AI reading and review", review, "The AI photo reader and the automatic check of the finished film"],
   ];
   return <details className="panel fin-more" aria-label="One 20-second video">
     <summary><span><strong>One 20-second video, every cost</strong><small>Pick an engine and see the line-by-line price</small></span></summary>
+    <div className="tabs" role="radiogroup" aria-label="View">
+      <button type="button" role="radio" aria-checked={view === "video"} className={view === "video" ? "active" : ""} onClick={() => setView("video")}>20-second video</button>
+      <button type="button" role="radio" aria-checked={view === "film"} className={view === "film" ? "active" : ""} onClick={() => setView("film")}>One film cost</button>
+    </div>
     <div className="filters">
       <label>Engine <select value={engine.key} onChange={(event) => setKey(event.target.value as StudioEngineKey)}>{engines.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}</select></label>
       <div className="tabs" role="radiogroup" aria-label="Resolution">{engine.resolutions.map((value) => <button key={value} type="button" role="radio" aria-checked={res === value} className={res === value ? "active" : ""} onClick={() => setResolution(value)}>{value}</button>)}</div>
     </div>
+    {view === "film" && <div className="tabs" role="radiogroup" aria-label="Film length">
+      {films.map(([value, film]) => <button key={value} type="button" role="radio" aria-checked={length === value} className={length === value ? "active" : ""} onClick={() => setLength(value)}>{value} seconds · {cents(film.total)}</button>)}
+    </div>}
     <div className="hero-total">{cents(total)}</div>
-    <p className="muted">What it costs us to make, before the card fee. The Single plan sells it for {cents(SINGLE_PRICE_CENTS)}.</p>
+    <p className="muted">What it costs us to make, before the card fee. {view === "film" ? `A ${length}-second film sells for ${cents(salePrice)}.` : `The Single plan sells it for ${cents(salePrice)}.`}</p>
     <div className="cost-lines">
       {lines.map(([label, value, note]) => <div key={label}>
         <div><span>{label}</span><strong>{cents(value)} <small style={{ display: "inline" }}>{pct(value, total)}%</small></strong></div>
         <div className="bar" aria-hidden="true"><i style={{ width: `${pct(value, total)}%` }} /></div>
         <small>{note}</small>
       </div>)}
-      <div><div><span>Card fee on {cents(SINGLE_PRICE_CENTS)}</span><strong>{cents(fee)}</strong></div><small>{COST_RATES.cardPercent}% + ${COST_RATES.cardFixed.toFixed(2)} per charge</small></div>
-      <div><div><span>Left from one sale</span><strong>{cents(left)} <small style={{ display: "inline" }}>{pct(left, SINGLE_PRICE_CENTS)}% margin</small></strong></div><small>Price − all costs − card fee</small></div>
+      <div><div><span>Card fee on {cents(salePrice)}</span><strong>{cents(fee)}</strong></div><small>{COST_RATES.cardPercent}% + ${COST_RATES.cardFixed.toFixed(2)} per charge</small></div>
+      <div><div><span>Left from one sale</span><strong>{cents(left)} <small style={{ display: "inline" }}>{pct(left, salePrice)}% margin</small></strong></div><small>Price − all costs − card fee</small></div>
     </div>
     <p className="fine">Catalog list prices, not a bill. Real films also pay for retried scenes. Your measured average across finished films is shown above.</p>
   </details>;

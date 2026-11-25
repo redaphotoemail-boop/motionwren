@@ -1,13 +1,17 @@
 import { heartbeatKey } from "../_lib/heartbeat";
 import { advanceStaleJobs } from "../_lib/render-jobs";
 import { startPaidOrders } from "../_lib/submit-order";
+import { watchMachines } from "../_lib/editor-machines";
 
 /* Called once a minute by the Worker's scheduled event (never from a browser):
    1. moves along every video in production (missed callbacks, scheduled
       retries, provider waits) — no video depends on an open page;
    2. deletes a finished video's working files (scene photos, scene copies,
       manifest) 30 days after it finished. The finished film itself stays in
-      History for its own retention period. */
+      History for its own retention period;
+   3. the editing-machine watchdog (editor-machines.ts): every 10 minutes it
+      puts to sleep machines nobody has used for 45 minutes, and once an hour
+      it checks today's Cloudflare spend against the daily limit. */
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export async function POST(request: Request) {
@@ -20,7 +24,9 @@ export async function POST(request: Request) {
   const cleaned = await cleanUp(env).catch(() => 0);
   // Paid orders that are waiting to start (paid on Stripe, or the page was closed first).
   const started = await startPaidOrders(env, process.env.PUBLIC_ORIGIN || new URL(request.url).origin).catch(() => 0);
-  return Response.json({ ok: true, moved, cleaned, started });
+  // Last, and on its own: a problem here never holds up a film.
+  const machines = await watchMachines(env).catch(() => ({}));
+  return Response.json({ ok: true, moved, cleaned, started, machines });
 }
 
 async function cleanUp(env: { DB: D1Database; BUCKET: R2Bucket }) {

@@ -2304,4 +2304,10 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
 .fin-meter-hint { color: var(--faint); font-size: 13px; }
 .fin-meter-tap:hover .fin-meter-hint, .fin-meter-tap.open .fin-meter-hint { color: var(--ink); }
 .fin-breakdown { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line, rgba(128,128,128,.2)); display: grid; gap: 14px; }
-.fin-breakdown-title { margin: 10px 0 0; font: 600 13px/1 var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.fin-breakdown { min-height: 232px; align-content: start; }
+.fin-breakdown-split { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; color: var(--muted); font-size: 14px; }
+.fin-breakdown-split strong { color: var(--ink); font-weight: 600; }
+.fin-breakdown-films summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.fin-breakdown-films ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.fin-breakdown-films li { display: flex; justify-content: space-between; gap: 14px; font-size: 14px; }
+.fin-breakdown-films li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -21,8 +21,10 @@ const localBindingConfig = {
     {
       class_name: "Composer",
       image: "./composer/Dockerfile",
-      // 1 vCPU, 6 GiB: a 60-second 1080p film edits in a few minutes for about 1¢.
-      instance_type: "standard-2",
+      // 1 vCPU, 3 GiB, 8 GB disk. Billing counts the memory reserved, not used:
+      // the editor peaked near 0.6 GiB (Cloudflare metrics, Nov 2026), so the
+      // old 6 GiB "standard-2" paid for twice what it needs. Same CPU speed.
+      instance_type: { vcpu: 1, memory_mib: 3072, disk_mb: 8000 },
       max_instances: 20,
     },
   ],

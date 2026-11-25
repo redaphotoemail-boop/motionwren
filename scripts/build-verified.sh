@@ -18,6 +18,9 @@ if [[ ! -x "${vinext}" ]]; then
   exit 69
 fi
 
+# An editing machine stays on (and billed) while a reply it sent is unread: stop the build if any can be.
+node "${SITES_PROJECT_ROOT}/tests/container-replies.test.mjs"
+
 echo "Running bounded vinext build..."
 timeout \
   --signal=TERM \

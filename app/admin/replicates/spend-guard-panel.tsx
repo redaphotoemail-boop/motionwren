@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cents } from "../ui";
-import { SpendBreakdown } from "./spend-breakdown";
+import { SpendBreakdown, useSpendBreakdowns } from "./spend-breakdown";
 
 type Period = { totalCents: number; engineCents: number; reviewCents: number; editCents: number; level: number };
 type Guard = { settings: { monthlyCents: number; dailyCents: number; perFilmCents: number; paused: boolean }; month: Period; day: Period; running: boolean; stopped: { why: string; message: string } | null };
@@ -18,6 +18,7 @@ export function SpendGuardPanel() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<"day" | "month" | null>(null);
+  const breakdowns = useSpendBreakdowns();
 
   const apply = (result: Guard) => { setGuard(result); setFields({ monthly: toDollars(result.settings.monthlyCents), daily: toDollars(result.settings.dailyCents), perFilm: toDollars(result.settings.perFilmCents) }); };
   useEffect(() => {
@@ -66,7 +67,7 @@ export function SpendGuardPanel() {
         </div>;
       })}
     </div>}
-    {guard && open && <SpendBreakdown period={open} label={open === "day" ? "Today" : "This month"} />}
+    {guard && open && <SpendBreakdown data={breakdowns[open]} error={breakdowns.error} label={open === "day" ? "Today" : "This month"} />}
 
     <details className="fin-more">
       <summary>Change limits</summary>

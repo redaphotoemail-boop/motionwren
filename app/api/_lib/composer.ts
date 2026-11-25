@@ -9,6 +9,9 @@
    or before the first container deploy), films use the backup joiner. */
 
 import { SAMPLE_SECONDS, defaultMusicId, musicTemplate } from "../../music-catalog";
+import { machineFeature } from "../../cloudflare-bill";
+
+export const FEATURE_HEADER = "x-motionwren-feature"; // must match worker/composer.ts
 
 type Stub = { fetch(input: string | Request, init?: RequestInit): Promise<Response> };
 type Namespace = { getByName?: (name: string) => Stub; idFromName: (name: string) => unknown; get: (id: unknown) => Stub };
@@ -110,13 +113,48 @@ export function composerBinding(env: unknown): Namespace | null {
   return binding && typeof binding.idFromName === "function" ? binding : null;
 }
 
-function stub(env: unknown, jobId: string) {
+/* Every way the site talks to an editing machine goes through here, so each machine it uses is written down
+   (editor_machines) before the call. The watchdog (editor-machines.ts) reads that list to put to sleep any
+   machine nobody has used for a while. */
+export function machineStub(env: unknown, name: string): Stub {
   const namespace = composerBinding(env);
   if (!namespace) throw new Error("The editing service is not available.");
-  return namespace.getByName ? namespace.getByName(jobId) : namespace.get(namespace.idFromName(jobId));
+  const real = namespace.getByName ? namespace.getByName(name) : namespace.get(namespace.idFromName(name));
+  // Each machine is labelled with the feature it works for, so Finance can show what each feature costs.
+  return { fetch: async (input, init) => {
+    await noteMachine(env, name);
+    const headers = new Headers(init?.headers);
+    headers.set(FEATURE_HEADER, machineFeature(name));
+    return real.fetch(input, { ...init, headers });
+  } };
 }
+const stub = machineStub;
+
+const noted = new Map<string, number>();
+let machinesTableReady = false;
+/* Best effort and bounded: a slow or failing database never holds up or breaks a film. At most one write a
+   minute per machine. */
+export async function noteMachine(env: unknown, name: string) {
+  const db = (env as { DB?: D1Database } | null)?.DB;
+  const now = Date.now();
+  if (!db || typeof db.prepare !== "function" || now - (noted.get(name) || 0) < 60_000) return;
+  noted.set(name, now);
+  const write = (async () => {
+    if (!machinesTableReady) { await db.prepare(MACHINES_TABLE).run(); machinesTableReady = true; }
+    await db.prepare(`INSERT INTO editor_machines (name, last_used) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET last_used = excluded.last_used`).bind(name, now).run();
+  })().catch(() => undefined);
+  await Promise.race([write, new Promise((resolve) => setTimeout(resolve, 2000))]);
+}
+export const MACHINES_TABLE = `CREATE TABLE IF NOT EXISTS editor_machines (name TEXT PRIMARY KEY, last_used INTEGER NOT NULL, stopped_at INTEGER)`;
 
 const url = (key: string, suffix = "") => `http://composer/jobs/${key}${suffix}`;
+
+/* Every reply from the container must be read or let go. The container stays
+   awake (and billed) while a reply it sent is still unread, so an unread reply
+   kept machines on for days. */
+export async function release(response: Response | null | undefined) {
+  try { await response?.body?.cancel(); } catch { /* already read */ }
+}
 
 /* Edit keys: the job id without dashes plus the try number — the same key
    twice is the same edit, never two. */
@@ -131,7 +169,7 @@ export async function startEdit(env: unknown, jobId: string, key: string, spec: 
 
 export async function editState(env: unknown, jobId: string, key: string): Promise<EditState> {
   const response = await stub(env, jobId).fetch(url(key));
-  if (response.status === 404) return { key, status: "unknown" };
+  if (response.status === 404) { await release(response); return { key, status: "unknown" }; }
   const data = await response.json().catch(() => null) as EditState | null;
   if (!response.ok || !data) throw new Error(`The editing service did not answer (HTTP ${response.status}).`);
   return data;
@@ -139,7 +177,7 @@ export async function editState(env: unknown, jobId: string, key: string): Promi
 
 export async function editFile(env: unknown, jobId: string, key: string, which: "output" | "music" | `still/${number}`) {
   const response = await stub(env, jobId).fetch(url(key, `/${which}`));
-  if (!response.ok || !response.body) throw new Error(`The edited ${which === "output" ? "film" : "music"} could not be collected (HTTP ${response.status}).`);
+  if (!response.ok || !response.body) { await release(response); throw new Error(`The edited ${which === "output" ? "film" : "music"} could not be collected (HTTP ${response.status}).`); }
   return response;
 }
 
@@ -186,7 +224,7 @@ export async function makeMusicSample(env: unknown, id: string, prompt: string):
 }
 
 export async function dropEdit(env: unknown, jobId: string, key: string) {
-  try { await stub(env, jobId).fetch(url(key), { method: "DELETE" }); } catch { /* the container cleans up when it sleeps */ }
+  try { await release(await stub(env, jobId).fetch(url(key), { method: "DELETE" })); } catch { /* the container cleans up when it sleeps */ }
 }
 
 /* Streams a response straight into storage when its size is known. */
