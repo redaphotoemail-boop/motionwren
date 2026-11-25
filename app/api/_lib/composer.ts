@@ -118,6 +118,13 @@ function stub(env: unknown, jobId: string) {
 
 const url = (key: string, suffix = "") => `http://composer/jobs/${key}${suffix}`;
 
+/* Every reply from the container must be read or let go. The container stays
+   awake (and billed) while a reply it sent is still unread, so an unread reply
+   kept machines on for days. */
+export async function release(response: Response | null | undefined) {
+  try { await response?.body?.cancel(); } catch { /* already read */ }
+}
+
 /* Edit keys: the job id without dashes plus the try number — the same key
    twice is the same edit, never two. */
 export const editKey = (jobId: string, attempt: number) => `${jobId.replaceAll("-", "")}-${attempt}`;
@@ -131,7 +138,7 @@ export async function startEdit(env: unknown, jobId: string, key: string, spec: 
 
 export async function editState(env: unknown, jobId: string, key: string): Promise<EditState> {
   const response = await stub(env, jobId).fetch(url(key));
-  if (response.status === 404) return { key, status: "unknown" };
+  if (response.status === 404) { await release(response); return { key, status: "unknown" }; }
   const data = await response.json().catch(() => null) as EditState | null;
   if (!response.ok || !data) throw new Error(`The editing service did not answer (HTTP ${response.status}).`);
   return data;
@@ -139,7 +146,7 @@ export async function editState(env: unknown, jobId: string, key: string): Promi
 
 export async function editFile(env: unknown, jobId: string, key: string, which: "output" | "music" | `still/${number}`) {
   const response = await stub(env, jobId).fetch(url(key, `/${which}`));
-  if (!response.ok || !response.body) throw new Error(`The edited ${which === "output" ? "film" : "music"} could not be collected (HTTP ${response.status}).`);
+  if (!response.ok || !response.body) { await release(response); throw new Error(`The edited ${which === "output" ? "film" : "music"} could not be collected (HTTP ${response.status}).`); }
   return response;
 }
 
@@ -186,7 +193,7 @@ export async function makeMusicSample(env: unknown, id: string, prompt: string):
 }
 
 export async function dropEdit(env: unknown, jobId: string, key: string) {
-  try { await stub(env, jobId).fetch(url(key), { method: "DELETE" }); } catch { /* the container cleans up when it sleeps */ }
+  try { await release(await stub(env, jobId).fetch(url(key), { method: "DELETE" })); } catch { /* the container cleans up when it sleeps */ }
 }
 
 /* Streams a response straight into storage when its size is known. */
