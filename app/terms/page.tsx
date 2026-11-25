@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Wordmark } from "../components/brand";
+import { BASE_CENTS, BASE_SECONDS, EXTRA_PHOTO_CENTS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, dollars, minPhotosFor } from "../pricing";
 
 export const metadata: Metadata = { title: "Terms", description: "The terms for using MotionWren and ordering property videos.", alternates: { canonical: "/terms" } };
 
@@ -49,7 +50,7 @@ export default function TermsPage() {
         </section>
         <section>
           <h2>Payments and credits</h2>
-          <p>Films are priced by length: 20 seconds $29, 30 seconds $39, 60 seconds $59. With automatic length, each photo becomes a 5-second scene: $59 for up to 12 photos, then $5 for each extra photo. Five-pack: $125 for five video credits. Pro: $199 per month for ten credits each month. Each credit covers one 20-second film; a longer film pays only the difference. The price shown at checkout is the total you pay; any applicable tax is shown before you pay. You are never charged twice for the same film. If we cannot finish a film, we keep working on it, and you can ask for your credit back from your dashboard. Credits do not expire while your account is active. You can cancel Pro at any time from your dashboard; access continues until the end of the billing period already paid for. Full details are in our <Link href="/refund">Refund Policy</Link>.</p>
+          <p>{`Films are priced by length: up to ${BASE_SECONDS} seconds ${dollars(BASE_CENTS)}, up to ${LONG_SECONDS} seconds ${dollars(LONG_CENTS)}. With automatic length, each photo becomes a 5-second scene: ${dollars(LONG_CENTS)} for up to ${LONG_SECONDS / 5} photos, then ${dollars(EXTRA_PHOTO_CENTS)} for each extra photo. A film needs enough photos for its length: ${minPhotosFor(BASE_SECONDS)} for ${BASE_SECONDS} seconds, ${minPhotosFor(LONG_SECONDS)} for ${LONG_SECONDS} seconds. Five-pack: ${dollars(FIVE_PACK_CENTS)} for five video credits, each covering one ${BASE_SECONDS}-second film; a longer film pays only the difference. Membership: ${dollars(MEMBER_MONTHLY_CENTS)} per month for ${MEMBER_FILMS} films each month, each up to ${MEMBER_FILM_SECONDS} seconds. The price shown at checkout is the total you pay; any applicable tax is shown before you pay.`} You are never charged twice for the same film. If we cannot finish a film, we keep working on it, and you can ask for your credit back from your dashboard. Credits do not expire while your account is active. You can cancel your membership at any time from your dashboard; access continues until the end of the billing period already paid for. Full details are in our <Link href="/refund">Refund Policy</Link>.</p>
         </section>
         <section>
           <h2>Availability</h2>

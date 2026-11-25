@@ -1,5 +1,5 @@
 import { HOME_STAGES } from "./pipeline-steps";
-import { priceForSeconds } from "./pricing";
+import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, dollars, minPhotosFor, priceForSeconds } from "./pricing";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
@@ -19,7 +19,10 @@ const STRUCTURED_DATA = {
     { "@type": "Organization", "@id": "https://motionwren.com/#org", name: "MotionWren", url: "https://motionwren.com", logo: "https://motionwren.com/apple-touch-icon.png" },
     {
       "@type": "Service", name: "Property videos from listing photos", serviceType: "Real estate video production", provider: { "@id": "https://motionwren.com/#org" }, areaServed: "US",
-      offers: [20, 30, 60].map((seconds) => ({ "@type": "Offer", name: `${seconds}-second listing film`, price: (priceForSeconds(seconds) / 100).toFixed(2), priceCurrency: "USD" })),
+      offers: [
+        ...[BASE_SECONDS, LONG_SECONDS].map((seconds) => ({ "@type": "Offer", name: `Listing film up to ${seconds} seconds`, price: (priceForSeconds(seconds) / 100).toFixed(2), priceCurrency: "USD" })),
+        { "@type": "Offer", name: `Membership: ${MEMBER_FILMS} films a month, up to ${MEMBER_FILM_SECONDS} seconds each`, price: (MEMBER_MONTHLY_CENTS / 100).toFixed(2), priceCurrency: "USD" },
+      ],
     },
   ],
 };
@@ -141,11 +144,11 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <h2 id="pricing-title">Start with one property.<br />Scale when you need to.</h2>
       </div>
       <div className="plans">
-        <article className="plan reveal"><span className="plan-name">Single</span><p className="plan-price">$29</p><small className="plan-per">$29 per video</small><strong>One complete property video</strong><p>Up to 20 seconds in 1080p, with project history and delivery.</p><a className="btn btn-soft" href={accountPath} target="_top" data-mw="plan">Start one project</a></article>
-        <article className="plan plan-featured reveal"><span className="plan-name">Five-pack</span><p className="plan-price">$125</p><small className="plan-per">$25 per video</small><strong>Five video credits</strong><p>For active agents and photographers managing several listings.</p><a className="btn btn-amber" href={accountPath} target="_top">Open your workspace</a></article>
-        <article className="plan reveal"><span className="plan-name">Pro</span><p className="plan-price">$199<small>/month</small></p><small className="plan-per">$19.90 per video</small><strong>Ten credits each month</strong><p>Centralized production tracking and a lower per-video cost.</p><a className="btn btn-soft" href={accountPath} target="_top">View your account</a></article>
+        <article className="plan reveal"><span className="plan-name">Reel</span><p className="plan-price">{dollars(BASE_CENTS)}</p><small className="plan-per">Up to {BASE_SECONDS} seconds</small><strong>One property video</strong><p>{`From ${minPhotosFor(BASE_SECONDS)} photos, in 1080p, sized for every channel.`}</p><a className="btn btn-soft" href={accountPath} target="_top" data-mw="plan">Start one project</a></article>
+        <article className="plan reveal"><span className="plan-name">Listing film</span><p className="plan-price">{dollars(LONG_CENTS)}</p><small className="plan-per">Up to {LONG_SECONDS} seconds</small><strong>The full walkthrough</strong><p>{`From ${minPhotosFor(LONG_SECONDS)} photos, in 1080p, sized for every channel.`}</p><a className="btn btn-soft" href={accountPath} target="_top">Start one project</a></article>
+        <article className="plan plan-featured reveal"><span className="plan-name">Membership</span><p className="plan-price">{dollars(MEMBER_MONTHLY_CENTS)}<small>/month</small></p><small className="plan-per">{MEMBER_FILMS} films a month</small><strong>{`Up to ${MEMBER_FILM_SECONDS} seconds each`}</strong><p>For agents with a new listing every week. Cancel anytime.</p><a className="btn btn-amber" href={accountPath} target="_top">Become a member</a></article>
       </div>
-      <p className="plans-note muted">Per film: 20 seconds $29 · 30 seconds $39 · 60 seconds $59. Each credit covers a 20-second film; longer films pay the difference.</p>
+      <p className="plans-note muted">{`Also: five ${BASE_SECONDS}-second films for ${dollars(FIVE_PACK_CENTS)}. A longer film pays only the difference.`}</p>
     </section>
 
     <section className="closer site-wrap">

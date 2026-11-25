@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BASE_SECONDS, MEMBER_FILM_SECONDS, TEASER_SECONDS, filmLengthForPhotos, minPhotosFor } from "./pricing";
 
 /* Seamless production: pressing Create in the plan flow starts everything.
    The plan sends its photos (data URLs, display order) with the event, and
@@ -67,9 +68,10 @@ function normalize(detail: PackageDetail): SavedPackage {
     price: item.price,
     icon: item.icon,
     aspect: item.icon === "reel" || item.icon === "story" ? "vertical" : "horizontal",
-    // The lengths the package step shows: story 10 s, reel 20 s, hero film
-    // 30 s — 60 s for a luxury estate or showcase.
-    targetDuration: item.icon === "story" ? 10 : item.icon === "reel" ? 20 : answers.prop === "estate" || answers.goal === "luxury" ? 60 : 30,
+    // The lengths the package step shows, from the number of photos (app/pricing.ts): story 10 s,
+    // reel 20 s (10 s with 2 photos), hero film the longest its photos can fill (50 s from 7 photos,
+    // 20 s from 3, else 10 s). A member's hero film runs to 60 s from 8 photos (see runPackage).
+    targetDuration: item.icon === "story" ? TEASER_SECONDS : item.icon === "reel" ? (photos.length >= minPhotosFor(BASE_SECONDS) ? BASE_SECONDS : TEASER_SECONDS) : filmLengthForPhotos(photos.length),
     projectId: null,
     stage: "new" as VideoStage,
   }));
@@ -293,6 +295,15 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
   }
   const photos = pkg.photos.slice(0, MAX_PHOTOS);
   const draftOnly = !pkg.video.length || photos.length < 2;
+  // Membership films run to MEMBER_FILM_SECONDS: a member's hero film not yet created gets the longer length when its photos can fill it.
+  const hero = pkg.video.find((entry) => entry.icon === "video" && entry.stage === "new" && entry.targetDuration < MEMBER_FILM_SECONDS);
+  if (hero && photos.length >= minPhotosFor(MEMBER_FILM_SECONDS)) {
+    try {
+      const res = await fetch("/api/account", { cache: "no-store" });
+      const data = res.ok ? ((await res.json()) as { account?: { plan?: string } }) : {};
+      if (data.account?.plan === "pro") { hero.targetDuration = MEMBER_FILM_SECONDS; await idbPut(pkg); }
+    } catch { /* Not a member, or not signed in yet: the film keeps its length. */ }
+  }
   const counts = pkg.video.map((entry, index) => photosForVideo(index, entry.targetDuration, photos.length));
   const total = draftOnly ? photos.length : counts.reduce((sum, count) => sum + count, 0);
   const doneCount = () =>

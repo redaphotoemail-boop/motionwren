@@ -25,6 +25,7 @@ import { cleanFilmTitles } from "../../titles";
 import { musicTemplate } from "../../music-catalog";
 import { shapeSize } from "../../original-shape";
 import { guardCheck } from "./spend-guard";
+import { releaseMemberFilm } from "./film-checkout";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -337,6 +338,8 @@ export async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, r
       await env.DB.batch([
         env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned automatically after the video stopped', ?)`).bind(crypto.randomUUID(), row.ownerId, project.id, row.id, `project:${project.id}:failure-refund`, now),
         env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ? AND changes() = 1`).bind(now, row.ownerId),
+        // A membership film used for this order is given back with the credit.
+        releaseMemberFilm(env, row.ownerId, project.id),
       ]);
     }
   }
@@ -386,6 +389,7 @@ export async function refundHoldingOrder(env: { DB: D1Database }, projectId: str
   const refund = await env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned after the customer asked for a refund on a delayed order', ?)`).bind(crypto.randomUUID(), ownerId, project.id, job.id, `project:${project.id}:failure-refund`, now).run();
   if (refund.meta.changes) {
     await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(now, ownerId).run();
+    await releaseMemberFilm(env, ownerId, project.id).run();
     await refundFilmUpgrades(env, project.id, ownerId);
   }
   await env.DB.batch([

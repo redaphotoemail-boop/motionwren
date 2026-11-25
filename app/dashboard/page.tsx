@@ -7,6 +7,7 @@ import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
 import SaveVideo from "../components/save-video";
 import { aspectLabel } from "../aspect-label";
+import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, dollars } from "../pricing";
 import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
 
 /* The client's workspace: every order in one place, each with all of its
@@ -45,8 +46,8 @@ const videoStatus: Record<string, string> = {
 const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", cancelled: "Stopped", draft: "Saved", history: "History" };
 const discover = [
   { title: "Content package", text: "The full set: hero film, vertical reel and story teaser, sized for every channel. You pay per film.", shape: "set" },
-  { title: "Hero listing film", text: "One polished film from your listing photos. $39 for 30 seconds, $59 for 60.", shape: "wide" },
-  { title: "Vertical reel", text: "Short-form video for Instagram and TikTok. 20 seconds, $29.", shape: "tall" },
+  { title: "Hero listing film", text: `One polished film from your listing photos. ${dollars(LONG_CENTS)} for up to ${LONG_SECONDS} seconds.`, shape: "wide" },
+  { title: "Vertical reel", text: `Short-form video for Instagram and TikTok. ${BASE_SECONDS} seconds, ${dollars(BASE_CENTS)}.`, shape: "tall" },
 ] as const;
 
 function greetingFor(date: Date) {
@@ -374,12 +375,12 @@ export default function CustomerDashboard() {
       {account?.role !== "admin" && <section className="credits">
         <div><p className="eyebrow">Video credits</p><h2>Choose only what you need.</h2></div>
         <div className="credits-options">
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("single")}><strong>1 video</strong><span>$29</span></button>
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>$125</span></button>
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>10 monthly</strong><span>$199/mo</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("single")}><strong>1 video</strong><span>{dollars(BASE_CENTS)}</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>{dollars(FIVE_PACK_CENTS)}</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>Membership</strong><span>{dollars(MEMBER_MONTHLY_CENTS)}/mo</span></button>
         </div>
-        <p className="fine">A credit covers one 20-second film. Longer films pay the difference: 30 seconds $39, 60 seconds $59.</p>
-        {account?.plan === "pro" && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>Manage or cancel Pro</button></p>}
+        <p className="fine">{`A credit covers one ${BASE_SECONDS}-second film; up to ${LONG_SECONDS} seconds is ${dollars(LONG_CENTS)}, so a longer film pays the difference. Membership: ${MEMBER_FILMS} films a month, each up to ${MEMBER_FILM_SECONDS} seconds.`}</p>
+        {account?.plan === "pro" && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>Manage or cancel membership</button></p>}
         {!billingEnabled && <p className="fine">Card payments are not switched on yet.</p>}
       </section>}
 

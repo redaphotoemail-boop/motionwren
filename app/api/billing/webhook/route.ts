@@ -1,4 +1,5 @@
 import { submitOrder } from "../../_lib/submit-order";
+import { MEMBER_FILM_UPGRADE_CENTS } from "../../../pricing";
 
 function hex(bytes: ArrayBuffer) { return [...new Uint8Array(bytes)].map((value) => value.toString(16).padStart(2, "0")).join(""); }
 function safeEqual(a: string, b: string) {
@@ -62,6 +63,9 @@ export async function POST(request: Request) {
       env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + ?, plan = CASE WHEN ? = 'pro' THEN 'pro' ELSE plan END, stripe_customer_id = COALESCE(?, stripe_customer_id), updated_at = ? WHERE id = ? AND changes() = 1`).bind(credits, metadata.plan || "", object.customer || null, now, ownerId),
       // A longer film: what was paid above the credit is remembered against the project, so submitting it can check.
       ...films.filter((film) => film.upgrade > 0).map((film) => env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, NULL, 0, 'film_upgrade', ?, ?, ?)`).bind(crypto.randomUUID(), ownerId, film.projectId, `film-upgrade:${event.id}:${film.projectId}`, `upgrade:${film.upgrade}`, now)),
+      // Membership: each paid month also leaves one "membership film" per credit, which covers a film up to MEMBER_FILM_SECONDS
+      // (keyed by event, so a repeated event adds nothing; claimed by submitOrder, given back by a refund).
+      ...(metadata.plan === "pro" && event.type === "invoice.paid" ? Array.from({ length: credits }, (_, index) => env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, NULL, NULL, 0, 'member_film', ?, ?, ?)`).bind(crypto.randomUUID(), ownerId, `member-film:${event.id}:${index}`, `upgrade:${MEMBER_FILM_UPGRADE_CENTS}`, now)) : []),
       env.DB.prepare(`INSERT OR IGNORE INTO payments (id, owner_id, provider_payment_id, plan, amount_cents, currency, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'paid', ?)`).bind(event.id, ownerId, object.payment_intent || object.id || null, metadata.plan || "credits", Math.max(0, Number(object.amount_total ?? object.amount_paid) || 0), object.currency || "usd", now),
     ]);
     // A paid film is submitted here (fast), and the once-a-minute heartbeat starts it
@@ -80,7 +84,7 @@ export async function POST(request: Request) {
   if (event.type.startsWith("customer.subscription.")) {
     const subscriptionId = object.id || object.subscription;
     if (subscriptionId) await env.DB.prepare(`INSERT INTO subscriptions (id, owner_id, provider_subscription_id, plan, status, current_period_end, cancel_at_period_end, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(provider_subscription_id) DO UPDATE SET status = excluded.status, current_period_end = excluded.current_period_end, cancel_at_period_end = excluded.cancel_at_period_end, updated_at = excluded.updated_at`).bind(crypto.randomUUID(), ownerId, subscriptionId, metadata.plan || "pro", object.status || "active", object.current_period_end ? object.current_period_end * 1000 : null, object.cancel_at_period_end ? 1 : 0, now, now).run();
-    // Pro ended: the account goes back to pay-per-film (credits already bought stay).
+    // Membership (plan 'pro') ended: the account goes back to pay-per-film (credits and membership films already given stay).
     if (event.type === "customer.subscription.deleted" || object.status === "canceled") await env.DB.prepare(`UPDATE users SET plan = 'free', updated_at = ? WHERE id = ? AND plan = 'pro'`).bind(now, ownerId).run();
   }
   return Response.json({ received: true });

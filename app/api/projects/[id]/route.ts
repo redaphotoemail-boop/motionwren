@@ -52,7 +52,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (body.action !== "submit") return Response.json({ error: "Unsupported project action." }, { status: 400 });
     const result = await submitOrder(env, account, id);
     if (result.ok) return Response.json(result);
-    if (result.reason === "photos") return Response.json({ error: "Upload at least two ordered photographs before submitting." }, { status: 409 });
+    if (result.reason === "photos") {
+      const short = Math.max(1, (result.need || 2) - (result.photos || 0));
+      const error = result.seconds && (result.need || 0) > 2 ? `A ${result.seconds}-second film needs at least ${result.need} photos. Add ${short} more photo${short === 1 ? "" : "s"}, or choose a shorter film.` : "Upload at least two ordered photographs before submitting.";
+      return Response.json({ error, need: result.need, photos: result.photos }, { status: 409 });
+    }
     if (result.reason === "billing") return Response.json({ error: "We can't take payment just now. Your order is saved; please try again shortly." }, { status: 503 });
     if (result.reason === "payment" && result.quote) {
       // Longer than 20 seconds (or no credit yet): one checkout for the part above the credit, so nobody is left at a dead end.

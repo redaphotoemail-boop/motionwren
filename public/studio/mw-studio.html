@@ -875,11 +875,18 @@ const LB={listed:'just-listed',sold:'just-sold',open:'open-house',price:'price-c
 const CHL={instagram:'Instagram',tiktok:'TikTok',mls:'MLS',youtube:'YouTube',facebook:'Facebook',email:'Email',other:'Other'};
 function listJoin(a){return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+' and '+a.slice(-1);}
 function tagsFor(list,ch,fb){const s=list.filter(x=>ch.includes(x)).map(x=>CHL[x]);return s.length?s:(fb?[CHL[list[0]]]:[]);}
-function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='luxury',items=[];
- items.push({icon:'video',title:'Hero listing film',price:estate?59:39,meta:[(estate?60:30)+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
- if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:29,meta:['20 sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
- if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:29,meta:['10 sec','9:16'],tags:['Instagram']});
+/* Lengths, prices and photos per length: the same numbers as app/pricing.ts (change both together).
+   No scene runs longer than 8 s, so a length needs enough photos: 10 s 2, 20 s 3, 50 s 7. */
+const LEN={teaser:{sec:10,price:29,photos:2},base:{sec:20,price:29,photos:3},long:{sec:50,price:49,photos:7}};
+function heroLen(n){return n>=LEN.long.photos?LEN.long:n>=LEN.base.photos?LEN.base:LEN.teaser;}
+function recommend(P){const ch=P.channels,items=[],n=P.photos.filter(p=>!p.sample&&!p.loading).length;
+ const h=heroLen(n),r=n>=LEN.base.photos?LEN.base:LEN.teaser;
+ items.push({icon:'video',title:'Hero listing film',price:h.price,meta:[h.sec+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
+ if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:r.price,meta:[r.sec+' sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
+ if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:LEN.teaser.price,meta:[LEN.teaser.sec+' sec','9:16'],tags:['Instagram']});
  return items;}
+/* A plain line when more photos would make the hero film longer. */
+function morePhotosLine(P){const n=P.photos.filter(p=>!p.sample&&!p.loading).length,next=n<LEN.base.photos?LEN.base:n<LEN.long.photos?LEN.long:null;if(!next)return '';const k=next.photos-n;return `Add ${k} more photo${k===1?'':'s'} for the ${next.sec}-second film.`;}
 const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
 /* Music samples: one clip plays at a time; any step change or closing the plan stops it. */
 let mAudio=null,mId=null;
@@ -919,7 +926,7 @@ function planRender(){
     $('pnext').onclick=()=>{if(can()){P.step++;planRender();}};
   } else if(P.step===4){
     const touch=phTouchUI();
-    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 5 of 7</div><h3>Add your listing photos</h3><p class="hint">Add at least 2 photos — up to 20. JPG, PNG or WebP. We'll build your package from them.</p></div>
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 5 of 7</div><h3>Add your listing photos</h3><p class="hint">Add at least 2 photos, up to 20. 3 photos make a 20-second film, 7 make a 50-second film. JPG, PNG or WebP.</p></div>
     <div class="pick" id="ppick">
       <input type="file" id="pfile" class="pfile" accept="image/jpeg,image/png,image/webp" multiple aria-label="Add photos">
       <label class="drop" id="pdrop" for="pfile"><strong>${touch?'Add your photos':'Drag photos here'}</strong><small>${touch?'Tap to choose':'or click to choose'} · JPG, PNG or WebP</small></label>
@@ -947,6 +954,7 @@ function planRender(){
     const rationale=`For a ${LB[P.goal]||'listing'} ${LB[P.prop]||''} ${chL.length?'going to '+listJoin(chL):'ready for any channel'}, here's what we'd make. Keep the whole package, or pick just what you want:`;
     planBody.innerHTML=`${ptrack()}<div class="topnav"><button class="btn ghost" id="pback2" type="button">Back</button><button class="btn ghost" id="predo" type="button">Change answers</button></div><div class="qhead"><div class="eyebrow">Step 7 of 7</div><h3>Your content package</h3><p class="hint">${rationale}</p></div>
     <div class="pkg">${items.map((it,i)=>`<button type="button" class="pkg-item" data-i="${i}" aria-pressed="true" style="animation-delay:${i*60}ms">${ic(it.icon)}<div class="pm"><div class="pt">${it.title}</div><div class="pmeta">${it.meta.concat(it.tags).map(m=>'<span>'+m+'</span>').join('')}</div></div><span class="pprice">${it.price?'$'+it.price:'Included'}</span><span class="pcheck"></span></button>`).join('')}</div>
+    ${morePhotosLine(P)?`<p class="hint" id="pmore">${morePhotosLine(P)}</p>`:''}
     <details class="pdetails" id="pdetails"><summary>Add the address, price and your agent details <small>optional · shown on the opening and closing cards</small></summary><div class="pdgrid"><input type="text" class="qother" id="dAddr" maxlength="80" placeholder="Address" aria-label="Property address"><input type="text" class="qother" id="dPrice" maxlength="20" placeholder="Price" aria-label="Listing price"><input type="text" class="qother" id="dSpecs" maxlength="60" placeholder="Beds · baths · sq ft" aria-label="Beds, baths and size"><input type="text" class="qother" id="dName" maxlength="80" placeholder="Agent name" aria-label="Agent name"><input type="text" class="qother" id="dContact" maxlength="80" placeholder="Phone or email" aria-label="Agent phone or email"><input type="text" class="qother" id="dBroker" maxlength="60" placeholder="Brokerage" aria-label="Brokerage"></div></details>
     <div class="pkg-sum"><div><div class="pkg-price" id="pkgPrice"></div><div class="saveline" id="saveLine"></div></div>
     <div class="actions" style="margin:0;flex:1 1 100%"><button class="btn amber go" id="pcreate" type="button">Create this package</button></div></div>`;

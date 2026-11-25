@@ -1,9 +1,11 @@
 import { enforceRateLimit, customerError, requireAccount } from "../../_lib/account";
-import { createPackageCheckout, filmQuote, type FilmQuote } from "../../_lib/film-checkout";
+import { createPackageCheckout, filmQuote, memberFilmsLeft, type FilmQuote } from "../../_lib/film-checkout";
+import { minPhotosFor } from "../../../pricing";
 
 /* One checkout for every film of an order that still needs paying. Credits
    the customer already has are used first, oldest film first; each film
-   without a credit pays the base price plus anything above 20 seconds. */
+   without a credit pays the base price plus anything above 20 seconds, and a
+   member's films use their membership films first. */
 export async function POST(request: Request) {
   try {
     const { env } = await import("cloudflare:workers");
@@ -16,15 +18,19 @@ export async function POST(request: Request) {
     if (!ids.length) return Response.json({ error: "Choose the films to pay for." }, { status: 400 });
     const balanceRow = await env.DB.prepare(`SELECT credit_balance AS balance FROM users WHERE id = ?`).bind(account.id).first<{ balance: number }>();
     let credits = balanceRow?.balance || 0;
+    const memberFilms = await memberFilmsLeft(env, account.id);
+    let memberLeft = memberFilms.count;
     const films: { projectId: string; quote: FilmQuote }[] = [];
     for (const id of ids) {
       const project = await env.DB.prepare(`SELECT id, status, target_duration AS targetDuration FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(id, account.id).first<{ id: string; status: string; targetDuration: number }>();
       if (!project || project.status !== "draft") continue;
       const photos = await env.DB.prepare(`SELECT COUNT(*) AS count FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id).first<{ count: number }>();
-      if ((photos?.count || 0) < 2) continue;
+      if ((photos?.count || 0) < minPhotosFor(Number(project.targetDuration) || 0)) continue; // too few photos for its length: never charged
       const hasCredit = credits > 0;
       if (hasCredit) credits -= 1;
-      films.push({ projectId: id, quote: await filmQuote(env, { id, targetDuration: Number(project.targetDuration) || 0 }, photos?.count || 0, hasCredit) });
+      const quote = await filmQuote(env, { id, targetDuration: Number(project.targetDuration) || 0 }, photos?.count || 0, hasCredit, memberLeft > 0 ? memberFilms.cents : 0);
+      if (quote.usesMemberFilm) memberLeft -= 1;
+      films.push({ projectId: id, quote });
     }
     const due = films.reduce((sum, film) => sum + film.quote.payNow, 0);
     if (!due) return Response.json({ url: null, due: 0 });

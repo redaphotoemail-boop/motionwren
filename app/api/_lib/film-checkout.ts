@@ -1,28 +1,53 @@
 /* Paying for a film that is longer than the 20 seconds one credit covers.
    One checkout: the part above the credit, plus the credit itself for a
    customer who has none. The webhook (billing/webhook) records the upgrade
-   against the project, and submitting the project checks for it. */
+   against the project, and submitting the project checks for it.
+
+   Membership films: each month of membership leaves "member_film" ledger
+   rows (project_id empty, note "upgrade:<cents>"). A member's film that
+   uses a credit takes one of them, which pays the part above the credit up
+   to the long film (LONG_SECONDS). Submitting the order claims it. */
 
 import { BASE_CENTS, quoteFor, upgradeCents } from "../../pricing";
 
 type Db = { DB: D1Database };
 
-/** Cents of upgrade already paid for this project (ledger rows of type film_upgrade, note "upgrade:<cents>"). */
+/** Cents of upgrade already covered for this project: paid upgrades (film_upgrade) and a claimed membership film (member_film), note "upgrade:<cents>". */
 export async function paidUpgradeCents(env: Db, projectId: string): Promise<number> {
-  const row = await env.DB.prepare(`SELECT COALESCE(SUM(CAST(SUBSTR(note, 9) AS INTEGER)), 0) AS cents FROM credit_ledger WHERE project_id = ? AND type = 'film_upgrade'`).bind(projectId).first<{ cents: number }>();
+  const row = await env.DB.prepare(`SELECT COALESCE(SUM(CAST(SUBSTR(note, 9) AS INTEGER)), 0) AS cents FROM credit_ledger WHERE project_id = ? AND type IN ('film_upgrade', 'member_film')`).bind(projectId).first<{ cents: number }>();
   return Number(row?.cents) || 0;
 }
 
-export type FilmQuote = { cents: number; seconds: number; scenes: number; upgrade: number; payNow: number; grantsCredit: boolean };
+/** Membership films the customer still has: rows not yet given to a film, with what each one covers. */
+export async function memberFilmsLeft(env: Db, ownerId: string): Promise<{ count: number; cents: number }> {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS count, COALESCE(MIN(CAST(SUBSTR(note, 9) AS INTEGER)), 0) AS cents FROM credit_ledger WHERE owner_id = ? AND type = 'member_film' AND project_id IS NULL`).bind(ownerId).first<{ count: number; cents: number }>();
+  return { count: Number(row?.count) || 0, cents: Number(row?.cents) || 0 };
+}
 
-/** What this project needs paid before it can enter production, given the customer's credits. */
-export async function filmQuote(env: Db, project: { id: string; targetDuration: number }, photos: number, hasCredit: boolean): Promise<FilmQuote> {
+/** Claims one membership film for this project (only once per project, and only after its credit is reserved). */
+export const claimMemberFilm = (env: Db, ownerId: string, projectId: string) => env.DB.prepare(`UPDATE credit_ledger SET project_id = ? WHERE id = (SELECT id FROM credit_ledger WHERE owner_id = ? AND type = 'member_film' AND project_id IS NULL ORDER BY created_at LIMIT 1) AND NOT EXISTS (SELECT 1 FROM credit_ledger WHERE project_id = ? AND type = 'member_film') AND EXISTS (SELECT 1 FROM credit_ledger WHERE project_id = ? AND type = 'project_reservation')`).bind(projectId, ownerId, projectId, projectId);
+
+/** A refunded order gives its membership film back. */
+export const releaseMemberFilm = (env: Db, ownerId: string, projectId: string) => env.DB.prepare(`UPDATE credit_ledger SET project_id = NULL WHERE owner_id = ? AND project_id = ? AND type = 'member_film'`).bind(ownerId, projectId);
+
+export type FilmQuote = { cents: number; seconds: number; scenes: number; upgrade: number; payNow: number; grantsCredit: boolean; usesMemberFilm: boolean; memberCover: number };
+
+/** What this project needs paid before it can enter production, given the customer's credits
+    and the membership films they have left (memberFilmCents: what one covers, 0 for none). */
+export async function filmQuote(env: Db, project: { id: string; targetDuration: number }, photos: number, hasCredit: boolean, memberFilmCents = 0): Promise<FilmQuote> {
   const quote = quoteFor(project.targetDuration, photos);
   const upgrade = upgradeCents(quote.cents);
   const paid = await paidUpgradeCents(env, project.id);
-  const payNow = Math.max(0, upgrade - paid) + (hasCredit ? 0 : BASE_CENTS);
-  return { ...quote, upgrade, payNow, grantsCredit: !hasCredit };
+  const owed = Math.max(0, upgrade - paid);
+  const usesMemberFilm = hasCredit && owed > 0 && memberFilmCents > 0;
+  const covered = usesMemberFilm ? Math.min(owed, memberFilmCents) : 0;
+  const payNow = owed - covered + (hasCredit ? 0 : BASE_CENTS);
+  return { ...quote, upgrade, payNow, grantsCredit: !hasCredit, usesMemberFilm, memberCover: covered };
 }
+
+/** The upgrade a card payment pays for: the part above the credit, less what a membership film covers
+    (that part is claimed from the membership film when the order is submitted). */
+const cardUpgrade = (quote: FilmQuote) => Math.max(0, quote.upgrade - quote.memberCover);
 
 /** A Stripe Checkout link for exactly payNow. Null when Stripe is not connected. */
 export async function createFilmCheckout(opts: { secret: string; origin: string; ownerId: string; email: string; projectId: string; title: string; quote: FilmQuote }): Promise<string | null> {
@@ -42,7 +67,7 @@ export async function createFilmCheckout(opts: { secret: string; origin: string;
   values.set("metadata[plan]", "film");
   values.set("metadata[credits]", quote.grantsCredit ? "1" : "0");
   values.set("metadata[project_id]", opts.projectId);
-  values.set("metadata[upgrade_cents]", String(Math.max(0, quote.upgrade)));
+  values.set("metadata[upgrade_cents]", String(cardUpgrade(quote)));
   values.set("allow_promotion_codes", "true");
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
@@ -77,7 +102,7 @@ export async function createPackageCheckout(opts: { secret: string; origin: stri
   values.set("metadata[plan]", "film");
   values.set("metadata[credits]", String(films.filter((film) => film.quote.grantsCredit).length));
   // "projectId:upgradeCents" per film, comma-separated (8 films fit Stripe's 500-character limit).
-  values.set("metadata[films]", films.map((film) => `${film.projectId}:${Math.max(0, film.quote.upgrade)}`).join(","));
+  values.set("metadata[films]", films.map((film) => `${film.projectId}:${cardUpgrade(film.quote)}`).join(","));
   values.set("allow_promotion_codes", "true");
   const key = `package-${films.map((film) => film.projectId).sort().join("-").slice(0, 120)}-${Math.floor(Date.now() / 60000)}`;
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
