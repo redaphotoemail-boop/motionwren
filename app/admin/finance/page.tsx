@@ -89,6 +89,9 @@ export default function FinancePage() {
   const [who, setWho] = useState<"customer" | "studio">(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("who") === "studio" ? "studio" : "customer");
   const [period, setPeriod] = useState<"month" | "allTime">("month");
   const [span, setSpan] = useState<"day" | "week" | "month">("day");
+  /* The A to Z card can show all films together or one film: "" is the average film of the chosen view, or a film's id. */
+  const [scope, setScope] = useState<"all" | "film">("all");
+  const [filmId, setFilmId] = useState("");
 
   useEffect(() => {
     void Promise.resolve().then(async () => {
@@ -128,6 +131,25 @@ export default function FinancePage() {
       ...(orders ? [{ label: "Card fees (projected)", cents: feeCents, note: `${costs.rates.cardPercent}% + $${costs.rates.cardFixed.toFixed(2)} per order once payments are on` }] : []),
     ];
     const total = categories.reduce((sum, item) => sum + item.cents, 0);
+    /* For one film: the same lines for a single film. The average is each line divided by the videos in this view, so it adds back up to the total.
+       A picked film shows its own lines; the monthly plans are shared equally by this month's videos. */
+    const monthStart = (() => { const now = new Date(); return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1); })();
+    const filmRows = costs.recent.filter((row) => row.segment === who && (period === "allTime" || row.createdAt >= monthStart));
+    const film = filmRows.find((row) => row.id === filmId) || null;
+    const planShare = data.videos ? Math.round(fixedCents / data.videos) : 0;
+    const each = (value: number) => (data.videos ? Math.round(value / data.videos) : 0);
+    const filmCategories: Array<{ label: string; cents: number; note: string }> = film ? [
+      { label: "Video engine", cents: film.videoCents, note: "Replicate: every scene of this film, failed attempts included" },
+      { label: "Music", cents: film.musicCents, note: "ElevenLabs: one track made to this film's length" },
+      { label: "Editing", cents: film.editCents, note: "Cloudflare: joining this film's scenes and mixing the music" },
+      { label: "AI reading and review", cents: film.reviewCents, note: "The AI photo reader and the automatic check of this film" },
+      ...(period === "month" ? [{ label: "Monthly plans", cents: planShare, note: `Its share of the plans: ${cents(fixedCents)} shared by ${data.videos} video${data.videos === 1 ? "" : "s"} this month` }] : []),
+      ...(orders ? [{ label: "Card fees (projected)", cents: film.priceCents != null ? cardFeeCents(film.priceCents, 1) : 0, note: `${costs.rates.cardPercent}% + $${costs.rates.cardFixed.toFixed(2)} on this order once payments are on` }] : []),
+    ] : categories.map((item) => ({ ...item, cents: each(item.cents), note: `${cents(item.cents)} shared by ${data.videos} video${data.videos === 1 ? "" : "s"}. ${item.note}` }));
+    const filmTotal = filmCategories.reduce((sum, item) => sum + item.cents, 0);
+    const filmPrice = film ? film.priceCents : orders && data.videos ? each(data.priceCents) : null;
+    const shownCategories = scope === "film" ? filmCategories : categories;
+    const shownTotal = scope === "film" ? filmTotal : total;
     const revenue = orders ? data.priceCents : 0;
     const profit = revenue - total;
     const musicMinutes = (costs[period].customer.musicSeconds + costs[period].studio.musicSeconds) / 60;
@@ -152,18 +174,31 @@ export default function FinancePage() {
     return <>
       <section className="panel" aria-label="Cost of the full production process">
         <p className="eyebrow">Cost of production, A to Z</p>
-        <div className="hero-total">{cents(total)}</div>
-        <p className="muted">{who === "customer" ? "Client orders" : "Your own tests"} · {label} · {data.videos} video{data.videos === 1 ? "" : "s"}, {data.finished} finished</p>
+        <div className="filters">
+          <div className="tabs" role="radiogroup" aria-label="All films or one film">
+            {([["all", "All films"], ["film", "For one film"]] as const).map(([value, text]) => <button key={value} type="button" role="radio" aria-checked={scope === value} className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{text}</button>)}
+          </div>
+          {scope === "film" && data.videos > 0 && <label>Film <select value={film ? film.id : ""} onChange={(event) => setFilmId(event.target.value)}>
+            <option value="">Average film ({data.videos} video{data.videos === 1 ? "" : "s"})</option>
+            {filmRows.map((row) => <option key={row.id} value={row.id}>{row.title}{row.owner ? ` · ${row.owner}` : ""} · {placed(row.createdAt)}</option>)}
+          </select></label>}
+        </div>
+        {scope === "film" && !data.videos ? <div className="empty-soft compact"><span>No videos in this view yet.</span></div> : <>
+        <div className="hero-total">{cents(shownTotal)}</div>
+        {scope === "film"
+          ? <p className="muted">{film ? `${film.title}${film.owner ? ` · ${film.owner}` : ""} · ${placed(film.createdAt)} · ${film.duration}s · ${film.status === "succeeded" ? "finished" : film.status}` : `One film on average · ${who === "customer" ? "client orders" : "your own tests"} · ${label} · ${data.videos} video${data.videos === 1 ? "" : "s"}`}{orders && filmPrice != null ? ` · sold at ${cents(filmPrice)}, ${cents(filmPrice - filmTotal)} left` : ""}</p>
+          : <p className="muted">{who === "customer" ? "Client orders" : "Your own tests"} · {label} · {data.videos} video{data.videos === 1 ? "" : "s"}, {data.finished} finished</p>}
         <div className="fin-stack" role="img" aria-label="Where the money went">
-          {categories.filter((item) => item.cents > 0).map((item, index) => <i key={item.label} className={`fin-c${index % 6}`} style={{ flexGrow: item.cents }} title={`${item.label} ${cents(item.cents)}`} />)}
+          {shownCategories.filter((item) => item.cents > 0).map((item, index) => <i key={item.label} className={`fin-c${index % 6}`} style={{ flexGrow: item.cents }} title={`${item.label} ${cents(item.cents)}`} />)}
         </div>
         <ul className="fin-legend">
-          {categories.map((item, index) => <li key={item.label}><i className={`fin-c${index % 6}`} aria-hidden="true" /><span>{item.label}</span><strong>{cents(item.cents)}</strong><small>{pct(item.cents, total)}%</small></li>)}
+          {shownCategories.map((item, index) => <li key={item.label}><i className={`fin-c${index % 6}`} aria-hidden="true" /><span>{item.label}</span><strong>{cents(item.cents)}</strong><small>{pct(item.cents, shownTotal)}%</small></li>)}
         </ul>
         <details className="fin-more fin-inline">
           <summary>What each line means</summary>
-          <div className="cost-lines">{categories.map((item) => <div key={item.label}><div><span>{item.label}</span><strong>{cents(item.cents)}</strong></div><small>{item.note}</small></div>)}</div>
+          <div className="cost-lines">{shownCategories.map((item) => <div key={item.label}><div><span>{item.label}</span><strong>{cents(item.cents)}</strong></div><small>{item.note}</small></div>)}</div>
         </details>
+        </>}
       </section>
 
       <section className="metrics" aria-label="Money in and out">
