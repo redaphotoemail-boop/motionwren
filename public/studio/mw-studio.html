@@ -1,7 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>MotionWren Studio</title>
 <!-- Retrigger Cloudflare deploy 2026-10-25: no functional change. -->
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="description" content="Turn listing photos into a cinematic property video in minutes. Add price, beds and baths from your listing link. Built for busy agents.">
+<meta name="description" content="Turn listing photos into a cinematic property video. Built for busy agents.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <style>
@@ -253,6 +253,13 @@ input[type=text],input[type=url]{width:100%;font:500 16px var(--body);color:var(
 .qplay[data-on="1"] svg{fill:var(--amber-ink)}
 .qplay:focus-visible{outline:3px solid var(--amber);outline-offset:3px}
 .qother{margin-top:12px}
+.topnav{display:flex;gap:8px;margin:-4px 0 14px}.topnav .btn{padding:9px 14px;font-size:14px}
+.actions .btn.go{flex:1 1 100%;justify-content:center;padding:18px 26px;font-size:17px;box-shadow:0 8px 22px rgba(201,138,44,.28)}
+.pdetails{margin-top:18px}.pdetails summary{cursor:pointer;font:700 16px var(--body);color:var(--amber-ink);list-style:none;display:inline-flex;align-items:center;gap:10px}
+.pdetails summary::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 0 rgba(201,138,44,.55);animation:pdpulse 1.8s ease-out infinite}
+.pdetails[open] summary::before{animation:none}
+@keyframes pdpulse{0%{box-shadow:0 0 0 0 rgba(201,138,44,.55)}70%{box-shadow:0 0 0 10px rgba(201,138,44,0)}100%{box-shadow:0 0 0 0 rgba(201,138,44,0)}}
+@media (prefers-reduced-motion:reduce){.pdetails summary::before{animation:none}}.pdetails summary::-webkit-details-marker{display:none}.pdetails summary small{color:var(--muted);font-weight:400;margin-left:6px}.pdgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}@media(max-width:560px){.pdgrid{grid-template-columns:1fr}}
 .scan{position:relative;border-radius:16px;overflow:hidden;aspect-ratio:16/9;margin-bottom:24px;background:var(--screen)}
 .scan img{width:100%;height:100%;object-fit:cover;opacity:.65}
 .scan::after{content:"";position:absolute;left:0;right:0;height:38%;top:-38%;background:linear-gradient(180deg,rgba(233,162,59,.55),rgba(233,162,59,0));animation:scan 1.9s linear infinite}
@@ -869,13 +876,9 @@ const CHL={instagram:'Instagram',tiktok:'TikTok',mls:'MLS',youtube:'YouTube',fac
 function listJoin(a){return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+' and '+a.slice(-1);}
 function tagsFor(list,ch,fb){const s=list.filter(x=>ch.includes(x)).map(x=>CHL[x]);return s.length?s:(fb?[CHL[list[0]]]:[]);}
 function recommend(P){const ch=P.channels,estate=P.prop==='estate'||P.goal==='luxury',items=[];
- items.push({icon:'video',title:'Hero listing film',price:39,meta:[(estate?60:30)+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
- if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:19,meta:['20 sec','9:16','hook + captions'],tags:tagsFor(['instagram','tiktok'],ch,true)});
- if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:9,meta:['10 sec','9:16'],tags:['Instagram']});
- if(ch.includes('instagram')||ch.includes('facebook'))items.push({icon:'post',title:'Feed post set',price:19,meta:['3 cards','1:1'],tags:tagsFor(['instagram','facebook'],ch,true)});
- const g={listed:'"Just Listed" graphic',sold:'"Just Sold" graphic',open:'Open-house invite',price:'"New Price" graphic',luxury:'Luxury feature card',rent:'"For Rent" flyer'};
- items.push({icon:'graphic',title:g[P.goal]||'Announcement graphic',price:12,meta:['Image','1:1 + 9:16'],tags:ch.length?['Social']:['Download']});
- if(ch.includes('email')||ch.includes('mls'))items.push({icon:'cover',title:'Listing cover image',price:9,meta:['Thumbnail','16:9'],tags:tagsFor(['email','mls'],ch,true)});
+ items.push({icon:'video',title:'Hero listing film',price:estate?59:39,meta:[(estate?60:30)+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
+ if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:29,meta:['20 sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
+ if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:29,meta:['10 sec','9:16'],tags:['Instagram']});
  return items;}
 const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
 /* Music samples: one clip plays at a time; any step change or closing the plan stops it. */
@@ -903,7 +906,7 @@ function planRender(){
     planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step ${P.step+1} of 7</div><h3>${q.title}</h3><p class="hint">${q.hint}</p></div>
     <div class="qgrid${q.music?' music':''}">${q.opts.map(([v,label,icon,blurb])=>q.music?`<div class="qwrap"><button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qblurb">${blurb}</span><span class="qtick"></span></button><button type="button" class="qplay" data-play="${v}" data-on="0" aria-label="Hear a sample of ${label}">${M_PLAY}<span>Hear it</span></button></div>`:`<button type="button" class="qcard" data-v="${v}" aria-pressed="${sel(v)}">${ic(icon)}<span class="qlabel">${label}</span><span class="qtick"></span></button>`).join('')}</div>
     <input type="text" class="qother" id="qother" placeholder="Tell us a bit more…" value="${(P[ok]||'').replace(/"/g,'&quot;')}" ${otherOn()?'':'hidden'}>
-    <div class="actions">${P.step>0?'<button class="btn ghost" id="pback" type="button">Back</button>':''}<button class="btn" id="pnext" type="button">Continue</button></div>`;
+    <div class="actions">${P.step>0?'<button class="btn ghost" id="pback" type="button">Back</button>':''}<button class="btn amber go" id="pnext" type="button">Continue</button></div>`;
     $('pnext').disabled=!can();
     $('qother').oninput=e=>{P[ok]=e.target.value;};
     planBody.querySelectorAll('.qcard').forEach(c=>c.onclick=()=>{const v=c.dataset.v;
@@ -924,7 +927,7 @@ function planRender(){
       <div class="pbar"><span class="tag" id="ptag2"></span><button type="button" class="pover" id="pover" hidden>${PH_REDO}<span>Start over</span></button></div>
       <p class="pmsg" id="pmsg" role="status"></p><span class="sr" id="plive" aria-live="polite"></span>
     </div>
-    <div class="actions"><button class="btn ghost" id="pback" type="button">Back</button><button class="btn amber" id="panalyze" type="button">Analyze my photos</button></div>`;
+    <div class="actions"><button class="btn ghost" id="pback" type="button">Back</button><button class="btn amber go" id="panalyze" type="button">Analyze my photos</button></div>`;
     /* BACKEND: photos travel with the Create event (see pcreate) — the host uploads them to each video project and starts production. No draft is created here. */
     $('pfile').addEventListener('change',e=>phAdd(e.target.files));
     $('pover').onclick=e=>phStartOver(e.currentTarget);
@@ -942,22 +945,26 @@ function planRender(){
     const items=recommend(P);items.forEach(it=>it.sel=true);
     const chL=P.channels.map(c=>CHL[c]);
     const rationale=`For a ${LB[P.goal]||'listing'} ${LB[P.prop]||''} ${chL.length?'going to '+listJoin(chL):'ready for any channel'}, here's what we'd make. Keep the whole package, or pick just what you want:`;
-    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 7 of 7</div><h3>Your content package</h3><p class="hint">${rationale}</p></div>
-    <div class="pkg">${items.map((it,i)=>`<button type="button" class="pkg-item" data-i="${i}" aria-pressed="true" style="animation-delay:${i*60}ms">${ic(it.icon)}<div class="pm"><div class="pt">${it.title}</div><div class="pmeta">${it.meta.concat(it.tags).map(m=>'<span>'+m+'</span>').join('')}</div></div><span class="pprice">$${it.price}</span><span class="pcheck"></span></button>`).join('')}</div>
-    <div class="pkg-sum"><div><div class="pkg-price" id="pkgPrice"></div><div class="saveline" id="saveLine"></div></div><p id="videoNote" hidden style="margin-top:10px;color:var(--muted);font-size:14px;line-height:1.5">You picked graphics only — this order will be saved, not produced. Add a video piece to start production.</p>
-    <div class="actions" style="margin:0"><button class="btn ghost" id="pback2" type="button">Back</button><button class="btn ghost" id="predo" type="button">Change answers</button><button class="btn amber" id="pcreate" type="button">Create this package</button></div></div>`;
-    const upd=()=>{const s=items.filter(i=>i.sel),sum=s.reduce((a,i)=>a+i.price,0),all=items.length>0&&items.every(i=>i.sel),total=all?Math.round(sum*0.85):sum;
+    planBody.innerHTML=`${ptrack()}<div class="topnav"><button class="btn ghost" id="pback2" type="button">Back</button><button class="btn ghost" id="predo" type="button">Change answers</button></div><div class="qhead"><div class="eyebrow">Step 7 of 7</div><h3>Your content package</h3><p class="hint">${rationale}</p></div>
+    <div class="pkg">${items.map((it,i)=>`<button type="button" class="pkg-item" data-i="${i}" aria-pressed="true" style="animation-delay:${i*60}ms">${ic(it.icon)}<div class="pm"><div class="pt">${it.title}</div><div class="pmeta">${it.meta.concat(it.tags).map(m=>'<span>'+m+'</span>').join('')}</div></div><span class="pprice">${it.price?'$'+it.price:'Included'}</span><span class="pcheck"></span></button>`).join('')}</div>
+    <details class="pdetails" id="pdetails"><summary>Add the address, price and your agent details <small>optional · shown on the opening and closing cards</small></summary><div class="pdgrid"><input type="text" class="qother" id="dAddr" maxlength="80" placeholder="Address" aria-label="Property address"><input type="text" class="qother" id="dPrice" maxlength="20" placeholder="Price" aria-label="Listing price"><input type="text" class="qother" id="dSpecs" maxlength="60" placeholder="Beds · baths · sq ft" aria-label="Beds, baths and size"><input type="text" class="qother" id="dName" maxlength="80" placeholder="Agent name" aria-label="Agent name"><input type="text" class="qother" id="dContact" maxlength="80" placeholder="Phone or email" aria-label="Agent phone or email"><input type="text" class="qother" id="dBroker" maxlength="60" placeholder="Brokerage" aria-label="Brokerage"></div></details>
+    <div class="pkg-sum"><div><div class="pkg-price" id="pkgPrice"></div><div class="saveline" id="saveLine"></div></div>
+    <div class="actions" style="margin:0;flex:1 1 100%"><button class="btn amber go" id="pcreate" type="button">Create this package</button></div></div>`;
+    const upd=()=>{const s=items.filter(i=>i.sel),total=s.reduce((a,i)=>a+i.price,0),all=items.length>0&&items.every(i=>i.sel);
       $('pkgPrice').innerHTML=`$${total}<small> · ${s.length} ${s.length===1?'piece':'pieces'}</small>`;
-      $('saveLine').textContent=all?`Full package — you save $${sum-total}`:(s.length?'Add the rest to save 15%':'Pick at least one piece');
-      const cb=$('pcreate');cb.disabled=!s.length;cb.textContent=all?'Create this package':'Create selected';
-      $('videoNote').hidden=!(s.length&&!items.some(i=>i.sel&&['video','reel','story'].includes(i.icon)));};
+      $('saveLine').textContent=s.length?'Each film is priced by its length. You pay at checkout.':'Pick at least one piece';
+      const cb=$('pcreate');cb.disabled=!s.length;cb.textContent=all?'Create this package':'Create selected';};
+    const DF=['dAddr','dPrice','dSpecs','dName','dContact','dBroker'],AG=['dName','dContact','dBroker'];P.details=P.details||{};
+    try{const saved=JSON.parse(localStorage.getItem('mw:agent')||'{}');AG.forEach(k=>{if(P.details[k]==null&&saved[k])P.details[k]=saved[k];});}catch(e){}
+    DF.forEach(k=>{const el=$(k);el.value=P.details[k]||'';el.oninput=()=>{P.details[k]=el.value;};});
+    if(DF.some(k=>P.details[k]))$('pdetails').open=true;
     planBody.querySelectorAll('.pkg-item').forEach(b=>b.onclick=()=>{const it=items[+b.dataset.i];it.sel=!it.sel;b.setAttribute('aria-pressed',it.sel);upd();});
     upd();
     $('pback2').onclick=()=>{P.step=4;planRender();};
     $('predo').onclick=()=>{P.step=0;P.goal=P.prop=P.vibe=null;P.channels=[];planRender();};
-    $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is 15% off when the whole package is selected. Photos are the uploaded data URLs in display order (samples excluded); the host uploads them to each video project and starts production automatically. */
-    const sel=items.filter(i=>i.sel),sum=sel.reduce((a,i)=>a+i.price,0),total=items.length&&items.every(i=>i.sel)?Math.round(sum*0.85):sum;
-    toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,photos:P.photos.filter(p=>!p.sample&&!p.loading&&p.src).map(p=>p.src)});closePlan(true);};
+    $('pcreate').onclick=()=>{planModal.hidden=true;/* BACKEND: the host creates the order from this event (see the site's mw:package listener). Total is the sum of the films' prices (the same prices the checkout charges). Photos are the uploaded data URLs in display order (samples excluded); the host uploads them to each video project and starts production automatically. */
+    const sel=items.filter(i=>i.sel),total=sel.reduce((a,i)=>a+i.price,0);
+    const d=P.details||{},t=v=>String(v||'').trim(),joinDot=a=>a.map(t).filter(Boolean).join(' · ');try{localStorage.setItem('mw:agent',JSON.stringify({dName:t(d.dName),dContact:t(d.dContact),dBroker:t(d.dBroker)}));}catch(e){}const cards={opening:{title:t(d.dAddr),detail:joinDot([d.dPrice,d.dSpecs])},closing:{name:t(d.dName),contact:joinDot([d.dContact,d.dBroker])}};toParent('mw:package',{items:sel,answers:{goal:P.goal,prop:P.prop,channels:P.channels,vibe:P.vibe},total:total,cards:cards,photos:P.photos.filter(p=>!p.sample&&!p.loading&&p.src).map(p=>p.src)});closePlan(true);};
   }
 }
 function openPlan(){planModal.hidden=false;document.body.style.overflow='hidden';planRender();planModal.querySelector('.x').focus();}

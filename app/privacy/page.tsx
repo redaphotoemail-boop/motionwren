@@ -14,10 +14,10 @@ export default function PrivacyPage() {
       <article className="policy-body">
         <span className="eyebrow">PRIVACY</span>
         <h1>Privacy Policy</h1>
-        <p className="policy-date">Last updated November 6, 2026</p>
+        <p className="policy-date">Last updated November 25, 2026</p>
         <section>
           <h2>Who we are</h2>
-          <p>MotionWren is a property-video service operated from Boston, Massachusetts, United States. Contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>. The legal entity name and registration details are being finalised and will be added here when confirmed.</p>
+          <p>MotionWren is a property-video service of REDA.PHOTO, operated from Boston, Massachusetts, United States. Contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
         </section>
         <section>
           <h2>Information we process</h2>
@@ -35,12 +35,12 @@ export default function PrivacyPage() {
           <h2>Storage and retention</h2>
           <p>Project files and finished videos are stored in private object storage. Temporary processing assets may be removed after production. We keep personal information only as long as we need it for the purpose it was collected for, and then we delete it or make it anonymous. In particular:</p>
           <ul>
-            <li>Generation history entries expire after 90 days.</li>
-            <li>Project files and finished videos are kept while your account is active and are deleted when you delete your account.</li>
+            <li>Finished videos stay in your dashboard for 90 days, and uploaded photos for 30 days. Download anything you want to keep.</li>
+            <li>Everything is deleted sooner if you delete the order or your account.</li>
             <li>Technical and security logs are kept only as long as needed for security, abuse prevention and support, and are then deleted.</li>
             <li>Billing and payment records are kept for as long as the law requires for tax and accounting purposes. We do not store card details on our servers — card payments are handled by Stripe.</li>
           </ul>
-          <p>When we delete your account, your projects, photos, videos and credits are deleted as described in “Your choices” below. Copies may remain in backups for a short period until those backups are replaced, and billing records may be kept for the legal period above even after your account is deleted.</p>
+          <p>When we delete your account, your projects, photos, videos and credits are deleted as described in “Your choices” below, and any Pro subscription is cancelled. Copies may remain in backups for a short period until those backups are replaced, and billing records (amounts and dates, with no card details) are kept for the legal period above even after your account is deleted.</p>
         </section>
         <section>
           <h2>Security</h2>
@@ -60,7 +60,9 @@ export default function PrivacyPage() {
           <ul>
             <li><b>Cloudflare</b> — hosting, storage and delivery of the service, including your account, projects, media and finished videos.</li>
             <li><b>Replicate</b> — video generation, receiving the photographs and generation directions needed to produce your video.</li>
-            <li><b>OpenAI Sites</b> — processing support for generation, receiving media and generation directions as needed to complete your request.</li>
+            <li><b>Cloudflare Workers AI</b> — automatic quality checks of the finished scenes.</li>
+            <li><b>Anthropic</b> — reading your photos to choose camera movement, and quality checks, when these are switched on.</li>
+            <li><b>ElevenLabs</b> — music for your film. No personal information is sent, only a description of the music.</li>
             <li><b>Stripe</b> — payments, receiving your billing details. Card details are handled by Stripe and are never stored on our servers.</li>
             <li><b>Google</b> — sign-in, receiving the identity information needed to create and access your account; and web fonts, which may receive your IP address and browser information when a page loads.</li>
             <li><b>Resend</b> — service email, receiving your name and email address to send account and service messages.</li>
@@ -76,7 +78,7 @@ export default function PrivacyPage() {
           <h2>Changes to this policy</h2>
           <p>We may update this policy when the service changes. The “Last updated” date above shows the current version. If a change materially affects how we handle your information, we will tell you in the service or by email before it takes effect.</p>
         </section>
-        <p className="policy-note">This policy was updated on November 6, 2026. It still requires review by a lawyer before the first paid public launch, and the legal entity name and registration details are still to be added. Contact: MotionWren, Boston, Massachusetts — <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
+        <p className="policy-note">Contact: MotionWren, Boston, Massachusetts — <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
       </article>
     </main>
   );

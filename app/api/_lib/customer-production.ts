@@ -2,21 +2,19 @@ import { autoQuote } from "../../pricing";
 import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
 import { HttpError } from "./account";
-import { customerSafeError } from "./customer-errors";
 import { musicPrompt } from "./composer";
 import { musicTemplate } from "../../music-catalog";
-import { PHOTO_MOVE_CYCLE, newManifest, saveManifest } from "./production";
+import { PHOTO_MOVE_CYCLE, cleanCards, newManifest, saveManifest } from "./production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
 import { guardCheck } from "./spend-guard";
-import { MOVE_PHRASE, cyclePicks } from "./movement-plan";
-import { planMovements } from "./movement-read";
+import { planTrueToPhoto, truePicks, truePrompt } from "./true-to-photo";
 
 /* Starts production of a customer's order: plans the scenes from their
    photos, creates the job and puts it in the scene queue. Used by the
    customer's own "generate" call and by the manager's "Start production". */
 
-const MOVEMENTS = [
+export const MOVEMENTS = [
   "a slow stabilized push-in",
   "a slow stabilized lateral slide from left to right",
   "a slow stabilized pull-back",
@@ -35,9 +33,11 @@ export async function loadOrder(env: Env, projectId: string, ownerId: string) {
 
 /* Orders wait for the manager's OK while payments are not connected (so no
    unpaid order spends engine money), unless the manager switched customer
-   production to automatic. */
+   production to automatic. A Stripe test key counts as not connected: test
+   cards are free, so test-mode orders still wait for the manager. */
 export async function needsApproval(env: Env, role: string) {
-  if (role === "admin" || process.env.STRIPE_SECRET_KEY) return false;
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  if (role === "admin" || (key && !key.startsWith("sk_test_") && !key.startsWith("rk_test_"))) return false;
   const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'customer_production'`).first<{ value?: string }>();
   return row?.value !== "automatic";
 }
@@ -52,13 +52,19 @@ export async function holdForApproval(env: Env, project: Project, ownerId: strin
   return { status: "approval" as const };
 }
 
-export async function startOrder(env: Env, project: Project, ownerId: string, origin: string, providerToken: string) {
-  if (project.renderJobId && ["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return { jobId: project.renderJobId, status: project.status, resumed: true };
+export async function startOrder(env: Env, project: Project, ownerId: string, origin: string, providerToken: string, opts: { rethrow?: boolean } = {}) {
+  if (["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return { jobId: project.renderJobId || "", status: project.status, resumed: true };
   if (!["submitted", "failed", "approval"].includes(project.status)) throw new HttpError(409, "Submit the project before starting production.");
   const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder, r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 24`).bind(project.id, ownerId).all<{ id: string; sortOrder: number; r2Key: string }>();
   if (assets.results.length < 2) throw new HttpError(409, "At least two photographs are required.");
   // Automatic length (target 0): each photo is a 5-second scene, so the film is as long as the photos allow.
   const targetSeconds = project.targetDuration || autoQuote(assets.results.length).seconds;
+  // Claim the order first: two starts at the same moment (the customer and the manager, or a double tap) make one film, never two.
+  const claim = await env.DB.prepare(`UPDATE projects SET status = 'queued', updated_at = ? WHERE id = ? AND owner_id = ? AND status = ?`).bind(Date.now(), project.id, ownerId, project.status).run();
+  if (!claim.meta.changes) {
+    const current = await loadOrder(env, project.id, ownerId);
+    return { jobId: current?.renderJobId || "", status: current?.status || "queued", resumed: true };
+  }
   let jobId = "";
   try {
     // The manager's selected engine (platform_settings defaultEngine); Wan 3.0
@@ -78,9 +84,10 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
     // "3"/"5" fix the scene timing; "auto" and unset choose it by the video's length.
     const plan = scenePlan(engine, resolution, targetSeconds, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), targetSeconds ? sceneTimingSetting(timingRow?.value) : 5);
-    const scenes = assets.results.slice(0, plan.count);
+    // Every photo the film could use; the walkthrough order below decides which ones it does use.
+    const pool = assets.results.slice(0, Math.min(assets.results.length, MAX_CUSTOMER_SCENES));
     const sceneSeconds = plan.sceneSeconds;
-    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
+    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * plan.count) * 100);
     const spend = await guardCheck(env, costCents); // the spending guard: at a limit no new film starts (the owner is alerted)
     if (!spend.ok) throw new HttpError(503, "We are not starting new films for a short while. Your order is saved; please try again later.");
     await env.DB.batch([
@@ -91,20 +98,23 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // Every scene's exact request is kept in the job's manifest so a scene
     // that fails or hangs restarts on its own (see production.ts).
     const inputs: Record<string, unknown>[] = [];
-    const photos: { key: string; link: string }[] = [];
-    for (let index = 0; index < scenes.length; index += 1) {
-      const asset = scenes[index];
+    const poolPhotos: { key: string; link: string }[] = [];
+    for (let index = 0; index < pool.length; index += 1) {
+      const asset = pool[index];
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, ownerId).run();
-      photos.push({ key: asset.r2Key, link: `${origin}/api/provider-assets/${asset.id}?token=${assetToken}` });
+      poolPhotos.push({ key: asset.r2Key, link: `${origin}/api/provider-assets/${asset.id}?token=${assetToken}` });
     }
-    // The photos are read once, here: each photo's camera movement is chosen by the scene first, then the story
-    // (Admin → Engines → Camera movement). Only the fixed movement phrases are used; the baked prompt is untouched.
-    // Any trouble falls back to the standard order; an order never waits on this.
-    const movement = await planMovements(env, project.id, photos.map((photo) => photo.link)).catch(() => null);
-    const picks = movement?.picks.length === photos.length ? movement.picks : cyclePicks(photos.length);
-    for (let index = 0; index < photos.length; index += 1) {
-      inputs.push(buildEngineInput(engine, { imageUrl: photos[index].link, prompt: `${MOVE_PHRASE[picks[index].move] || MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
+    // True to the photo (see true-to-photo.ts): each photo is read once, the scenes go in walkthrough order
+    // (exterior first), and every scene is a very slow, short push-in that never leaves the photo, so the
+    // engine has nothing to invent. The baked lock is kept word for word; the frame lock is added after it.
+    // Any trouble keeps the customer's order with centred push-ins; an order never waits on this.
+    const trueToPhoto = await planTrueToPhoto(env as unknown as { DB: D1Database } & Record<string, unknown>, project.id, poolPhotos.map((photo) => photo.link)).catch(() => null);
+    const order = trueToPhoto && trueToPhoto.order.length === poolPhotos.length ? trueToPhoto.order : poolPhotos.map((_, index) => index);
+    const used = order.slice(0, plan.count);
+    const photos = used.map((index) => poolPhotos[index]);
+    for (const index of used) {
+      inputs.push(buildEngineInput(engine, { imageUrl: poolPhotos[index].link, prompt: truePrompt(trueToPhoto?.focus[index] || "center", STATIC_LOCK), duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
     }
     // Into the scene queue: scenes are made one after another as the engine
     // allows (waits and retries are automatic); the customer can leave.
@@ -112,29 +122,43 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // The final edit: each scene's share on screen and the film's one music track.
     if (engine === "photo") manifest.photoMoves = inputs.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
-    if (movement) manifest.movementPlan = { mode: movement.mode, used: movement.used, picks: movement.picks, rooms: movement.rooms, costCents: movement.costCents, note: movement.note };
+    const cards = await readCardsChoice(env, project.id);
+    if (cards) manifest.cards = cards;
+    if (trueToPhoto) {
+      const plannedPicks = truePicks(trueToPhoto).slice(0, plan.count);
+      manifest.movementPlan = { mode: "ai", used: trueToPhoto.reader === "none" ? "opencv" : "ai", picks: plannedPicks, rooms: used.map((index) => trueToPhoto.rooms[index] || ""), costCents: trueToPhoto.costCents, note: `True to the photo. ${trueToPhoto.note}`.trim() };
+    }
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
+    // The AI photo reader costs a few cents: record it with the film's AI cost so Spend, Finance and the spend limits count it.
+    if (trueToPhoto?.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${jobId}`, String(trueToPhoto.costCents), Date.now()).run().catch(() => undefined);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
       env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(Date.now(), project.id, ownerId),
       env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'production_started', 'Production started', 'Your photographs are generating now. You can close this page; processing will continue.', NULL, ?)`).bind(`${jobId}:started`, ownerId, Date.now()),
     ]);
   } catch (error) {
-    if (jobId) await markStartFailed(env, jobId, project.id, ownerId, error);
-    throw error;
+    await markStartFailed(env, jobId || null, project.id, ownerId, error, project.title);
+    if (opts.rethrow) throw error; // the manager's Start production shows the real reason
+    // The customer sees the order as waiting, never as failed; the manager has the real reason.
+    return { jobId: "", status: "approval" };
   }
   return { jobId, status: "generating" };
 }
 
-export async function markStartFailed(env: Env, jobId: string, projectId: string, ownerId: string, error: unknown) {
+/* An order that could not start (the spending limit, an engine refusing,
+   anything else) is put back in line for the manager's Start production,
+   with the real reason sent to the manager. The customer is told it is in
+   line and never that it failed. */
+export async function markStartFailed(env: Env, jobId: string | null, projectId: string, ownerId: string, error: unknown, title = "An order") {
   const message = error instanceof Error ? error.message : "Production could not start.";
   const now = Date.now();
   await env.DB.batch([
-    env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind(message.slice(0, 1000), now, jobId),
-    env.DB.prepare(`UPDATE projects SET status = 'failed', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(now, projectId, ownerId),
-    env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'generation_failed', 'Production could not start', ?, NULL, ?)`).bind(`${jobId}:failed`, ownerId, customerSafeError(message).slice(0, 500), now),
+    ...(jobId ? [env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind(message.slice(0, 1000), now, jobId)] : []),
+    env.DB.prepare(`UPDATE projects SET status = 'approval', render_job_id = NULL, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(now, projectId, ownerId),
+    env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'order_received', 'Order received', 'Thanks! Your video goes into production shortly. We will let you know when it is ready.', NULL, ?)`).bind(`${projectId}:waiting`, ownerId, now),
   ]);
+  await alertManagers(env, "An order could not start", `"${title}" could not start: ${message.slice(0, 300)}. It is waiting in Orders; press Start production when ready.`);
 }
 
 /* The music template the customer chose in the plan, kept per order (no
@@ -154,4 +178,20 @@ export async function readMusicChoice(env: { DB: D1Database }, projectId: string
   return musicTemplate(row?.value)?.id || null;
 }
 
-export const dropMusicChoiceStatement = (env: { DB: D1Database }, projectId: string) => env.DB.prepare(`DELETE FROM platform_settings WHERE key = ?`).bind(musicChoiceKey(projectId));
+export const dropMusicChoiceStatement = (env: { DB: D1Database }, projectId: string) => env.DB.prepare(`DELETE FROM platform_settings WHERE key IN (?, ?)`).bind(musicChoiceKey(projectId), cardsKey(projectId));
+
+/* The listing and agent cards the customer typed in the plan, kept per order the same way (a platform_settings row).
+   The editor burns them into the film: the address and price open it, the agent closes it. */
+const cardsKey = (projectId: string) => `project_cards:${projectId}`;
+
+export async function saveCardsChoice(env: { DB: D1Database }, projectId: string, value: unknown) {
+  const cards = cleanCards(value);
+  if (!cards) return null;
+  await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(cardsKey(projectId), JSON.stringify(cards), Date.now()).run();
+  return cards;
+}
+
+export async function readCardsChoice(env: { DB: D1Database }, projectId: string) {
+  const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(cardsKey(projectId)).first<{ value?: string }>();
+  try { return row?.value ? cleanCards(JSON.parse(row.value)) : undefined; } catch { return undefined; }
+}

@@ -52,3 +52,39 @@ export async function createFilmCheckout(opts: { secret: string; origin: string;
   const data = await response.json() as { url?: string };
   return response.ok && data.url ? data.url : null;
 }
+
+/** One Stripe Checkout for several films of one order (a package), so the
+    customer pays once instead of once per film. Metadata carries every
+    project and its upgrade, and the number of credits bought; the webhook
+    records them and starts each film. Null when nothing is due or Stripe
+    is not connected. */
+export async function createPackageCheckout(opts: { secret: string; origin: string; ownerId: string; email: string; films: { projectId: string; quote: FilmQuote }[] }): Promise<string | null> {
+  const films = opts.films.filter((film) => film.quote.payNow > 0).slice(0, 8);
+  if (!films.length) return null;
+  const values = new URLSearchParams();
+  values.set("mode", "payment");
+  films.forEach((film, index) => {
+    values.set(`line_items[${index}][price_data][currency]`, "usd");
+    values.set(`line_items[${index}][price_data][unit_amount]`, String(film.quote.payNow));
+    values.set(`line_items[${index}][price_data][product_data][name]`, `${film.quote.seconds}-second film`);
+    values.set(`line_items[${index}][quantity]`, "1");
+  });
+  values.set("success_url", `${opts.origin}/dashboard?billing=success`);
+  values.set("cancel_url", `${opts.origin}/dashboard?billing=cancelled`);
+  values.set("customer_email", opts.email);
+  values.set("client_reference_id", opts.ownerId);
+  values.set("metadata[owner_id]", opts.ownerId);
+  values.set("metadata[plan]", "film");
+  values.set("metadata[credits]", String(films.filter((film) => film.quote.grantsCredit).length));
+  // "projectId:upgradeCents" per film, comma-separated (8 films fit Stripe's 500-character limit).
+  values.set("metadata[films]", films.map((film) => `${film.projectId}:${Math.max(0, film.quote.upgrade)}`).join(","));
+  values.set("allow_promotion_codes", "true");
+  const key = `package-${films.map((film) => film.projectId).sort().join("-").slice(0, 120)}-${Math.floor(Date.now() / 60000)}`;
+  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${opts.secret}`, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": key },
+    body: values.toString(),
+  });
+  const data = await response.json() as { url?: string };
+  return response.ok && data.url ? data.url : null;
+}

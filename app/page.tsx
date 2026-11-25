@@ -80,12 +80,11 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
       <div className="band-head">
         <p className="eyebrow">One upload</p>
         <h2 id="formats-title">Every channel.<br />One upload.</h2>
-        <p className="band-sub">A hero film for the listing. A reel for social. A square for the feed.</p>
+        <p className="band-sub">A hero film for the listing. A reel for social.</p>
       </div>
       <div className="formats">
         <figure className="reveal"><PropertyFilm format="wide" start={1} hud="label" listing interval={5200} label="Sample hero listing film, widescreen, with the listing's address, price and size on screen." /><figcaption>Hero film · 16:9</figcaption></figure>
         <figure className="reveal"><PropertyFilm format="tall" start={0} hud="label" interval={4400} label="Sample vertical reel." /><figcaption>Reel · 9:16</figcaption></figure>
-        <figure className="reveal"><PropertyFilm format="square" start={2} hud="label" interval={6000} label="Sample square feed post." /><figcaption>Feed · 1:1</figcaption></figure>
       </div>
     </section>
 
@@ -129,6 +128,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <article className="plan plan-featured reveal"><span className="plan-name">Five-pack</span><p className="plan-price">$125</p><small className="plan-per">$25 per video</small><strong>Five video credits</strong><p>For active agents and photographers managing several listings.</p><a className="btn btn-amber" href={accountPath} target="_top">Open your workspace</a></article>
         <article className="plan reveal"><span className="plan-name">Pro</span><p className="plan-price">$199<small>/month</small></p><small className="plan-per">$19.90 per video</small><strong>Ten credits each month</strong><p>Centralized production tracking and a lower per-video cost.</p><a className="btn btn-soft" href={accountPath} target="_top">View your account</a></article>
       </div>
+      <p className="plans-note muted">Per film: 20 seconds $29 · 30 seconds $39 · 60 seconds $59. Each credit covers a 20-second film; longer films pay the difference.</p>
     </section>
 
     <section className="closer site-wrap">

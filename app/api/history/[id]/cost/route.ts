@@ -27,6 +27,8 @@ export async function GET(request: Request) {
     const voiceChars = voice ? (voice.mode === "film" ? voice.lines.join(" ").length : voice.lines.reduce((sum, line) => sum + line.length, 0)) : 0;
     const sfxCount = edit?.sound?.sfx?.tracks.filter(Boolean).length || 0;
     const review = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(`review-cost:${job.id}`).first<{ value?: string }>();
+    // The AI photo reader's cost is kept inside the film's one "AI" total (so every total agrees); show it on its own line.
+    const movementCents = Math.max(0, Number(manifest?.movementPlan?.costCents) || 0);
     const music = !edited || edit?.sound?.noMusic || !edit?.music ? "none" : edit.music.source === "library" ? "library" : "generated";
     // Automatic quality re-makes are billed again: show them on their own line. Rounds recorded before the price fix have no amount;
     // they were recorded at the engine's top-resolution price.
@@ -37,7 +39,7 @@ export async function GET(request: Request) {
     const { lines, totalCents } = filmCostLines({
       remakeCents: Math.min(remakeCents, job.costCents), remakeRounds,
       engineName: studioEngine((manifest?.fix?.firstEngine || history.engine) as never).name, engineCents: Math.max(0, job.costCents - Math.min(remakeCents, job.costCents)), scenes: manifest?.inputs.length || 1, sceneSeconds: manifest?.sceneSeconds || history.duration, resolution: history.resolution,
-      upscaled: Boolean(manifest?.upscale), duration: history.duration, edited, music, voiceChars, sfxCount, sfxSeconds: sfxCount * Math.min(manifest?.sceneSeconds || 5, 12), reviewCents: Number(review?.value) || 0,
+      upscaled: Boolean(manifest?.upscale), duration: history.duration, edited, music, voiceChars, sfxCount, sfxSeconds: sfxCount * Math.min(manifest?.sceneSeconds || 5, 12), reviewCents: Math.max(0, (Number(review?.value) || 0) - movementCents), movementCents,
     });
     return NextResponse.json({ lines, totalCents });
   } catch (error) {

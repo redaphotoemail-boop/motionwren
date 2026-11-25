@@ -1,3 +1,5 @@
+import { stripeRequest } from "./stripe";
+import { sendEmail } from "./email";
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { cookies } from "next/headers";
 import { customerSafeError } from "./customer-errors";
@@ -262,17 +264,11 @@ export function readyEmailHtml() {
 
 export async function sendAccountEmail(env: { DB: D1Database }, ownerId: string, subject: string, text: string, html?: string) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.FRAME_MOTION_FROM_EMAIL;
-  if (!apiKey || !from) return;
+  const from = process.env.MOTIONWREN_FROM_EMAIL || process.env.FRAME_MOTION_FROM_EMAIL;
+  if (!apiKey || !from) { console.error("[email] not sent: RESEND_API_KEY or MOTIONWREN_FROM_EMAIL is missing", subject); return; }
   const user = await env.DB.prepare(`SELECT email FROM users WHERE id = ? LIMIT 1`).bind(ownerId).first<{ email: string }>();
   if (!user?.email) return;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [user.email], subject, text, ...(html ? { html } : {}) }),
-    });
-  } catch { /* Email failure must never fail the video delivery. */ }
+  await sendEmail(user.email, subject, text, html);
 }
 
 export async function getRenderJob(env: { DB: D1Database }, id: string, ownerId?: string) {
@@ -337,13 +333,35 @@ export async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, r
     const reserved = await env.DB.prepare(`SELECT id FROM credit_ledger WHERE project_id = ? AND owner_id = ? AND type = 'project_reservation' LIMIT 1`).bind(project.id, row.ownerId).first();
     if (reserved) {
       // One transaction: the ledger row and the balance move together. changes() is 1 only when the keyed ledger row was really inserted, so a repeat ask never returns a second credit.
-  await env.DB.batch([
-    env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned after the customer asked for a refund on a delayed order', ?)`).bind(crypto.randomUUID(), ownerId, project.id, job.id, `project:${project.id}:failure-refund`, now),
-    env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ? AND changes() = 1`).bind(now, ownerId),
-  ]);
+      await env.DB.batch([
+        env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned automatically after the video stopped', ?)`).bind(crypto.randomUUID(), row.ownerId, project.id, row.id, `project:${project.id}:failure-refund`, now),
+        env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ? AND changes() = 1`).bind(now, row.ownerId),
+      ]);
     }
   }
   await sendAccountEmail(env, row.ownerId, "Your MotionWren project needs attention", `Video processing stopped: ${customerSafeError(message).slice(0, 500)}`);
+}
+
+/* Money paid above the credit for a longer film goes back to the card when
+   the order is refunded (the credit covers the base price). Each upgrade
+   payment is matched to its Stripe payment through the event id kept in
+   its ledger key, and refunded once (keyed by the ledger row). */
+async function refundFilmUpgrades(env: { DB: D1Database }, projectId: string, ownerId: string) {
+  if (!process.env.STRIPE_SECRET_KEY) return;
+  const rows = await env.DB.prepare(`SELECT l.id, l.note, p.provider_payment_id AS paymentIntent FROM credit_ledger l JOIN payments p ON l.idempotency_key LIKE 'film-upgrade:' || p.id || '%' WHERE l.project_id = ? AND l.owner_id = ? AND l.type = 'film_upgrade'`).bind(projectId, ownerId).all<{ id: string; note: string; paymentIntent: string | null }>();
+  for (const row of rows.results) {
+    const cents = Number(String(row.note || "").replace("upgrade:", "")) || 0;
+    if (!cents || !row.paymentIntent || !row.paymentIntent.startsWith("pi_")) continue;
+    const values = new URLSearchParams();
+    values.set("payment_intent", row.paymentIntent);
+    values.set("amount", String(cents));
+    values.set("metadata[project_id]", projectId);
+    const result = await stripeRequest("POST", "refunds", values, `upgrade-refund-${row.id}`);
+    if (!result.ok) {
+      console.error("[billing] upgrade refund failed", projectId, result.data.error?.message);
+      await alertManagers(env as Parameters<typeof alertManagers>[0], "A card refund needs you", `The extra paid for a longer film (order ${projectId}) could not be refunded automatically: ${result.data.error?.message || "Stripe refused"}. Refund $${(cents / 100).toFixed(2)} in Stripe.`);
+    }
+  }
 }
 
 /* A customer asks for their credit back on a holding order: the order is
@@ -365,7 +383,10 @@ export async function refundHoldingOrder(env: { DB: D1Database }, projectId: str
   const reserved = await env.DB.prepare(`SELECT id FROM credit_ledger WHERE project_id = ? AND owner_id = ? AND type = 'project_reservation' LIMIT 1`).bind(project.id, ownerId).first();
   if (!reserved) throw new HttpError(409, "There's no credit to refund for this order.");
   const refund = await env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned after the customer asked for a refund on a delayed order', ?)`).bind(crypto.randomUUID(), ownerId, project.id, job.id, `project:${project.id}:failure-refund`, now).run();
-  if (refund.meta.changes) await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(now, ownerId).run();
+  if (refund.meta.changes) {
+    await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(now, ownerId).run();
+    await refundFilmUpgrades(env, project.id, ownerId);
+  }
   await env.DB.batch([
     env.DB.prepare(`UPDATE projects SET status = 'cancelled', updated_at = ? WHERE id = ? AND owner_id = ? AND status != 'completed'`).bind(now, project.id, ownerId),
     // Stopped jobs are skipped by the heartbeat's recovery, so a refunded

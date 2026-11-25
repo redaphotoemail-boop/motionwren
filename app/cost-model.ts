@@ -11,7 +11,7 @@ export const COST_RATES = {
   musicPerMinute: 0.30,
   /** Seconds of music made beyond the film's length (the editor asks for +1.5 s). */
   musicExtraSeconds: 1.5,
-  /** Cloudflare container time for the final edit, dollars per film (about 2–3 minutes of 1 vCPU / 6 GiB). */
+  /** Cloudflare container time per film, dollars: the final edit plus the free measuring (OpenCV movement reading, jump, black-frame and shake checks), about 3–4 minutes of 1 vCPU / 6 GiB. */
   editPerFilm: 0.01,
   /** AI quality review, cents per film (estimates from list prices; the free mechanical check costs nothing).
       Cloudflare Workers AI: 4 stills on its vision model. Claude: 4 stills in one request. */
@@ -69,7 +69,7 @@ export const BREAKDOWN_RATES = {
 export type FilmCostInput = {
   engineName: string; engineCents: number; scenes: number; sceneSeconds: number; resolution: string; upscaled: boolean;
   duration: number; edited: boolean; remakeCents?: number; remakeRounds?: number;
-  music: "library" | "generated" | "none"; voiceChars: number; sfxCount: number; sfxSeconds: number; reviewCents: number;
+  music: "library" | "generated" | "none"; voiceChars: number; sfxCount: number; sfxSeconds: number; reviewCents: number; movementCents?: number;
 };
 export type CostLine = { label: string; detail: string; cents: number; estimate: boolean };
 
@@ -84,6 +84,7 @@ export function filmCostLines(input: FilmCostInput): { lines: CostLine[]; totalC
   }
   if (input.voiceChars > 0) lines.push({ label: "Voiceover", detail: `${input.voiceChars.toLocaleString("en-US")} characters`, cents: Math.round(input.voiceChars / 1000 * BREAKDOWN_RATES.voicePerThousandChars * 100), estimate: true });
   if (input.sfxCount > 0) lines.push({ label: "Sound effects", detail: `${input.sfxCount} effect${input.sfxCount === 1 ? "" : "s"}`, cents: Math.round(input.sfxSeconds * BREAKDOWN_RATES.sfxPerSecond * 100), estimate: true });
+  if ((input.movementCents || 0) > 0) lines.push({ label: "Camera movement reading", detail: "AI looked at each photo to choose its movement (OpenCV measuring is free)", cents: Math.round(input.movementCents! * 10) / 10, estimate: true });
   if (input.reviewCents > 0) lines.push({ label: "Quality check", detail: "AI review of the finished film", cents: Math.round(input.reviewCents), estimate: true });
   return { lines, totalCents: lines.reduce((sum, line) => sum + line.cents, 0) };
 }

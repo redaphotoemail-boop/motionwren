@@ -48,7 +48,10 @@ export async function GET(request: Request) {
 
   const userId = `google:${profile.sub || email}`;
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, 0, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, role = CASE WHEN users.role = 'admin' THEN 'admin' ELSE excluded.role END, status = 'active', updated_at = excluded.updated_at`).bind(userId, email, profile.name || email, isAdmin ? "admin" : "customer", isAdmin ? "internal" : "free", now, now).run();
+  await env.DB.prepare(`INSERT INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, 0, ?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, role = CASE WHEN users.role = 'admin' THEN 'admin' ELSE excluded.role END, updated_at = excluded.updated_at`).bind(userId, email, profile.name || email, isAdmin ? "admin" : "customer", isAdmin ? "internal" : "free", now, now).run();
+  // A suspended account stays suspended: signing in with Google again does not reopen it.
+  const status = await env.DB.prepare(`SELECT status FROM users WHERE id = ? LIMIT 1`).bind(userId).first<{ status: string }>();
+  if (status && status.status !== "active") return redirectWithCookie(request, "/?owner=restricted", clearStateCookie());
   const session = await createGoogleSession(env, userId);
   const headers = new Headers({ Location: new URL(isAdmin ? "/admin" : "/dashboard", request.url).toString() });
   headers.append("Set-Cookie", clearStateCookie());

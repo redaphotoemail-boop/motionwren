@@ -16,8 +16,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     // 120 an hour: a full package uploads up to 20 photos once plus a few per extra video,
     // so several listings in one sitting still fit. Generation keeps its own, tighter limit.
     await enforceRateLimit(env, account.id, "asset-upload", 120, 60 * 60 * 1000);
-    const project = await env.DB.prepare(`SELECT id FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(projectId, account.id).first();
+    const project = await env.DB.prepare(`SELECT id, status FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(projectId, account.id).first();
     if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
+    // Photos can change only while the order is a draft: the price and length are set when it is submitted.
+    if (account.role !== "admin" && (project as { status?: string }).status !== "draft") return Response.json({ error: "This order is already submitted, so its photos are locked. Start a new order to use different photos." }, { status: 409 });
     const form = await request.formData(); const file = form.get("file");
     if (!(file instanceof File) || !ALLOWED_TYPES.has(file.type)) return Response.json({ error: "Upload a JPG, PNG or WebP image." }, { status: 400 });
     if (!file.size || file.size > MAX_ASSET_BYTES) return Response.json({ error: "Each image must be smaller than 20 MB." }, { status: 413 });

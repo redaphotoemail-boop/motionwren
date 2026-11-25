@@ -14,10 +14,10 @@ export default function TermsPage() {
       <article className="policy-body">
         <span className="eyebrow">TERMS</span>
         <h1>Terms of Service</h1>
-        <p className="policy-date">Last updated November 6, 2026</p>
+        <p className="policy-date">Last updated November 25, 2026</p>
         <section>
           <h2>Who we are</h2>
-          <p>MotionWren is a property-video service operated from Boston, Massachusetts, United States. Contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>. The legal entity name and registration details are being finalised and will be added here when confirmed.</p>
+          <p>MotionWren is a property-video service of REDA.PHOTO, operated from Boston, Massachusetts, United States. Contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
         </section>
         <section>
           <h2>Who can use MotionWren</h2>
@@ -49,7 +49,7 @@ export default function TermsPage() {
         </section>
         <section>
           <h2>Payments and credits</h2>
-          <p>Single video: $29 for one video. Five-pack: $125 for five video credits. Pro: $199 per month for ten credits each month. The price shown at checkout is the total you pay; any applicable tax is shown before you pay. Provider failures must not result in duplicate customer charges. If a generation fails, the credit used for it is automatically returned to your account. Single and five-pack credits do not expire while your account is active; Pro credits expire at the end of each billing month and do not roll over. You can cancel Pro at any time; access continues until the end of the billing period already paid for. Full details are in our <Link href="/refund">Refund Policy</Link>.</p>
+          <p>Films are priced by length: 20 seconds $29, 30 seconds $39, 60 seconds $59. With automatic length, each photo becomes a 5-second scene: $59 for up to 12 photos, then $5 for each extra photo. Five-pack: $125 for five video credits. Pro: $199 per month for ten credits each month. Each credit covers one 20-second film; a longer film pays only the difference. The price shown at checkout is the total you pay; any applicable tax is shown before you pay. You are never charged twice for the same film. If we cannot finish a film, we keep working on it, and you can ask for your credit back from your dashboard. Credits do not expire while your account is active. You can cancel Pro at any time from your dashboard; access continues until the end of the billing period already paid for. Full details are in our <Link href="/refund">Refund Policy</Link>.</p>
         </section>
         <section>
           <h2>Availability</h2>
@@ -77,7 +77,7 @@ export default function TermsPage() {
           <h2>Changes to these terms</h2>
           <p>We may update these terms when the service changes. The “Last updated” date above shows the current version. If a change materially affects your rights, we will tell you in the service or by email before it takes effect.</p>
         </section>
-        <p className="policy-note">These terms were updated on November 6, 2026. They still require review by a lawyer before the first paid public launch, and the legal entity name and registration details are still to be added. The limitation-of-liability and indemnity provisions above are drafted to reduce the operator&apos;s exposure, but they do not guarantee that no liability can arise, and their enforceability depends on the governing law and the circumstances — a lawyer must confirm them for this service. Contact: MotionWren, Boston, Massachusetts — <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
+        <p className="policy-note">Contact: MotionWren, Boston, Massachusetts — <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>.</p>
       </article>
     </main>
   );

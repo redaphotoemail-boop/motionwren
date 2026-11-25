@@ -28,6 +28,15 @@ const localBindingConfig = {
   ],
   // Cloudflare Workers AI: the film quality review (app/api/_lib/film-review.ts). Declared here so every deploy keeps it.
   ai: { binding: "AI" },
+  // Stripe prices for the Single, Five-pack and Pro checkouts (not secrets).
+  // These are the MotionWren sandbox (test mode) prices; swap in the live
+  // price IDs when Stripe goes live. The secret key and the webhook signing
+  // secret stay in Cloudflare's dashboard as secrets.
+  vars: {
+    STRIPE_PRICE_SINGLE: "price_1UfZpnIypmSMFeRmJ3YQ8sex",
+    STRIPE_PRICE_FIVE_PACK: "price_1UfZpoIypmSMFeRmzeA5rVtT",
+    STRIPE_PRICE_PRO: "price_1UfZppIypmSMFeRm9NGQjsPe",
+  },
   durable_objects: { bindings: [{ name: "COMPOSER", class_name: "Composer" }] },
   migrations: [{ tag: "composer-v1", new_sqlite_classes: ["Composer"] }],
   // Local development runs without Docker; films there use the backup joiner.

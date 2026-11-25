@@ -1,4 +1,5 @@
 import { enforceRateLimit, HttpError } from "../../../_lib/account";
+import { sendEmail } from "../../../_lib/email";
 
 function validEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     throw error;
   }
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.FRAME_MOTION_FROM_EMAIL;
+  const from = process.env.MOTIONWREN_FROM_EMAIL || process.env.FRAME_MOTION_FROM_EMAIL;
   if (!apiKey || !from) {
     return Response.json({ error: "Password reset emails are not set up yet. Please try again later." }, { status: 503 });
   }
@@ -41,14 +42,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Password reset is not available yet. Please try again later." }, { status: 503 });
   }
   const link = `https://motionwren.com/signin/reset?token=${token}`;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [email], subject: "Reset your MotionWren password", text: `Reset your MotionWren password with this link (expires in 1 hour):\n\n${link}\n\nIf you did not ask for this, ignore this email.` }),
-    });
-  } catch {
-    return Response.json({ error: "The reset email could not be sent. Please try again later." }, { status: 503 });
-  }
+  const sent = await sendEmail(email, "Reset your MotionWren password", `Reset your MotionWren password with this link (expires in 1 hour):\n\n${link}\n\nIf you did not ask for this, ignore this email.`);
+  if (!sent) return Response.json({ error: "The reset email could not be sent. Please try again later." }, { status: 503 });
   return Response.json({ ok: true });
 }

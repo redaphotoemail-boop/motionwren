@@ -17,6 +17,8 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
   try {
     const { id, assetId } = await context.params; const { env } = await import("cloudflare:workers"); const account = await requireAccount(env); const asset = await assetForOwner(env, id, assetId, account.id);
     if (!asset) return Response.json({ error: "Asset not found." }, { status: 404 });
+    const project = await env.DB.prepare(`SELECT status FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(id, account.id).first<{ status: string }>();
+    if (account.role !== "admin" && (project as { status?: string }).status !== "draft") return Response.json({ error: "This order is already submitted, so its photos are locked. Start a new order to use different photos." }, { status: 409 });
     await env.BUCKET.delete(asset.r2Key); await env.DB.prepare(`DELETE FROM project_assets WHERE id = ? AND project_id = ? AND owner_id = ?`).bind(assetId, id, account.id).run();
     await audit(env, account.id, "asset.deleted", "project", id, { assetId });
     return Response.json({ ok: true });

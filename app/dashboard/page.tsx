@@ -44,9 +44,9 @@ const videoStatus: Record<string, string> = {
 };
 const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", cancelled: "Stopped", draft: "Saved", history: "History" };
 const discover = [
-  { title: "Content package", text: "The full set: hero film, vertical reel, story teaser, feed posts and graphics, sized for every channel. $83 full package.", shape: "set" },
-  { title: "Hero listing film", text: "One polished film from your listing photos. $39.", shape: "wide" },
-  { title: "Vertical reel", text: "Short-form video for Instagram and TikTok. $19.", shape: "tall" },
+  { title: "Content package", text: "The full set: hero film, vertical reel and story teaser, sized for every channel. You pay per film.", shape: "set" },
+  { title: "Hero listing film", text: "One polished film from your listing photos. $39 for 30 seconds, $59 for 60.", shape: "wide" },
+  { title: "Vertical reel", text: "Short-form video for Instagram and TikTok. 20 seconds, $29.", shape: "tall" },
 ] as const;
 
 function greetingFor(date: Date) {
@@ -104,6 +104,14 @@ export default function CustomerDashboard() {
   }
 
   useEffect(() => { void Promise.resolve().then(() => { setGreeting(greetingFor(new Date())); return load(); }); }, []);
+  // Back from Stripe: say so (a paid film starts on its own; credits appear within seconds).
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      const billing = new URLSearchParams(window.location.search).get("billing");
+      if (billing === "success") setMessage("Payment received. Thank you.");
+      else if (billing === "cancelled") setMessage("Checkout was cancelled. Nothing was charged.");
+    });
+  }, []);
   useEffect(() => {
     if (!hasActiveProject) return;
     const interval = window.setInterval(async () => {
@@ -140,6 +148,14 @@ export default function CustomerDashboard() {
     const response = await fetch("/api/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
     const data = await response.json();
     if (!response.ok || !data.url) return setError(data.error || "Checkout could not be started.");
+    window.location.assign(data.url);
+  }
+
+  async function manageSubscription() {
+    setError("");
+    const response = await fetch("/api/billing/portal", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.url) return setError(data.error || "The billing page could not be opened.");
     window.location.assign(data.url);
   }
 
@@ -321,6 +337,8 @@ export default function CustomerDashboard() {
           <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>$125</span></button>
           <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>10 monthly</strong><span>$199/mo</span></button>
         </div>
+        <p className="fine">A credit covers one 20-second film. Longer films pay the difference: 30 seconds $39, 60 seconds $59.</p>
+        {account?.plan === "pro" && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>Manage or cancel Pro</button></p>}
         {!billingEnabled && <p className="fine">Card payments are not switched on yet.</p>}
       </section>}
 

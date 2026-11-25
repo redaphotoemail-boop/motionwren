@@ -1,4 +1,5 @@
-import { createFilmCheckout, filmQuote } from "../../_lib/film-checkout";
+import { createFilmCheckout } from "../../_lib/film-checkout";
+import { submitOrder } from "../../_lib/submit-order";
 import { audit, jsonError, requireAccount } from "../../_lib/account";
 import { dropMusicChoiceStatement } from "../../_lib/customer-production";
 import { deleteJobFiles } from "../../_lib/production";
@@ -49,29 +50,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const project = await ownedProject(env, id, account.id); if (!project) return Response.json({ error: "Project not found." }, { status: 404 });
     const body = await request.json() as Record<string, unknown>;
     if (body.action !== "submit") return Response.json({ error: "Unsupported project action." }, { status: 400 });
-    if (project.status !== "draft") return Response.json({ ok: true, status: project.status, updatedAt: project.updatedAt });
-    const assets = await env.DB.prepare(`SELECT COUNT(*) AS count FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(id, account.id).first<{ count: number }>();
-    if ((assets?.count || 0) < 2) return Response.json({ error: "Upload at least two ordered photographs before submitting." }, { status: 409 });
-    const billingEnforced = Boolean(process.env.STRIPE_SECRET_KEY);
-    if (billingEnforced && account.role !== "admin") {
+    const result = await submitOrder(env, account, id);
+    if (result.ok) return Response.json(result);
+    if (result.reason === "photos") return Response.json({ error: "Upload at least two ordered photographs before submitting." }, { status: 409 });
+    if (result.reason === "payment" && result.quote) {
       // Longer than 20 seconds (or no credit yet): one checkout for the part above the credit, so nobody is left at a dead end.
-      const balance = await env.DB.prepare(`SELECT credit_balance AS balance FROM users WHERE id = ?`).bind(account.id).first<{ balance: number }>();
-      const quote = await filmQuote(env, { id, targetDuration: Number((project as { targetDuration?: number }).targetDuration) || 0 }, assets?.count || 0, (balance?.balance || 0) > 0);
-      if (quote.payNow > 0) {
-        const url = await createFilmCheckout({ secret: process.env.STRIPE_SECRET_KEY as string, origin: new URL(request.url).origin, ownerId: account.id, email: account.email, projectId: id, title: String((project as { title?: string }).title || "Film"), quote });
-        return Response.json({ error: `This ${quote.seconds}-second film is $${(quote.cents / 100).toFixed(0)}. Pay $${(quote.payNow / 100).toFixed(0)} to start it.`, billingRequired: true, checkoutUrl: url, quote }, { status: 402 });
-      }
-      const debit = await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance - 1, updated_at = ? WHERE id = ? AND credit_balance > 0`).bind(Date.now(), account.id).run();
-      if (!debit.meta.changes) return Response.json({ error: "A video credit is required before this project can enter production.", billingRequired: true }, { status: 402 });
-      try {
-        await env.DB.prepare(`INSERT INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, NULL, -1, 'project_reservation', ?, 'Reserved when project entered production', ?)`).bind(crypto.randomUUID(), account.id, id, `project:${id}:reservation`, Date.now()).run();
-      } catch (error) {
-        await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(Date.now(), account.id).run();
-        throw error;
-      }
+      const quote = result.quote;
+      const url = await createFilmCheckout({ secret: process.env.STRIPE_SECRET_KEY as string, origin: new URL(request.url).origin, ownerId: account.id, email: account.email, projectId: id, title: String((project as { title?: string }).title || "Film"), quote });
+      const message = url ? `This ${quote.seconds}-second film is $${(quote.cents / 100).toFixed(0)}. Pay $${(quote.payNow / 100).toFixed(0)} to start it.` : "We couldn't open checkout just now. Your order is saved; please try again in a moment.";
+      return Response.json({ error: message, billingRequired: true, checkoutUrl: url, quote }, { status: 402 });
     }
-    const now = Date.now(); await env.DB.prepare(`UPDATE projects SET status = 'submitted', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(now, id, account.id).run();
-    await audit(env, account.id, "project.submitted", "project", id, { assetCount: assets?.count || 0 });
-    return Response.json({ ok: true, status: "submitted", updatedAt: now });
+    return Response.json({ error: "A video credit is required before this project can enter production.", billingRequired: true }, { status: 402 });
   } catch (error) { return jsonError(error); }
 }

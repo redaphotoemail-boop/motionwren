@@ -15,7 +15,7 @@ export default function CookiesPage() {
       <article className="policy-body">
         <span className="eyebrow">COOKIES</span>
         <h1>Cookie Policy</h1>
-        <p className="policy-date">Last updated November 6, 2026</p>
+        <p className="policy-date">Last updated November 25, 2026</p>
         <section>
           <h2>What cookies are</h2>
           <p>Cookies are small files stored on your device. MotionWren also uses browser storage (local storage and IndexedDB) on your device to keep an unfinished order safe while you sign in. This page lists what we store and why.</p>
@@ -25,7 +25,7 @@ export default function CookiesPage() {
           <p>These are needed for the service to work, and the service cannot work without them:</p>
           <p><strong>motionwren_session</strong> — keeps you signed in. It is HttpOnly, Secure and SameSite=Lax, and it lasts 7 days. It is set only after you sign in.</p>
           <p><strong>Google sign-in cookies</strong> — set by Google when you choose “Continue with Google”, to complete the sign-in. Google’s own cookie policy applies to those cookies.</p>
-          <p><strong>Studio token cookie</strong> — in the owner-only Studio, a Replicate token may be stored in a private browser cookie so the Studio can generate. It is never shown again after it is saved.</p>
+          <p><strong>Owner tools cookie</strong> — used only by MotionWren&apos;s own staff tools, never set for customers.</p>
         </section>
         <section>
           <h2>Browser storage on your device</h2>

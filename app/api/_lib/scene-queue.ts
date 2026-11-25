@@ -1,3 +1,4 @@
+import { sendEmail } from "./email";
 import { saveEngineReport, reportLine } from "./engine-report";
 import { MAX_ATTEMPTS, staleAfterMs, engineInputFor, frameKey, loadManifest, normalizeManifest, outputKey, saveManifest, type ProductionManifest } from "./production";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution } from "../../engine-providers";
@@ -83,10 +84,12 @@ async function keepScene(env: QueueEnv, jobId: string, index: number, url: strin
 }
 
 export async function alertManagers(env: QueueEnv, title: string, message: string) {
-  const admins = await env.DB.prepare(`SELECT id FROM users WHERE role = 'admin'`).all<{ id: string }>().catch(() => ({ results: [] as { id: string }[] }));
+  const admins = await env.DB.prepare(`SELECT id, email FROM users WHERE role = 'admin'`).all<{ id: string; email: string }>().catch(() => ({ results: [] as { id: string; email: string }[] }));
   const day = new Date().toISOString().slice(0, 10);
   for (const admin of admins.results) {
-    await env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'provider_alert', ?, ?, NULL, ?)`).bind(`provider:${title}:${day}:${admin.id}`, admin.id, title, message.slice(0, 500), Date.now()).run().catch(() => undefined);
+    const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'provider_alert', ?, ?, NULL, ?)`).bind(`provider:${title}:${day}:${admin.id}`, admin.id, title, message.slice(0, 500), Date.now()).run().catch(() => null);
+    // The same alert by email, once per title per day, so a stopped order is seen even when the admin pages are closed.
+    if (inserted?.meta?.changes && admin.email) await sendEmail(admin.email, `MotionWren: ${title}`, `${message}\n\nhttps://motionwren.com/admin`);
   }
 }
 
@@ -197,7 +200,11 @@ export async function stepSceneQueue(env: QueueEnv, jobId: string, token: string
 
     // 2. A scene out of tries stops the video (finished scenes are kept).
     const failedIndex = manifest.states.findIndex((state) => state === "failed");
-    const tooLong = now - row.createdAt > JOB_TIME_LIMIT_MS;
+    // The time limit counts from the film's last progress (created, a scene sent, a scene finished), and only while a scene is
+    // actually with the engine: time spent waiting in line (the 3-at-a-time limit, a spending hold) never stops a film.
+    const lastProgress = Math.max(row.createdAt, ...(manifest.startedAt || []), ...(manifest.readyAt || []));
+    const withEngine = ids.some((id, index) => Boolean(id) && !segments[index]);
+    const tooLong = withEngine && now - lastProgress > JOB_TIME_LIMIT_MS;
     if (failedIndex >= 0 || tooLong) {
       await saveManifest(env, jobId, manifest);
       await persist(env, jobId, ids, segments);

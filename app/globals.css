@@ -2255,3 +2255,6 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
   .care-ours .care-track strong { margin-top: 0; }
   .care-ours .care-track span { grid-column: 2; }
 }
+
+/* The per-length price line under the plans. */
+.plans-note{text-align:center;margin:28px auto 0;max-width:560px;font-size:14px;line-height:1.5}
