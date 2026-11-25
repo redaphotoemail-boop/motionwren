@@ -2297,3 +2297,11 @@ button.tpl-card { border: 0; text-align: left; cursor: pointer; font: inherit; }
   .fe-scene img { width: 100%; }
   .fe select { min-width: 0; width: 100%; }
 }
+
+/* Spending bars you can open: tap Today or This month to see what it is made of. */
+.fin-meter-tap { cursor: pointer; border-radius: 14px; outline-offset: 6px; }
+.fin-meter-tap:focus-visible { outline: 2px solid var(--ink); }
+.fin-meter-hint { color: var(--faint); font-size: 13px; }
+.fin-meter-tap:hover .fin-meter-hint, .fin-meter-tap.open .fin-meter-hint { color: var(--ink); }
+.fin-breakdown { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line, rgba(128,128,128,.2)); display: grid; gap: 14px; }
+.fin-breakdown-title { margin: 10px 0 0; font: 600 13px/1 var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
