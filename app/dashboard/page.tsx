@@ -106,9 +106,11 @@ export default function CustomerDashboard() {
   useEffect(() => { void Promise.resolve().then(() => { setGreeting(greetingFor(new Date())); return load(); }); }, []);
   // Back from Stripe: say so (a paid film starts on its own; credits appear within seconds).
   useEffect(() => {
-    const billing = new URLSearchParams(window.location.search).get("billing");
-    if (billing === "success") setMessage("Payment received. Thank you.");
-    else if (billing === "cancelled") setMessage("Checkout was cancelled. Nothing was charged.");
+    void Promise.resolve().then(() => {
+      const billing = new URLSearchParams(window.location.search).get("billing");
+      if (billing === "success") setMessage("Payment received. Thank you.");
+      else if (billing === "cancelled") setMessage("Checkout was cancelled. Nothing was charged.");
+    });
   }, []);
   useEffect(() => {
     if (!hasActiveProject) return;

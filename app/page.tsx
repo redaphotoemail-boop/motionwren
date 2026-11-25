@@ -141,7 +141,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
     <footer className="site-footer">
       <div className="site-wrap site-footer-inner">
         <Wordmark size={22} />
-        <span className="muted">© {new Date().getFullYear()} MotionWren · Massachusetts</span>
+        <span className="muted">© {new Date().getFullYear()} MotionWren · Boston, Massachusetts</span>
         <div className="footer-links"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/refund">Refunds</Link><Link href="/cookies">Cookies</Link><Link href="/accessibility">Accessibility</Link><a href="mailto:info@redaphoto.com">Contact</a>{session ? <a href={accountPath} target="_top">Dashboard</a> : <a href={accountPath} target="_top">Sign in</a>}</div>
       </div>
     </footer>

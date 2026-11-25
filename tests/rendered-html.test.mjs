@@ -209,10 +209,10 @@ test("publishes the legal pages and asks for consent before an account is create
     readFile(new URL("../app/accessibility/page.tsx", import.meta.url), "utf8"),
   ]);
   // Refund policy: automatic credit return on a failed generation, no duplicate charges.
-  assert.match(refund, /Failed generations are refunded automatically/);
-  assert.match(refund, /not charged twice/);
+  assert.match(refund, /If we can&apos;t finish your film/);
+  assert.match(refund, /never charged twice/);
   assert.match(refund, /within 14 days/);
-  assert.match(refund, /expire at the end of that month/);
+  assert.match(refund, /Credits do not expire/);
   assert.match(refund, /info@redaphoto\.com/);
   // Cookie policy + banner: essential cookies named, no analytics cookies, accept/reject.
   assert.match(cookies, /motionwren_session/);
@@ -241,7 +241,7 @@ test("publishes the legal pages and asks for consent before an account is create
   assert.match(terms, /copyright/i);
   assert.match(terms, /Sample films shown on our website are illustrative demonstrations/);
   // Privacy: retention schedule, incident response, processor inventory, takedown route.
-  assert.match(privacy, /Generation history entries expire after 90 days/);
+  assert.match(privacy, /Finished videos stay in your dashboard for 90 days/);
   assert.match(privacy, /How we handle a data-security incident/);
   assert.match(privacy, /Replicate<\/b> — video generation/);
   assert.match(privacy, /Your content and intellectual property/);

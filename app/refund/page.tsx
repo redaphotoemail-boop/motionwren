@@ -44,7 +44,7 @@ export default function RefundPage() {
           <p>Email <a href="mailto:info@redaphoto.com">info@redaphoto.com</a> with the email address on your account, the order or payment date, and what happened. We aim to answer within 3 business days. Approved refunds are returned to the original payment method within 10 business days.</p>
         </section>
         <p className="policy-note">If a term on this page conflicts with a term shown at checkout, the checkout term applies to that order.</p>
-        <p className="policy-note">Contact: MotionWren, Massachusetts — <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>. See also our <Link href="/terms">Terms of Service</Link> and <Link href="/privacy">Privacy Policy</Link>.</p>
+        <p className="policy-note">Contact: MotionWren, Boston, Massachusetts — <a href="mailto:info@redaphoto.com">info@redaphoto.com</a>. See also our <Link href="/terms">Terms of Service</Link> and <Link href="/privacy">Privacy Policy</Link>.</p>
       </article>
     </main>
   );
