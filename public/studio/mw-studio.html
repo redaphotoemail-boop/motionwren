@@ -882,7 +882,8 @@ function heroLen(n){return n>=LEN.long.photos?LEN.long:n>=LEN.base.photos?LEN.ba
 function recommend(P){const ch=P.channels,items=[],n=P.photos.filter(p=>!p.sample&&!p.loading).length;
  const h=heroLen(n),r=n>=LEN.base.photos?LEN.base:LEN.teaser;
  items.push({icon:'video',title:'Hero listing film',price:h.price,meta:[h.sec+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
- if(ch.includes('instagram')||ch.includes('tiktok'))items.push({icon:'reel',title:'Vertical reel',price:r.price,meta:[r.sec+' sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
+ /* With only 2 photos the reel would be a second 10-second vertical film: the story teaser already is one. */
+ if((ch.includes('instagram')||ch.includes('tiktok'))&&(n>=LEN.base.photos||!ch.includes('instagram')))items.push({icon:'reel',title:'Vertical reel',price:r.price,meta:[r.sec+' sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
  if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:LEN.teaser.price,meta:[LEN.teaser.sec+' sec','9:16'],tags:['Instagram']});
  return items;}
 /* A plain line when more photos would make the hero film longer. */
