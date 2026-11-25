@@ -64,6 +64,11 @@ export type ProductionManifest = {
       (the closing pull-back), and the still-photo move used when its lines don't hold. */
   lineGuard?: { modes: ("push" | "arc")[]; reverse: boolean[]; stills: ("push" | "pull" | "slide-left" | "slide-right")[]; off?: boolean };
   /** What the line guard did at the last edit, per scene (1-based): kept the engine's scene ("ai") or used the still-photo move. */
+  /** Earlier versions of each scene, newest last (a scene made again keeps the one it replaced, so it can be put back).
+      Stored next to the film as take-NN-K.mp4. */
+  takes?: { file: string; at: number }[][];
+  /** Scene remakes a customer has used on this film (see CUSTOMER_REMAKES). */
+  customerRemakes?: number;
   lineGuardResult?: { scene: number; used: "ai" | "still"; reversed?: boolean; stabilized?: boolean; reason: string }[];
   /** Studio Ads: this job is a commercial, not a real-estate film. The
       pipeline treats it so: the composer edits even a single clip, and the
@@ -134,6 +139,8 @@ export type ProductionManifest = {
     templateName?: string;
     /** With a recipe: edit from only these scenes (by index), in this order. */
     useScenes?: number[];
+    /** The order the scenes play in, as scene indexes (a customer's reorder after delivery). Left out: as made. */
+    order?: number[];
     /** The finished film is cut to this frame instead of the one it was made at (nothing is made again). */
     reframe?: "horizontal" | "vertical" | "square" | "portrait";
     music?: { prompt: string; saved?: string; source?: string; libraryId?: string; seconds?: number };

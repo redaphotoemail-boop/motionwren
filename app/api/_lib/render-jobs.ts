@@ -13,6 +13,7 @@ import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./musi
 import { ENGINE_ORDER } from "../../engine-order";
 import { isEngineVideoHost } from "./engine-hosts";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
+import { MAX_TAKES, sceneOrder, takeFile } from "../../scene-order";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
 import { AUTO_FIX_ROUNDS, autoRemake, fixEngine } from "../../fix-engine";
 import { fixInstruction } from "../../fix-notes";
@@ -544,7 +545,9 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const allClips = segments.map((url, index) => manifest.saved[index] && !allMoves[index] ? jobFileLink(origin, row, `out-${String(index + 1).padStart(2, "0")}.mp4`) : url);
   // A template film can be edited from only some of its clips (chosen when it is edited again).
   const only = manifest.edit?.recipe && manifest.edit.useScenes?.length ? [...new Set(manifest.edit.useScenes)].filter((index) => Number.isInteger(index) && index >= 0 && index < count) : [];
-  const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : list;
+  // A customer's own scene order (after delivery): the scenes play in that order. A template sets its own order instead.
+  const order = !manifest.edit?.recipe ? sceneOrder(manifest.edit?.order, count) : null;
+  const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : order ? order.map((index) => list[index]) : list;
   const moves = pick(allMoves), speeds = pick(allSpeeds), clips = pick(allClips);
   // The line guard (Reda, Nov 25 2026): each engine scene is checked against its own photo in the edit (composer/lines.mjs).
   const guard = await lineGuardSpec(env, origin, row, manifest, allMoves);
@@ -757,7 +760,8 @@ async function judgeFilm(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJ
     const state = await editState(env, row.id, key);
     const count = manifest.inputs.length;
     const step = count > 1 ? Math.max(1, (manifest.edit?.shareSeconds || row.duration / count) - (manifest.edit?.crossfade || 0)) : row.duration;
-    const sceneAt = (at: number) => Math.min(count - 1, Math.max(0, Math.floor(at / step)));
+    const played = !manifest.edit?.recipe ? sceneOrder(manifest.edit?.order, count) : null; // a reordered film: place → scene
+    const sceneAt = (at: number) => { const place = Math.min(count - 1, Math.max(0, Math.floor(at / step))); return played ? played[place] : place; };
     const reasons = new Map<number, string[]>();
     const add = (scene: number, note: string) => reasons.set(scene, [...(reasons.get(scene) || []), note]);
     const issues = new Map<number, string[]>(); // what was found, in plain words, per scene (for the Quality tab)
@@ -1250,7 +1254,28 @@ export type FilmEditBody = {
   titles?: unknown;
   /** Cut the finished film to 16:9 or vertical ("made" goes back to the frame it was made at). Nothing is made again. */
   frame?: unknown;
+  /** The order the scenes play in: every scene index once. Nothing is made again. */
+  order?: unknown;
+  /** Put back an earlier version of a scene (take = its index in the scene's takes). Nothing is made again. */
+  useTake?: { scene?: unknown; take?: unknown } | null;
 };
+
+/* Scene takes: when a scene is made again, the version it replaces is kept, so it can be put back later. */
+export { MAX_TAKES, sceneOrder, takeFile } from "../../scene-order";
+async function keepTake(env: { BUCKET: R2Bucket }, id: string, manifest: ProductionManifest, scene: number) {
+  const current = await env.BUCKET.get(outputKey(id, scene));
+  if (!current) return;
+  const takes = manifest.takes || (manifest.takes = []);
+  while (takes.length < manifest.inputs.length) takes.push([]);
+  const list = takes[scene];
+  // The oldest take goes when the scene already has the most kept (its file is reused by the next take).
+  if (list.length >= MAX_TAKES) list.shift();
+  const used = new Set(list.map((item) => item.file));
+  let slot = 0; while (used.has(takeFile(scene, slot))) slot += 1;
+  const file = takeFile(scene, slot);
+  await env.BUCKET.put(`render-jobs/${id}/${file}`, await current.arrayBuffer(), { httpMetadata: { contentType: "video/mp4" } });
+  list.push({ file, at: Date.now() });
+}
 
 export type FilmEditResult =
   | { job: Record<string, unknown>; warning?: string }
@@ -1297,6 +1322,36 @@ export async function applyFilmEdit(env: { DB: D1Database; BUCKET: R2Bucket }, r
   }
 
   if (body.titles !== undefined) { const titles = body.titles === null ? undefined : cleanFilmTitles(body.titles); if (titles) edit.titles = titles; else delete edit.titles; }
+
+  // A new scene order (nothing is made again). A voice or sounds made per scene belong to the scenes' places, so they must go first.
+  if (body.order !== undefined) {
+    if (body.order === null) delete edit.order;
+    else {
+      if (!Array.isArray(body.order) || body.order.length !== count) return { error: "The new order must list every scene once.", status: 400 };
+      const order = sceneOrder(body.order, count);
+      if (!order && (body.order as unknown[]).some((value, index) => Number(value) !== index)) return { error: "The new order must list every scene once.", status: 400 };
+      if (order && edit.recipe) return { error: "This film is edited with a template, which sets its own order.", status: 400 };
+      if (order && ((sound.voice && sound.voice.mode === "scene") || sound.sfx)) return { error: "This film has a voice line or sound for each scene. Use one voiceover for the whole film, or turn scene sounds off, before changing the order.", status: 400 };
+      if (order) edit.order = order; else delete edit.order;
+    }
+  }
+
+  // Put back an earlier version of a scene: the version now in the film is kept as a take in its place.
+  if (body.useTake) {
+    const scene = Number(body.useTake.scene); const take = Number(body.useTake.take);
+    const list = Number.isInteger(scene) && scene >= 0 && scene < count ? manifest.takes?.[scene] || [] : [];
+    const chosen = Number.isInteger(take) ? list[take] : undefined;
+    if (!chosen) return { error: "That earlier version of the scene is no longer kept.", status: 404 };
+    const earlier = await env.BUCKET.get(`render-jobs/${id}/${chosen.file}`);
+    if (!earlier) return { error: "That earlier version of the scene is no longer stored.", status: 404 };
+    const bytes = await earlier.arrayBuffer();
+    const now = await env.BUCKET.get(outputKey(id, scene));
+    if (now) await env.BUCKET.put(`render-jobs/${id}/${chosen.file}`, await now.arrayBuffer(), { httpMetadata: { contentType: "video/mp4" } });
+    else list.splice(take, 1);
+    await env.BUCKET.put(outputKey(id, scene), bytes, { httpMetadata: { contentType: "video/mp4" } });
+    if (now) list[take] = { file: chosen.file, at: Date.now() };
+    manifest.saved[scene] = outputKey(id, scene);
+  }
 
   // Sound first: if a voice or effect can't be made, nothing else changes.
   try {
@@ -1368,6 +1423,9 @@ export async function applyFilmEdit(env: { DB: D1Database; BUCKET: R2Bucket }, r
   let current = row; let failure = "";
   const scenesToMake = [...redo].filter((scene) => !manifest.photoMoves?.[scene] ? true : false);
   if (scenesToMake.length) {
+    // The version each scene replaces is kept, so it can be put back (see keepTake).
+    for (const scene of scenesToMake) await keepTake(env, id, manifest, scene).catch(() => undefined);
+    await saveManifest(env, id, manifest);
     for (const scene of scenesToMake) {
       const result = await runJobAction(env, current, "regenerate-scene", scene, token, webhookUrl);
       if ("error" in result) { failure = result.error; break; }
