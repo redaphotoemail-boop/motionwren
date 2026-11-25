@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { audit, customerError, requireAccount } from "../../../_lib/account";
 import { MUSIC_TEMPLATES } from "../../../../music-catalog";
-import { ElevenLabsMissingKey, listVoices } from "../../../_lib/elevenlabs";
+import { listVoices } from "../../../_lib/elevenlabs";
 import { loadManifest, saveManifest } from "../../../_lib/production";
 import { applyFilmEdit, getRenderJob, sceneOrder, type FilmEditBody } from "../../../_lib/render-jobs";
 import { studioToken } from "../../../_lib/studio-token";
@@ -53,8 +53,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const musicId = edit.sound?.noMusic ? "none" : MUSIC_TEMPLATES.find((template) => template.prompt === edit.music?.prompt)?.id || "auto";
     let voices: { id: string; name: string; note: string; previewUrl: string }[] = [];
     try {
-      voices = (await listVoices()).filter((voice) => voice.previewUrl).slice(0, 12).map((voice) => ({ id: voice.voiceId, name: voice.name, note: [voice.labels.gender, voice.labels.accent, voice.labels.age].filter(Boolean).join(" · "), previewUrl: `/api/voices/${voice.voiceId}/preview` }));
-    } catch (error) { if (!(error instanceof ElevenLabsMissingKey)) voices = []; }
+      voices = (await Promise.race([listVoices(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error("slow")), 6000))])).filter((voice) => voice.previewUrl).slice(0, 12).map((voice) => ({ id: voice.voiceId, name: voice.name, note: [voice.labels.gender, voice.labels.accent, voice.labels.age].filter(Boolean).join(" · "), previewUrl: `/api/voices/${voice.voiceId}/preview` }));
+    } catch { voices = []; } // no voices (key missing or ElevenLabs slow): the editor says voiceovers aren't available right now
     const included = await remakesIncluded(env);
     return NextResponse.json({
       status: row.status === "succeeded" ? "ready" : "updating",

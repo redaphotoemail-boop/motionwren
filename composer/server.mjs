@@ -646,6 +646,8 @@ async function compose(key, spec) {
       job.stage = "line guard";
       const g = spec.guard;
       const order = [...files.keys()].filter((i) => g.photos[i] && !(Array.isArray(spec.moves) && spec.moves[i]));
+      // A long film must still finish well inside the edit's time limit: past this budget, scenes skip stabilizing (the check still runs).
+      const guardStarted = Date.now(); const STABILIZE_BUDGET_MS = 12 * 60 * 1000;
       await Promise.all(Array.from({ length: Math.min(2, order.length) }, async () => {
         while (order.length) {
           const i = order.shift();
@@ -655,7 +657,7 @@ async function compose(key, spec) {
           try { await download(g.photos[i], photo, MAX_CLIP_BYTES, `Scene ${i + 1} photo`); } catch (error) { photoFile = null; console.warn(`guard: scene ${i + 1} photo; ${error.message}`); }
           const makeStill = (move, output) => run("ffmpeg", photoClipArgs({ image: photoFile, move, width: spec.width, height: spec.height, fps: spec.photoFps || 24, seconds: spec.sceneSeconds + 2, output }), { timeoutMs: 5 * 60 * 1000 });
           try {
-            const { file, record } = await guardScene({ file: files[i], photo: photoFile, dir, name, mode: g.modes?.[i] || "push", reverse: Boolean(g.reverse?.[i]), stabilize: g.stabilize !== false, fallback: g.fallbacks?.[i] || "push", width: spec.width, makeStill });
+            const { file, record } = await guardScene({ file: files[i], photo: photoFile, dir, name, mode: g.modes?.[i] || "push", reverse: Boolean(g.reverse?.[i]), stabilize: g.stabilize !== false && Date.now() - guardStarted < STABILIZE_BUDGET_MS, fallback: g.fallbacks?.[i] || "push", width: spec.width, makeStill });
             files[i] = file;
             (job.lineGuard ||= []).push({ scene: i + 1, ...record });
           } catch (error) {

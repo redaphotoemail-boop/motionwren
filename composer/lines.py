@@ -101,6 +101,11 @@ def edge_strength(frame_gray):
     return cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
 
 
+def edge_floor(gx, gy):
+    """How strong an edge must be to count in this frame (twice its typical texture), measured once per frame."""
+    return max(12.0, float(np.median(np.abs(gx[::2, ::2])) + np.median(np.abs(gy[::2, ::2]))) * 2.0)
+
+
 def line_points(line):
     x1, y1, x2, y2, length = line
     t = np.linspace(0.06, 0.94, POINTS_PER_LINE, dtype=np.float32)
@@ -134,7 +139,7 @@ def homography(orb, photo_keys, photo_desc, frame_gray):
     return H, inliers
 
 
-def measure_line(points, H, gx, gy, width, height, search=SEARCH_PX, polarity=0, reference=0.0):
+def measure_line(points, H, gx, gy, width, height, search=SEARCH_PX, polarity=0, reference=0.0, floor=None):
     """Where the line's edge sits across the line, against where the photo's transform puts it.
     Returns (shift_px, bend_px) or None when too little of the line is in the frame."""
     mapped = cv2.perspectiveTransform(points.reshape(-1, 1, 2), H).reshape(-1, 2)
@@ -163,7 +168,8 @@ def measure_line(points, H, gx, gy, width, height, search=SEARCH_PX, polarity=0,
     near = np.where(across >= bar, -np.abs(offsets)[None, :], -1e9)
     peak = near.argmax(axis=1)
     strength = np.where(near.max(axis=1) > -1e9, across[np.arange(len(across)), peak], 0)
-    floor = max(12.0, float(np.median(np.abs(gx)) + np.median(np.abs(gy))) * 2.0)
+    if floor is None:
+        floor = edge_floor(gx, gy)
     strong = strength > floor
     if polarity == 0:
         at_line = signed[:, len(offsets) // 2]
@@ -257,6 +263,7 @@ def check(clip_path, photo_path, mode="push"):
             streak = [0] * len(lines)
             continue
         gx, gy = edge_strength(frame_gray)
+        floor = edge_floor(gx, gy)
         fh, fw = frame_gray.shape
         share = covered(H, pw, ph, fw, fh)
         least_cover = min(least_cover, share)
@@ -264,7 +271,7 @@ def check(clip_path, photo_path, mode="push"):
         if cover_streak >= 2:
             low_cover += 1
         for index, line_pts in enumerate(points):
-            result = measure_line(line_pts, H, gx, gy, fw, fh, int(ARC_DRIFT_PX) + 3 if arc else SEARCH_PX, polarity[index], reference[index])
+            result = measure_line(line_pts, H, gx, gy, fw, fh, int(ARC_DRIFT_PX) + 3 if arc else SEARCH_PX, polarity[index], reference[index], floor)
             if result is None:
                 streak[index] = 0
                 continue
