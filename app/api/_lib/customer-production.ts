@@ -8,14 +8,13 @@ import { PHOTO_MOVE_CYCLE, cleanCards, newManifest, saveManifest } from "./produ
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
 import { guardCheck } from "./spend-guard";
-import { MOVE_PHRASE, cyclePicks } from "./movement-plan";
-import { planMovements } from "./movement-read";
+import { planTrueToPhoto, truePicks, truePrompt } from "./true-to-photo";
 
 /* Starts production of a customer's order: plans the scenes from their
    photos, creates the job and puts it in the scene queue. Used by the
    customer's own "generate" call and by the manager's "Start production". */
 
-const MOVEMENTS = [
+export const MOVEMENTS = [
   "a slow stabilized push-in",
   "a slow stabilized lateral slide from left to right",
   "a slow stabilized pull-back",
@@ -83,9 +82,10 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
     // "3"/"5" fix the scene timing; "auto" and unset choose it by the video's length.
     const plan = scenePlan(engine, resolution, targetSeconds, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), targetSeconds ? sceneTimingSetting(timingRow?.value) : 5);
-    const scenes = assets.results.slice(0, plan.count);
+    // Every photo the film could use; the walkthrough order below decides which ones it does use.
+    const pool = assets.results.slice(0, Math.min(assets.results.length, MAX_CUSTOMER_SCENES));
     const sceneSeconds = plan.sceneSeconds;
-    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * scenes.length) * 100);
+    const costCents = Math.round(engineCost(engine, resolution, sceneSeconds * plan.count) * 100);
     const spend = await guardCheck(env, costCents); // the spending guard: at a limit no new film starts (the owner is alerted)
     if (!spend.ok) throw new HttpError(503, "We are not starting new films for a short while. Your order is saved; please try again later.");
     await env.DB.batch([
@@ -96,20 +96,23 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // Every scene's exact request is kept in the job's manifest so a scene
     // that fails or hangs restarts on its own (see production.ts).
     const inputs: Record<string, unknown>[] = [];
-    const photos: { key: string; link: string }[] = [];
-    for (let index = 0; index < scenes.length; index += 1) {
-      const asset = scenes[index];
+    const poolPhotos: { key: string; link: string }[] = [];
+    for (let index = 0; index < pool.length; index += 1) {
+      const asset = pool[index];
       const assetToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
       await env.DB.prepare(`UPDATE project_assets SET provider_token = ? WHERE id = ? AND owner_id = ?`).bind(assetToken, asset.id, ownerId).run();
-      photos.push({ key: asset.r2Key, link: `${origin}/api/provider-assets/${asset.id}?token=${assetToken}` });
+      poolPhotos.push({ key: asset.r2Key, link: `${origin}/api/provider-assets/${asset.id}?token=${assetToken}` });
     }
-    // The photos are read once, here: each photo's camera movement is chosen by the scene first, then the story
-    // (Admin → Engines → Camera movement). Only the fixed movement phrases are used; the baked prompt is untouched.
-    // Any trouble falls back to the standard order; an order never waits on this.
-    const movement = await planMovements(env, project.id, photos.map((photo) => photo.link)).catch(() => null);
-    const picks = movement?.picks.length === photos.length ? movement.picks : cyclePicks(photos.length);
-    for (let index = 0; index < photos.length; index += 1) {
-      inputs.push(buildEngineInput(engine, { imageUrl: photos[index].link, prompt: `${MOVE_PHRASE[picks[index].move] || MOVEMENTS[index % MOVEMENTS.length]}. ${STATIC_LOCK}`, duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
+    // True to the photo (see true-to-photo.ts): each photo is read once, the scenes go in walkthrough order
+    // (exterior first), and every scene is a very slow, short push-in that never leaves the photo, so the
+    // engine has nothing to invent. The baked lock is kept word for word; the frame lock is added after it.
+    // Any trouble keeps the customer's order with centred push-ins; an order never waits on this.
+    const trueToPhoto = await planTrueToPhoto(env as unknown as { DB: D1Database } & Record<string, unknown>, project.id, poolPhotos.map((photo) => photo.link)).catch(() => null);
+    const order = trueToPhoto && trueToPhoto.order.length === poolPhotos.length ? trueToPhoto.order : poolPhotos.map((_, index) => index);
+    const used = order.slice(0, plan.count);
+    const photos = used.map((index) => poolPhotos[index]);
+    for (const index of used) {
+      inputs.push(buildEngineInput(engine, { imageUrl: poolPhotos[index].link, prompt: truePrompt(trueToPhoto?.focus[index] || "center", STATIC_LOCK), duration: sceneSeconds, resolution, aspectRatio: project.aspect === "vertical" ? "9:16" : "16:9" }));
     }
     // Into the scene queue: scenes are made one after another as the engine
     // allows (waits and retries are automatic); the customer can leave.
@@ -119,11 +122,14 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
     const cards = await readCardsChoice(env, project.id);
     if (cards) manifest.cards = cards;
-    if (movement) manifest.movementPlan = { mode: movement.mode, used: movement.used, picks: movement.picks, rooms: movement.rooms, costCents: movement.costCents, note: movement.note };
+    if (trueToPhoto) {
+      const plannedPicks = truePicks(trueToPhoto).slice(0, plan.count);
+      manifest.movementPlan = { mode: "ai", used: trueToPhoto.reader === "none" ? "opencv" : "ai", picks: plannedPicks, rooms: used.map((index) => trueToPhoto.rooms[index] || ""), costCents: trueToPhoto.costCents, note: `True to the photo. ${trueToPhoto.note}`.trim() };
+    }
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
     // The AI photo reader costs a few cents: record it with the film's AI cost so Spend, Finance and the spend limits count it.
-    if (movement?.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${jobId}`, String(movement.costCents), Date.now()).run().catch(() => undefined);
+    if (trueToPhoto?.costCents) await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS REAL) + CAST(excluded.value AS REAL) AS TEXT), updated_at = excluded.updated_at`).bind(`review-cost:${jobId}`, String(trueToPhoto.costCents), Date.now()).run().catch(() => undefined);
     if (await beginQueue(env, jobId)) { const queued = await getRenderJob(env, jobId); if (queued) await advanceRenderJob(env, queued, providerToken, webhook); }
     await env.DB.batch([
       env.DB.prepare(`UPDATE projects SET status = 'generating', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(Date.now(), project.id, ownerId),
