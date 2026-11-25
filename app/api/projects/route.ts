@@ -1,4 +1,4 @@
-import { audit, jsonError, requireAccount } from "../_lib/account";
+import { audit, customerError, requireAccount } from "../_lib/account";
 import { saveCardsChoice, saveMusicChoice } from "../_lib/customer-production";
 import { advanceStaleJobs, isHoldingJob } from "../_lib/render-jobs";
 
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       }
     }
     return Response.json({ projects });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }
 
 export async function POST(request: Request) {
@@ -49,5 +49,5 @@ export async function POST(request: Request) {
     await saveCardsChoice(env, id, body.cards);
     await audit(env, account.id, "project.created", "project", id, { title, generationEngine, resolution, targetDuration, ...(music ? { music } : {}) });
     return Response.json({ project: { id, title, status: "draft", assetCount: 0, aspect, resolution, generationEngine, targetDuration, createdAt: now, updatedAt: now } }, { status: 201 });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

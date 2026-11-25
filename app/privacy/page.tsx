@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Wordmark } from "../components/brand";
 
-export const metadata: Metadata = { title: "Privacy" };
+export const metadata: Metadata = { title: "Privacy", description: "What MotionWren collects, why, who processes it and how long it is kept.", alternates: { canonical: "/privacy" } };
 
 export default function PrivacyPage() {
   return (
@@ -40,7 +40,7 @@ export default function PrivacyPage() {
             <li>Technical and security logs are kept only as long as needed for security, abuse prevention and support, and are then deleted.</li>
             <li>Billing and payment records are kept for as long as the law requires for tax and accounting purposes. We do not store card details on our servers — card payments are handled by Stripe.</li>
           </ul>
-          <p>When we delete your account, your projects, photos, videos and credits are deleted as described in “Your choices” below, and any Pro subscription is cancelled. Copies may remain in backups for a short period until those backups are replaced, and billing records (amounts and dates, with no card details) are kept for the legal period above even after your account is deleted.</p>
+          <p>When we delete your account, your projects, photos, videos and credits are deleted as described in “Your choices” below, and any Pro subscription is canceled. Copies may remain in backups for a short period until those backups are replaced, and billing records (amounts and dates, with no card details) are kept for the legal period above even after your account is deleted.</p>
         </section>
         <section>
           <h2>Security</h2>
@@ -71,7 +71,7 @@ export default function PrivacyPage() {
         </section>
         <section>
           <h2>Your content and intellectual property</h2>
-          <p>You keep the rights in the photographs and other material you upload. By uploading material, you give MotionWren a licence to store, process and transmit it, and to share it with the service providers listed above, solely to provide the service you requested. You are responsible for having the rights to everything you upload.</p>
+          <p>You keep the rights in the photographs and other material you upload. By uploading material, you give MotionWren a license to store, process and transmit it, and to share it with the service providers listed above, solely to provide the service you requested. You are responsible for having the rights to everything you upload.</p>
           <p>If you believe material on MotionWren infringes your copyright, please contact us at <a href="mailto:info@redaphoto.com">info@redaphoto.com</a> with: identification of the work you say has been infringed; identification of the material you say is infringing and where it can be found; your contact details; and a statement that you believe in good faith that the use is not authorised. We will review the complaint and, where appropriate, remove or restrict access to the material. We may suspend or close the account of a user who repeatedly uploads infringing material.</p>
         </section>
         <section>

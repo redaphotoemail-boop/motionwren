@@ -1,4 +1,4 @@
-import { audit, jsonError, requireAccount } from "../../_lib/account";
+import { audit, customerError, requireAccount } from "../../_lib/account";
 
 const PLANS = {
   single: { priceEnv: "STRIPE_PRICE_SINGLE", mode: "payment", credits: 1, label: "Single" },
@@ -44,5 +44,5 @@ export async function POST(request: Request) {
     if (!response.ok || !data.url) return Response.json({ error: data.error?.message || "Checkout could not be started." }, { status: 502 });
     await audit(env, account.id, "billing.checkout_created", "billing", data.id, { plan: planKey });
     return Response.json({ url: data.url });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

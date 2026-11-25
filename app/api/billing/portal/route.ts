@@ -1,4 +1,4 @@
-import { jsonError, requireAccount } from "../../_lib/account";
+import { customerError, requireAccount } from "../../_lib/account";
 import { stripeRequest, stripeSecret } from "../../_lib/stripe";
 
 /* Pro customers manage or cancel their subscription on Stripe's own
@@ -17,5 +17,5 @@ export async function POST(request: Request) {
     const result = await stripeRequest<{ url?: string }>("POST", "billing_portal/sessions", values);
     if (!result.ok || !result.data.url) return Response.json({ error: "The billing page could not be opened. Please try again." }, { status: 502 });
     return Response.json({ url: result.data.url });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

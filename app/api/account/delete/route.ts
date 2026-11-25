@@ -1,4 +1,4 @@
-import { audit, jsonError, requireAccount } from "../../_lib/account";
+import { audit, customerError, requireAccount } from "../../_lib/account";
 import { deleteJobFiles } from "../../_lib/production";
 import { cancelSubscriptions } from "../../_lib/stripe";
 
@@ -37,5 +37,5 @@ export async function POST(request: Request) {
     // console, and a missing table must not undo the deletion above.
     try { await env.DB.prepare(`DELETE FROM password_reset_tokens WHERE user_id = ?`).bind(account.id).run(); } catch { /* table not created yet */ }
     return Response.json({ ok: true });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

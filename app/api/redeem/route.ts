@@ -1,4 +1,4 @@
-import { audit, enforceRateLimit, jsonError, requireAccount } from "../_lib/account";
+import { audit, enforceRateLimit, customerError, requireAccount } from "../_lib/account";
 import { redeemGiftCode } from "../_lib/gift-codes";
 
 export async function POST(request: Request) {
@@ -10,5 +10,5 @@ export async function POST(request: Request) {
     const credits = await redeemGiftCode(env, account.id, body.code);
     await audit(env, account.id, "gift.redeemed", "gift_code", undefined, { credits });
     return Response.json({ credits, message: credits === 1 ? "1 free video added to your account." : `${credits} free videos added to your account.` });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

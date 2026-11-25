@@ -1,4 +1,4 @@
-import { HttpError, enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
+import { HttpError, enforceRateLimit, customerError, requireAccount } from "../../../_lib/account";
 import { customerSafeError } from "../../../_lib/customer-errors";
 import { holdForApproval, loadOrder, needsApproval, startOrder } from "../../../_lib/customer-production";
 
@@ -21,6 +21,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return Response.json(result, { status: "resumed" in result ? 200 : 202 });
   } catch (error) {
     // Account and permission errors are shown as-is; anything else in plain words.
-    return error instanceof HttpError ? jsonError(error) : Response.json({ error: customerSafeError(error instanceof Error ? error.message : "") }, { status: 500 });
+    return error instanceof HttpError ? customerError(error) : Response.json({ error: customerSafeError(error instanceof Error ? error.message : "") }, { status: 500 });
   }
 }

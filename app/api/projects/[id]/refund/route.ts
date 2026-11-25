@@ -1,4 +1,4 @@
-import { enforceRateLimit, jsonError, requireAccount } from "../../../_lib/account";
+import { enforceRateLimit, customerError, requireAccount } from "../../../_lib/account";
 import { refundHoldingOrder } from "../../../_lib/render-jobs";
 
 /* A customer asks for their credit back on an order that is taking longer:
@@ -14,6 +14,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const result = await refundHoldingOrder(env, projectId, account.id);
     return Response.json(result);
   } catch (error) {
-    return jsonError(error);
+    return customerError(error);
   }
 }

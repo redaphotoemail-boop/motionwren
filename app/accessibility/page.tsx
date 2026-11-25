@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Wordmark } from "../components/brand";
 
-export const metadata: Metadata = { title: "Accessibility" };
+export const metadata: Metadata = { title: "Accessibility", description: "How MotionWren keeps its site and films usable for everyone, and how to tell us about a barrier.", alternates: { canonical: "/accessibility" } };
 
 export default function AccessibilityPage() {
   return (

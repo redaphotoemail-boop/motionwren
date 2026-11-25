@@ -109,7 +109,7 @@ export default function CustomerDashboard() {
     void Promise.resolve().then(() => {
       const billing = new URLSearchParams(window.location.search).get("billing");
       if (billing === "success") setMessage("Payment received. Thank you.");
-      else if (billing === "cancelled") setMessage("Checkout was cancelled. Nothing was charged.");
+      else if (billing === "cancelled") setMessage("Checkout was canceled. Nothing was charged.");
     });
   }, []);
   useEffect(() => {

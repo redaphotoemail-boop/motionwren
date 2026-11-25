@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Wordmark } from "../components/brand";
 
-export const metadata: Metadata = { title: "Refund Policy" };
+export const metadata: Metadata = { title: "Refund Policy", description: "When MotionWren refunds an order and how to ask for one.", alternates: { canonical: "/refund" } };
 
 export default function RefundPage() {
   return (

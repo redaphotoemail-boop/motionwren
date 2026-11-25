@@ -13,6 +13,7 @@ assert.ok(/take-\\d\{2\}-\\d\{1,2\}\\.mp4/.test(frames)); ok("the film's file ro
 const route = readFileSync(new URL("../app/api/projects/[id]/edit/route.ts", import.meta.url), "utf8");
 assert.ok(route.includes("requireAccount(env)") && route.includes("owner_id = ?") && !route.includes("requireAdmin")); ok("the client's editor checks the film is theirs");
 assert.ok(route.includes('row.kind !== "customer-series"') && route.includes("customerRemakes") && route.includes("status: 402")); ok("scene remakes stop at the number included with the film");
+assert.ok(route.includes("guardCheck(env, remakeCents)") && route.includes("cost_cents = cost_cents + ?")); ok("a client's scene remake asks the spending limit and counts toward it");
 assert.ok(!route.includes("body.template") && !route.includes("body.titles") && !route.includes("body.sfx") && !route.includes("body.useScenes")); ok("clients change only cards, order, frame, music, voice, remakes and takes");
 const files = readFileSync(new URL("../app/api/projects/[id]/film/[file]/route.ts", import.meta.url), "utf8");
 assert.ok(files.includes("owner_id = ?") && files.includes("(scene-\\d{2}\\.jpg|out-\\d{2}\\.mp4|take-\\d{2}-\\d{1,2}\\.mp4)")); ok("a client can open only their own film's scenes, photos and earlier versions");

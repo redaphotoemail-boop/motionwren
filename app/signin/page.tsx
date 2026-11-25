@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "../api/_lib/account";
 import SignInShell from "./signin-shell";
 
-export const metadata: Metadata = { title: "Sign in" };
+export const metadata: Metadata = { title: "Sign in", description: "Sign in to MotionWren to order and download your property videos.", alternates: { canonical: "/signin" } };
 
 export const dynamic = "force-dynamic";
 

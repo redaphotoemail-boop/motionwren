@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { audit, jsonError, requireAccount } from "../../../_lib/account";
+import { audit, customerError, requireAccount } from "../../../_lib/account";
 import { MUSIC_TEMPLATES } from "../../../../music-catalog";
 import { ElevenLabsMissingKey, listVoices } from "../../../_lib/elevenlabs";
 import { loadManifest, saveManifest } from "../../../_lib/production";
 import { applyFilmEdit, getRenderJob, sceneOrder, type FilmEditBody } from "../../../_lib/render-jobs";
 import { studioToken } from "../../../_lib/studio-token";
+import { guardCheck } from "../../../_lib/spend-guard";
+import { engineCost } from "../../../../engine-catalog";
 
 /* The client's own editor for a delivered film (Reda, Nov 25 2026). All optional, after delivery:
    - change the words on the opening and closing cards (an overlay; nothing is made again),
@@ -51,7 +53,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const musicId = edit.sound?.noMusic ? "none" : MUSIC_TEMPLATES.find((template) => template.prompt === edit.music?.prompt)?.id || "auto";
     let voices: { id: string; name: string; note: string; previewUrl: string }[] = [];
     try {
-      voices = (await listVoices()).filter((voice) => voice.previewUrl).slice(0, 12).map((voice) => ({ id: voice.voiceId, name: voice.name, note: [voice.labels.gender, voice.labels.accent, voice.labels.age].filter(Boolean).join(" · "), previewUrl: voice.previewUrl }));
+      voices = (await listVoices()).filter((voice) => voice.previewUrl).slice(0, 12).map((voice) => ({ id: voice.voiceId, name: voice.name, note: [voice.labels.gender, voice.labels.accent, voice.labels.age].filter(Boolean).join(" · "), previewUrl: `/api/voices/${voice.voiceId}/preview` }));
     } catch (error) { if (!(error instanceof ElevenLabsMissingKey)) voices = []; }
     const included = await remakesIncluded(env);
     return NextResponse.json({
@@ -70,7 +72,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       sceneSounds: Boolean(edit.sound?.sfx || edit.sound?.voice?.mode === "scene"),
       remakes: { used: manifest.customerRemakes || 0, included },
     });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -94,12 +96,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (raw.order !== undefined) body.order = raw.order;
     if (raw.useTake) body.useTake = raw.useTake as FilmEditBody["useTake"];
     let remade = false;
+    let remakeCents = 0;
     if (raw.remake && typeof raw.remake === "object") {
       const manifest = await loadManifest(env, row.id);
       const scene = Number((raw.remake as { scene?: unknown }).scene);
       if (!manifest || !Number.isInteger(scene) || scene < 0 || scene >= manifest.inputs.length) return NextResponse.json({ error: "Unknown scene." }, { status: 400 });
       const included = await remakesIncluded(env);
       if ((manifest.customerRemakes || 0) >= included) return NextResponse.json({ error: `You've used the ${included} scene remakes included with this film.`, limit: true }, { status: 402 });
+      // A remake is a new engine charge: it asks the spending guard first and is added to the film's cost.
+      remakeCents = Math.round(engineCost(manifest.engine as never, row.resolution as never, manifest.sceneSeconds) * 100);
+      const spend = await guardCheck(env, remakeCents);
+      if (!spend.ok) return NextResponse.json({ error: "Scene remakes are paused for a little while. Please try again later." }, { status: 503 });
       body.scenes = [{ scene }];
       remade = true;
     }
@@ -111,8 +118,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (remade) {
       const manifest = await loadManifest(env, row.id);
       if (manifest) { manifest.customerRemakes = (manifest.customerRemakes || 0) + 1; await saveManifest(env, row.id, manifest); }
+      await env.DB.prepare(`UPDATE render_jobs SET cost_cents = cost_cents + ?, updated_at = ? WHERE id = ?`).bind(remakeCents, Date.now(), row.id).run();
     }
     await audit(env, account.id, "film.customer_edit", "project", id, { changed: Object.keys(body) }).catch(() => undefined);
     return NextResponse.json({ ok: true, status: "updating" });
-  } catch (error) { return jsonError(error); }
+  } catch (error) { return customerError(error); }
 }

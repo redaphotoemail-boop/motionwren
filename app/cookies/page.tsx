@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Wordmark } from "../components/brand";
 import CookieSettings from "../components/cookie-settings";
 
-export const metadata: Metadata = { title: "Cookie Policy" };
+export const metadata: Metadata = { title: "Cookie Policy", description: "Which cookies MotionWren uses and why.", alternates: { canonical: "/cookies" } };
 
 export default function CookiesPage() {
   return (
