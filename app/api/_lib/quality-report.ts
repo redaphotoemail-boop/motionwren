@@ -7,6 +7,8 @@ import { studioEngine } from "../../engine-catalog";
 export type SceneReport = {
   scene: number; state: "flagged" | "clean" | "unchecked" | "photo-move";
   frames: number; issues: string[]; clip: string; canFix: boolean;
+  /** The line guard's verdict at the last edit: kept the engine's scene, or used a still-photo move (and why). */
+  lineGuard?: { used: "ai" | "still"; reason: string };
   attempts: { attempt: number; clip: string; issues: string[]; instruction: string; by?: "check" | "you" }[];
 };
 
@@ -26,7 +28,8 @@ export function qualityReport(jobId: string, manifest: ProductionManifest | null
       ...kept.map((item, index) => ({ attempt: index + 1, clip: clip(item.file), issues: item.issues, instruction: index ? sent[index - 1]?.text || "" : "", by: index ? sent[index - 1]?.by : undefined })),
       { attempt: kept.length + 1, clip: clip(out(scene)), issues: flagged?.issues || [], instruction: kept.length ? sent[kept.length - 1]?.text || "" : "", by: kept.length ? sent[kept.length - 1]?.by : undefined },
     ];
-    return { scene: scene + 1, state: move ? "photo-move" : flagged ? "flagged" : checked ? "clean" : "unchecked", frames: manifest?.checkedFrames?.[scene] || 0, issues: flagged?.issues || [], clip: clip(out(scene)), canFix: finished && !move && !manifest?.fromClips, attempts };
+    const guarded = manifest?.lineGuardResult?.find((item) => item.scene === scene + 1);
+    return { scene: scene + 1, state: move ? "photo-move" : flagged ? "flagged" : checked ? "clean" : "unchecked", frames: manifest?.checkedFrames?.[scene] || 0, issues: flagged?.issues || [], clip: clip(out(scene)), canFix: finished && !move && !manifest?.fromClips, attempts, ...(guarded ? { lineGuard: { used: guarded.used, reason: guarded.reason } } : {}) };
   });
   const estimate = manifest && finished ? fixEstimate(manifest, row) : null;
   return { rounds: fix?.round || 0, jobId, fixCents: estimate?.cents || 0, fixEngine: estimate ? studioEngine(estimate.engine).name : "", scenes };

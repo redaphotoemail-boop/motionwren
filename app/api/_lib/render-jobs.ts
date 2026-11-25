@@ -506,6 +506,36 @@ const templateRecipeSeconds = (recipe: { scenes?: { duration_s?: number; transit
   return Math.round((scenes.reduce((sum, s) => sum + (s.duration_s || 0), 0) - overlap) * 1000) / 1000;
 };
 
+/* The line guard's inputs for the composer: each engine scene's photo, as a link the composer can read for as long as
+   the film exists (copied next to the film's scenes as scene-NN.jpg), and its move's rules. Null when the film has none. */
+async function lineGuardSpec(env: { BUCKET: R2Bucket }, origin: string, row: RenderJobRow, manifest: Required<ProductionManifest>, moves: (string | null)[]) {
+  const plan = manifest.lineGuard;
+  if (!plan || plan.off || !manifest.photos?.length) return null;
+  const count = manifest.inputs.length;
+  const photos: (string | null)[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const photo = manifest.photos[index];
+    if (!photo || moves[index]) { photos.push(null); continue; }
+    try {
+      const key = frameKey(row.id, index);
+      if (photo.key !== key && !(await env.BUCKET.head(key))) {
+        const object = await env.BUCKET.get(photo.key);
+        if (!object) { photos.push(null); continue; }
+        await env.BUCKET.put(key, await object.arrayBuffer(), { httpMetadata: { contentType: object.httpMetadata?.contentType || "image/jpeg" } });
+      }
+      photos.push(jobFileLink(origin, row, `scene-${String(index + 1).padStart(2, "0")}.jpg`));
+    } catch { photos.push(null); }
+  }
+  if (!photos.some(Boolean)) return null;
+  const at = <T,>(list: T[] | undefined, index: number, fallback: T) => (list && list[index] !== undefined ? list[index] : fallback);
+  return {
+    photos,
+    modes: photos.map((_, index) => at(plan.modes, index, "push" as const)),
+    reverse: photos.map((_, index) => Boolean(at(plan.reverse, index, false))),
+    fallbacks: photos.map((_, index) => at(plan.stills, index, "push" as const)),
+  };
+}
+
 async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row: RenderJobRow, manifest: Required<ProductionManifest>, origin: string) {
   const count = manifest.inputs.length;
   const { segments } = alignedScenes(row, count);
@@ -516,6 +546,9 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const only = manifest.edit?.recipe && manifest.edit.useScenes?.length ? [...new Set(manifest.edit.useScenes)].filter((index) => Number.isInteger(index) && index >= 0 && index < count) : [];
   const pick = <T,>(list: T[]) => only.length >= 2 ? only.map((index) => list[index]) : list;
   const moves = pick(allMoves), speeds = pick(allSpeeds), clips = pick(allClips);
+  // The line guard (Reda, Nov 25 2026): each engine scene is checked against its own photo in the edit (composer/lines.mjs).
+  const guard = await lineGuardSpec(env, origin, row, manifest, allMoves);
+  const guardSpec = guard ? { photos: pick(guard.photos), modes: pick(guard.modes), reverse: pick(guard.reverse), fallbacks: pick(guard.fallbacks), stabilize: true } : null;
   if ((count < 2 && !manifest.ads && !moves.some(Boolean) && !manifest.cards && !manifest.upscale && !slowSingle(manifest) && !manifest.edit?.sound?.voice && !manifest.edit?.sound?.sfx && !manifest.edit?.reframe) || clips.some((url) => !url)) throw new Error("The finished scenes could not be found for joining.");
   let edit = manifest.edit || {};
   const tries = (edit.tries || 0) + 1;
@@ -566,7 +599,7 @@ async function startComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
   const layers = soundLayers(edit.sound, (file) => jobFileLink(origin, row, file), share, crossfade, duration);
   manifest.edit = { ...edit, tries, attempt, key, startedAt: Date.now(), lastError: "", ...(edit.music && !edit.music.saved ? { music: { ...edit.music, seconds: duration } } : {}) };
   try {
-    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, ...(cut ? { anchorY: 0.75 } : {}), duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(24, Math.max(4, (clips as string[]).length * 3)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.templateRecipe ? { templateRecipe: manifest.edit.templateRecipe } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
+    await startEdit(env, row.id, key, { clips: clips as string[], width, height: tall, ...(cut ? { anchorY: 0.75 } : {}), duration, sceneSeconds: share, crossfade, music: musicChoice || music, ...(layers.length ? { layers } : {}), ...(moves.some(Boolean) ? { moves } : {}), ...(speeds.some((value) => value < 1) ? { speeds } : {}), ...(manifest.cards ? { cards: manifest.cards } : {}), ...(manifest.edit?.titles ? { titles: manifest.edit.titles } : {}), ...(manifest.photoStrict ? { strictDepth: true } : {}), ...(manifest.photoMetric ? { depthMode: "metric" as const } : {}), ...(manifest.photoHybrid ? { hybrid: true } : {}), ...(guardSpec ? { guard: guardSpec } : {}), ...(count === 1 && !manifest.ads && !moves.some(Boolean) ? { keepAudio: true } : {}), ...(manifest.ads && !edit.music && !edit.voiceover ? { keepAudio: true } : {}), ...(!manifest.ads && (await aiReviewOn(env)) ? { stills: Math.min(24, Math.max(4, (clips as string[]).length * 3)) } : {}), ...(manifest.edit?.subtitles?.lines?.length ? { subtitles: manifest.edit.subtitles } : {}), ...(manifest.edit?.grade ? { grade: manifest.edit.grade } : {}), ...(manifest.edit?.recipe ? { recipe: manifest.edit.recipe, recipeStrength: 0.5 } : {}), ...(manifest.edit?.templateRecipe ? { templateRecipe: manifest.edit.templateRecipe } : {}), ...(manifest.edit?.voiceover?.saved ? { voiceover: { url: jobFileLink(origin, row, "voiceover.mp3") } } : {}) });
   } catch (error) {
     manifest.edit.key = undefined;
     manifest.edit.lastError = error instanceof Error ? error.message.slice(0, 300) : "The editing service did not answer.";
@@ -630,6 +663,8 @@ async function checkComposerEdit(env: { DB: D1Database; BUCKET: R2Bucket }, row:
       }
     } catch { /* the next edit simply makes music again */ }
   }
+  // What the line guard did (shown with the film): which scenes kept the engine's version and which became a still-photo move.
+  if (state.lineGuard?.length) manifest.lineGuardResult = state.lineGuard.map((item) => ({ scene: item.scene, used: item.used, reversed: item.reversed, stabilized: item.stabilized, reason: (item.reason || item.error || item.verdict?.reason || "").slice(0, 200) }));
   if (manifest.cards) manifest.cardsNote = state.cards ? "added" : `not added: ${String(state.cardsError || "the editor left them off").slice(0, 200)}`;
   manifest.finalUrl = `composer:${key}`;
   await saveManifest(env, row.id, manifest);

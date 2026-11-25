@@ -1,4 +1,4 @@
-# MotionWren composer: Node + ffmpeg + OpenCV (python3-opencv, used by movement.py to read photos).
+# MotionWren composer: Node + ffmpeg + OpenCV (python3-opencv, used by movement.py to read photos and lines.py, the line guard).
 FROM node:22-bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr tesseract-ocr-eng ca-certificates curl python3-opencv fonts-liberation2 fonts-dejavu-core \
@@ -8,7 +8,7 @@ RUN apt-get update \
 ARG EDITOR_IMAGE=2026-11-23-smooth-check
 LABEL editor.image=$EDITOR_IMAGE
 WORKDIR /app
-COPY movement.py movement.mjs smooth.mjs server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs template-recipe.mjs verify-template.mjs ./
+COPY movement.py movement.mjs lines.py lines.mjs smooth.mjs server.mjs parallax.mjs cards.mjs titles.mjs qc.mjs wrencut.mjs wrenaudio.mjs template-recipe.mjs verify-template.mjs ./
 COPY fonts ./fonts
 COPY luts ./luts
 COPY templates ./templates

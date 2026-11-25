@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 type Item = { scene: number; issues: string[]; clip: string; round?: number };
 type Attempt = { attempt: number; clip: string; issues: string[]; instruction: string; by?: "check" | "you" };
-type SceneInfo = { scene: number; state: "flagged" | "clean" | "unchecked" | "photo-move"; frames: number; issues: string[]; clip: string; canFix: boolean; attempts: Attempt[] };
+type SceneInfo = { scene: number; state: "flagged" | "clean" | "unchecked" | "photo-move"; frames: number; issues: string[]; clip: string; canFix: boolean; attempts: Attempt[]; lineGuard?: { used: "ai" | "still"; reason: string } };
 type Report = { rounds: number; delivered: Item[]; earlier: Item[]; jobId?: string; scenes?: SceneInfo[]; fixCents?: number; fixEngine?: string };
 
 /* The status shown on every film: red = still has a problem after the last attempt, green = ready to deliver. */
@@ -60,7 +60,7 @@ export default function QualityTab({ id, job = false, label = "Quality", state }
       <div className="qual-scene-head"><strong>Scene {info.scene}</strong><span className={`qual-badge qual-${info.state === "flagged" ? "flagged" : info.state === "clean" ? "approved" : "unchecked"}`}><i aria-hidden="true">{look.icon}</i>{look.text}{info.frames ? ` · ${info.frames} frames looked at` : ""}</span></div>
       <div className="qual-item">
         <div className="qual-clip"><video src={info.clip} controls preload="metadata" playsInline muted/><button type="button" className="qual-expand" aria-label={`Full screen: scene ${info.scene}`} onClick={() => setBig({ src: info.clip, title: `Scene ${info.scene} · current version` })}>⤢ Full screen</button></div>
-        <div>{info.issues.length ? info.issues.map((text) => <small key={text}>{text}</small>) : <small>{info.state === "clean" ? "Nothing was added, removed or moved compared with the photo, and no car moved." : info.state === "photo-move" ? "No video engine is used for this scene." : "Not checked."}</small>}</div>
+        <div>{info.issues.length ? info.issues.map((text) => <small key={text}>{text}</small>) : <small>{info.state === "clean" ? "Nothing was added, removed or moved compared with the photo, and no car moved." : info.state === "photo-move" ? "No video engine is used for this scene." : "Not checked."}</small>}{info.lineGuard && <small>{info.lineGuard.used === "still" ? `Line guard: the film uses a still-photo move here instead of this clip. ${info.lineGuard.reason}` : "Line guard: every straight line held."}</small>}</div>
       </div>
       {info.attempts.length > 1 && <details className="qual-attempts"><summary>{info.attempts.length} attempts · see what was changed</summary>
         {info.attempts.map((attempt) => <div className="qual-attempt" key={attempt.attempt}>

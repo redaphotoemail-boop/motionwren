@@ -189,15 +189,52 @@ export default function ProductionPage() {
   return <div className="mgr-page prodm">
     <PageHead eyebrow="Production" title="Production" sub="Is it running, what needs you, and every video being made." />
     <nav className="mgr-jump" aria-label="On this page">
+      <a href="#controls">Controls</a>
+      <a href="#engines">Engines</a>
       {problemCount > 0 && <a href="#problems">Problems <b>{problemCount}</b></a>}
       <a href="#pipeline">Pipeline</a>
       <a href="#videos">Videos</a>
-      <a href="#controls">Controls</a>
-      <a href="#engines">Engines</a>
       <a href="#credit">Credit</a>
     </nav>
     {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
     {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
+
+    <details id="controls" className="prodm-block fin-more" aria-label="Controls">
+      <summary><span><strong>Controls</strong><small>Scenes at once, engine choice and music tools</small></span></summary>
+      <div className="prodm-setting">
+        <div><strong>Scenes at once</strong><small>How many scenes the engine makes at the same time. Keep 1 while the engine account is under $5.</small></div>
+        <div className="tabs" role="radiogroup" aria-label="Scenes at once">
+          {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
+        </div>
+      </div>
+      <div className="prodm-setting">
+        <div><strong>If a scene stalls, use</strong><small>A scene the engine leaves &ldquo;processing&rdquo; for too long is sent once to this engine, with the scenes still to make. Finished scenes are kept.</small></div>
+        <select value={health?.backupEngine || "off"} onChange={(event) => { void setBackup(event.target.value); }} aria-label="Backup engine">
+          <option value="off">Off, wait on the same engine</option>
+          {studioEngines.filter((item) => !item.unavailable && !item.photoMove).map((item) => <option key={item.key} value={item.key}>{item.shortName || item.name}</option>)}
+        </select>
+      </div>
+      <EnginePanels part="controls" />
+      {samples && <details className="prodm-more">
+        <summary>Music tools</summary>
+        <div className="prodm-setting">
+          <div><strong>Client music samples</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a sample clients can play.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready.`}</small></div>
+          <div className="prod-actions">
+            {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
+            {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
+          </div>
+        </div>
+        <div className="prodm-setting">
+          <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents).</small></div>
+          <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
+        </div>
+      </details>}
+    </details>
+
+    <details id="engines" className="prodm-block fin-more" aria-label="Engines">
+      <summary><span><strong>Engines</strong><small>Prices, speed and what each engine is for</small></span></summary>
+      <EnginePanels part="overview" />
+    </details>
 
     <section className="prodm-strip" aria-label="Production health">
       <span><i className={`dot ${health?.paused || !health?.tokenConfigured ? "dot-bad" : health && health.waitingUntil > now ? "dot-warn" : "dot-ok"}`} />{status}</span>
@@ -305,44 +342,6 @@ export default function ProductionPage() {
       })}
       </div>
     </section>
-
-
-    <details id="controls" className="prodm-block fin-more" aria-label="Controls">
-      <summary><span><strong>Controls</strong><small>Scenes at once, engine choice and music tools</small></span></summary>
-      <div className="prodm-setting">
-        <div><strong>Scenes at once</strong><small>How many scenes the engine makes at the same time. Keep 1 while the engine account is under $5.</small></div>
-        <div className="tabs" role="radiogroup" aria-label="Scenes at once">
-          {[1, 2, 3, 4].map((value) => <button key={value} type="button" role="radio" aria-checked={health?.maxActive === value} className={health?.maxActive === value ? "active" : ""} onClick={() => setConcurrency(value)}>{value}</button>)}
-        </div>
-      </div>
-      <div className="prodm-setting">
-        <div><strong>If a scene stalls, use</strong><small>A scene the engine leaves &ldquo;processing&rdquo; for too long is sent once to this engine, with the scenes still to make. Finished scenes are kept.</small></div>
-        <select value={health?.backupEngine || "off"} onChange={(event) => { void setBackup(event.target.value); }} aria-label="Backup engine">
-          <option value="off">Off, wait on the same engine</option>
-          {studioEngines.filter((item) => !item.unavailable && !item.photoMove).map((item) => <option key={item.key} value={item.key}>{item.shortName || item.name}</option>)}
-        </select>
-      </div>
-      <EnginePanels part="controls" />
-      {samples && <details className="prodm-more">
-        <summary>Music tools</summary>
-        <div className="prodm-setting">
-          <div><strong>Client music samples</strong><small>{samples.every((sample) => sample.ready) ? `All ${samples.length} templates have a sample clients can play.` : `${samples.filter((sample) => sample.ready).length} of ${samples.length} ready.`}</small></div>
-          <div className="prod-actions">
-            {samples.some((sample) => !sample.ready) && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(busy)} onClick={() => makeSamples(false)}>{busy === "samples" ? "Making…" : "Make samples"}</button>}
-            {samples.every((sample) => sample.ready) && <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Make all the samples again? This uses about a minute of ElevenLabs music.")) void makeSamples(true); }}>{busy === "samples" ? "Making…" : "Remake all"}</button>}
-          </div>
-        </div>
-        <div className="prodm-setting">
-          <div><strong>Music check</strong><small>Makes a 5-second ElevenLabs track to confirm the key works (a few cents).</small></div>
-          <button type="button" className="btn btn-soft btn-xs" disabled={Boolean(busy)} onClick={testMusic}>{busy === "music" ? "Checking…" : "Test music"}</button>
-        </div>
-      </details>}
-    </details>
-
-    <details id="engines" className="prodm-block fin-more" aria-label="Engines">
-      <summary><span><strong>Engines</strong><small>Prices, speed and what each engine is for</small></span></summary>
-      <EnginePanels part="overview" />
-    </details>
   </div>;
 }
 

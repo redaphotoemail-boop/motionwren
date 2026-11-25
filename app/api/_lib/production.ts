@@ -60,6 +60,11 @@ export type ProductionManifest = {
   photos?: { key: string; link: string; file?: string }[];
   /** Set for "Photo move" films: scene i is the original photo with this camera move, made by the editor (no AI clip). */
   photoMoves?: string[];
+  /** The line guard (composer/lines.mjs), per scene in film order: how strict, whether the scene is played backwards
+      (the closing pull-back), and the still-photo move used when its lines don't hold. */
+  lineGuard?: { modes: ("push" | "arc")[]; reverse: boolean[]; stills: ("push" | "pull" | "slide-left" | "slide-right")[]; off?: boolean };
+  /** What the line guard did at the last edit, per scene (1-based): kept the engine's scene ("ai") or used the still-photo move. */
+  lineGuardResult?: { scene: number; used: "ai" | "still"; reversed?: boolean; stabilized?: boolean; reason: string }[];
   /** Studio Ads: this job is a commercial, not a real-estate film. The
       pipeline treats it so: the composer edits even a single clip, and the
       film-review reality check (which flags anything added or changed

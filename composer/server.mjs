@@ -222,6 +222,7 @@ import { extractStills, qualityCheck, structureHeld } from "./qc.mjs";
 import { makeCallBanner, parseTemplateRecipe, planTemplateScenes, prepareTemplateInputs, snapRecipeToBeatGrid, templateDuration, templateEditArgs, templateQualityCheck, templateShotArgs } from "./template-recipe.mjs";
 import { analyzeBeats } from "./wrenaudio.mjs";
 import { measurePhotos } from "./movement.mjs";
+import { LINE_MODES, STILL_FALLBACKS, cleanup as cleanupGuard, guardScene } from "./lines.mjs";
 
 /* The depth of a photo, as true distances in metres, from Depth Anything 3 Metric-Large (Apache-2.0, so it may be used commercially).
    Used by every photo move. The earlier Depth Anything v2 model was removed: its larger weights are non-commercial. */
@@ -535,6 +536,17 @@ function validSpec(spec) {
   if (spec.depthMode !== undefined && spec.depthMode !== "metric") return "Unknown depth mode.";
   if (spec.strictDepth === true && Array.isArray(spec.moves) && spec.moves.some((move) => move && !DEPTH_MOVES.includes(move))) return "Photo move 2.0 uses only the depth moves.";
   if (spec.moves !== undefined && !(Array.isArray(spec.moves) && spec.moves.length === clips.length && spec.moves.every((move) => move === null || PHOTO_MOVES.includes(move)))) return "Photo moves must match the scenes.";
+  if (spec.guard !== undefined) {
+    // The line guard (lines.mjs): per scene, the photo to compare with, how strict, whether to play it backwards, and the still move if it fails.
+    const g = spec.guard;
+    const fits = (list, ok) => Array.isArray(list) && list.length === clips.length && list.every(ok);
+    if (!g || typeof g !== "object") return "The line guard is not valid.";
+    if (!fits(g.photos, (value) => value === null || (typeof value === "string" && /^https?:\/\//.test(value)))) return "The line guard's photos must match the scenes.";
+    if (g.modes !== undefined && !fits(g.modes, (value) => LINE_MODES.includes(value))) return "The line guard's modes must match the scenes.";
+    if (g.reverse !== undefined && !fits(g.reverse, (value) => typeof value === "boolean")) return "The line guard's reversals must match the scenes.";
+    if (g.fallbacks !== undefined && !fits(g.fallbacks, (value) => STILL_FALLBACKS.includes(value))) return "The line guard's still moves must match the scenes.";
+    if (g.stabilize !== undefined && typeof g.stabilize !== "boolean") return "The line guard's stabilize switch must be true or false.";
+  }
   if (!(spec.duration > 1 && spec.duration <= 600)) return "Film length is out of range.";
   if (!(spec.sceneSeconds > 0.5 && spec.sceneSeconds <= 60)) return "Scene length is out of range.";
   if (!(spec.crossfade >= 0 && spec.crossfade < spec.sceneSeconds / 2)) return "Crossfade is out of range.";
@@ -627,6 +639,34 @@ async function compose(key, spec) {
         files[i] = file;
       }
     }));
+    // The line guard (lines.mjs, Reda's rule of Nov 25 2026): each engine scene is reversed when it closes the film,
+    // stabilized (2% trim at most), then checked against its photo; one whose straight lines moved, or that showed
+    // anything beyond the photo, is replaced by a still-photo move made from the photo itself. Free (ffmpeg + OpenCV).
+    if (spec.guard && Array.isArray(spec.guard.photos)) {
+      job.stage = "line guard";
+      const g = spec.guard;
+      const order = [...files.keys()].filter((i) => g.photos[i] && !(Array.isArray(spec.moves) && spec.moves[i]));
+      await Promise.all(Array.from({ length: Math.min(2, order.length) }, async () => {
+        while (order.length) {
+          const i = order.shift();
+          const name = `scene-${String(i + 1).padStart(2, "0")}`;
+          const photo = path.join(dir, `${name}-photo.img`);
+          let photoFile = photo;
+          try { await download(g.photos[i], photo, MAX_CLIP_BYTES, `Scene ${i + 1} photo`); } catch (error) { photoFile = null; console.warn(`guard: scene ${i + 1} photo; ${error.message}`); }
+          const makeStill = (move, output) => run("ffmpeg", photoClipArgs({ image: photoFile, move, width: spec.width, height: spec.height, fps: spec.photoFps || 24, seconds: spec.sceneSeconds + 2, output }), { timeoutMs: 5 * 60 * 1000 });
+          try {
+            const { file, record } = await guardScene({ file: files[i], photo: photoFile, dir, name, mode: g.modes?.[i] || "push", reverse: Boolean(g.reverse?.[i]), stabilize: g.stabilize !== false, fallback: g.fallbacks?.[i] || "push", width: spec.width, makeStill });
+            files[i] = file;
+            (job.lineGuard ||= []).push({ scene: i + 1, ...record });
+          } catch (error) {
+            (job.lineGuard ||= []).push({ scene: i + 1, used: "ai", error: String(error?.message || error).slice(0, 200) });
+            console.warn(`guard: scene ${i + 1} kept as made; ${error?.message || error}`);
+          }
+          await cleanupGuard(dir, name);
+        }
+      }));
+      job.lineGuard?.sort((a, b) => a.scene - b.scene);
+    }
     // Hybrid scenes: an AI clip made on top of a measured camera move must keep the move's straight lines; if not, the measured clip is used.
     if (Array.isArray(spec.refs)) {
       for (let i = 0; i < files.length; i += 1) {
