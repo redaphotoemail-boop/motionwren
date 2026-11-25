@@ -132,3 +132,8 @@ assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("<Cloudfla
 { const panel = readFileSync("app/admin/replicates/spend-guard-panel.tsx", "utf8");
   assert.ok(panel.includes("<SpendBreakdown") && panel.includes("Pause all spending"), "The Spending bars open into a breakdown and keep their limits and pause");
   assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("<OneFilmCost />") && readFileSync("app/api/history/[id]/cost/route.ts", "utf8").includes("jobCostLines"), "Finance keeps the one-film breakdown, and History's Cost tab shares its lines"); }
+
+{ const finance = readFileSync("app/admin/finance/page.tsx", "utf8");
+  assert.ok(finance.includes("One film cost") && finance.includes("scenePlan(") && finance.includes("VIDEO_LENGTHS.map"), "The 20-second box keeps its One film cost tab, one cost for each offered length, planned like a real order");
+  assert.ok(finance.includes("20-second video") && finance.includes("Pick an engine"), "The original 20-second view stays");
+  assert.ok(readFileSync("app/admin/replicates/spend-breakdown.tsx", "utf8").includes("useSpendBreakdowns"), "Both spending periods load once so tapping Today or This month does not wait"); }
