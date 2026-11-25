@@ -24,7 +24,9 @@ export async function submitOrder(env: Env, account: { id: string; role: string 
   const assets = await env.DB.prepare(`SELECT COUNT(*) AS count FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(projectId, account.id).first<{ count: number }>();
   const photos = assets?.count || 0;
   if (photos < 2) return { ok: false, reason: "photos", photos };
-  if (process.env.STRIPE_SECRET_KEY && account.role !== "admin") {
+  // Every order from the order flow pays at checkout, the owner's too (Reda, Nov 25 2026: so he can test payment
+  // himself). Owner Studio films go through /api/studio/production and stay free.
+  if (process.env.STRIPE_SECRET_KEY) {
     const balance = await env.DB.prepare(`SELECT credit_balance AS balance FROM users WHERE id = ?`).bind(account.id).first<{ balance: number }>();
     const quote = await filmQuote(env, { id: projectId, targetDuration: Number(project.targetDuration) || 0 }, photos, (balance?.balance || 0) > 0);
     if (quote.payNow > 0) return { ok: false, reason: "payment", quote, photos };

@@ -44,7 +44,7 @@ const videoStatus: Record<string, string> = {
 };
 const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", cancelled: "Stopped", draft: "Saved", history: "History" };
 const discover = [
-  { title: "Content package", text: "The full set: hero film, vertical reel, story teaser, feed posts and graphics, sized for every channel. You pay per film; the graphics are included.", shape: "set" },
+  { title: "Content package", text: "The full set: hero film, vertical reel and story teaser, sized for every channel. You pay per film.", shape: "set" },
   { title: "Hero listing film", text: "One polished film from your listing photos. $39 for 30 seconds, $59 for 60.", shape: "wide" },
   { title: "Vertical reel", text: "Short-form video for Instagram and TikTok. 20 seconds, $29.", shape: "tall" },
 ] as const;
