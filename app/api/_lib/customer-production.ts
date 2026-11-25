@@ -33,9 +33,11 @@ export async function loadOrder(env: Env, projectId: string, ownerId: string) {
 
 /* Orders wait for the manager's OK while payments are not connected (so no
    unpaid order spends engine money), unless the manager switched customer
-   production to automatic. */
+   production to automatic. A Stripe test key counts as not connected: test
+   cards are free, so test-mode orders still wait for the manager. */
 export async function needsApproval(env: Env, role: string) {
-  if (role === "admin" || process.env.STRIPE_SECRET_KEY) return false;
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  if (role === "admin" || (key && !key.startsWith("sk_test_") && !key.startsWith("rk_test_"))) return false;
   const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'customer_production'`).first<{ value?: string }>();
   return row?.value !== "automatic";
 }
