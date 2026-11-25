@@ -4,7 +4,7 @@
    video is never kept: the composer deletes it after reading, and only the
    recipe (numbers) is stored under the name "MotionWren N". */
 
-import { composerBinding } from "./composer";
+import { composerBinding, release } from "./composer";
 import { parseRecipe, recipeEffects, recipePhotoGuide, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
 import { SOCIAL_SPECS, buildSocialRecipe, keptActs, socialGuide, socialSpec } from "../../social-templates";
 import { smoothRecipe } from "../../wrencut-fit";
@@ -196,7 +196,7 @@ export async function readState(env: Env, job: string): Promise<{ status: string
   }
   if (data.status === "failed") {
     await env.DB.prepare(`UPDATE wrencut_reads SET status = 'failed', error = ? WHERE job = ?`).bind(data.error || "The video could not be read.", job).run();
-    await stub(env, `wrencut-${job}`).fetch(`http://composer/analyze/${job}`, { method: "DELETE" }).catch(() => undefined);
+    await release(await stub(env, `wrencut-${job}`).fetch(`http://composer/analyze/${job}`, { method: "DELETE" }).catch(() => null));
     await dropReference(env, job);
     return { status: "failed", error: data.error || "The video could not be read." };
   }
@@ -208,7 +208,7 @@ export async function readState(env: Env, job: string): Promise<{ status: string
     try { template = saved.target ? await replaceRecipe(env, saved.target, data.recipe) : await saveTemplate(env, data.recipe); }
     catch (error) { await env.DB.prepare(`UPDATE wrencut_reads SET status = 'running' WHERE job = ?`).bind(job).run(); throw error; }
     await env.DB.prepare(`UPDATE wrencut_reads SET status = 'done', template_id = ? WHERE job = ?`).bind(template.id.replace(/^wren:/, ""), job).run();
-    await stub(env, `wrencut-${job}`).fetch(`http://composer/analyze/${job}`, { method: "DELETE" }).catch(() => undefined);
+    await release(await stub(env, `wrencut-${job}`).fetch(`http://composer/analyze/${job}`, { method: "DELETE" }).catch(() => null));
     await dropReference(env, job);
     return { status: "done", template };
   }
