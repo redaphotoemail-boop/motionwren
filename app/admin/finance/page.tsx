@@ -5,6 +5,7 @@ import { Icon } from "../../ui-icon";
 import { Metric, PageHead, cents } from "../ui";
 import { SpendGuardPanel } from "../replicates/spend-guard-panel";
 import { SpendAccount } from "../replicates/spend-account";
+import { CloudflareUsage } from "./cloudflare-usage";
 import { COST_RATES, cardFeeCents, musicCentsForSeconds } from "../../cost-model";
 import { engineCost, studioEngines } from "../../engine-catalog";
 import type { StudioEngineKey } from "../../engine-catalog";
@@ -212,6 +213,7 @@ export default function FinancePage() {
       <p className="fine">The video engine is almost all of it. Retried scenes and failed attempts are billed by Replicate too but are not in this average, so your Replicate bill runs higher; open its billing page for the exact total.</p>
     </details>}
     <TwentySecondBreakdown />
+    <CloudflareUsage />
     <details className="panel fin-more">
       <summary><span><strong>Video engine account</strong><small>Recorded spend, real balance and the low-balance reminder</small></span></summary>
       <SpendAccount />

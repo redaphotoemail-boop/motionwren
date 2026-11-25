@@ -126,3 +126,5 @@ assert.ok(readFileSync("composer/qc.mjs", "utf8").includes("shakeFlag") && readF
   assert.ok(page.includes("onChange={(e) => updateShot(shot.id, { motion: e.target.value as MotionKey })"), "Every scene keeps its own movement list");
   const route = readFileSync("app/api/studio/movements/route.ts", "utf8");
   assert.ok(route.includes("requireAdmin") && route.includes("remember: false"), "Smart choice is owner-only and leaves the Admin last-film note alone"); }
+
+assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("<CloudflareUsage />") && readFileSync("app/api/admin/cloudflare-usage/route.ts", "utf8").includes("requireAdmin"), "Finance keeps its live Cloudflare costs section, and the route is owner-only");
