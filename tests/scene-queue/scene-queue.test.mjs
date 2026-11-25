@@ -908,6 +908,23 @@ const versionsOf = (env) => env.DB.raw.prepare("SELECT COUNT(*) AS n FROM genera
   delete process.env.RESEND_API_KEY; delete process.env.FRAME_MOTION_FROM_EMAIL;
 }
 
+/* 31d. The Spending bars open up: the breakdown adds up to the bar, and one film's lines add up to its total */
+{
+  resetProvider({ sceneMs: 60_000 });
+  const env = env0(); await setLimit(env, 1);
+  env.DB.raw.prepare("INSERT OR REPLACE INTO users (id, email, display_name, role, status, plan, credit_balance, created_at, updated_at) VALUES ('owner-1', 'agent@example.test', 'Agent', 'customer', 'active', 'free', 0, 0, 0)").run();
+  const id = await newJob(env, 2, { tag: "s31d", kind: "customer-series" });
+  await start(env, id);
+  await runToEnd(env, id);
+  const bar = await lib.spentSince(env, 0);
+  const open = await lib.spendBreakdown(env, 0);
+  check("31d the breakdown's three kinds of cost add up to the Spending bar", open.categories.engineCents + open.categories.reviewCents + open.categories.editCents === bar.totalCents && open.categories.engineCents === bar.engineCents && open.categories.editCents === bar.editCents, `${JSON.stringify(open.categories)} vs ${bar.totalCents}`);
+  check("31e every film is listed and the client/test split adds up", open.films >= 1 && open.top.length >= 1 && open.segments.customer.cents + open.segments.studio.cents === open.top.reduce((sum, film) => sum + film.totalCents, 0) && open.segments.customer.films >= 1, JSON.stringify(open.segments));
+  const row = env.DB.raw.prepare("SELECT id, kind, status, cost_cents AS costCents, resolution, duration FROM render_jobs WHERE id = ?").get(id);
+  const one = await lib.jobCostLines(env, row, { engine: "wan3", resolution: row.resolution, duration: row.duration, costCents: row.costCents });
+  check("31f one film's lines add up to its total and include the engine", one.totalCents === one.lines.reduce((sum, line) => sum + line.cents, 0) && one.lines.length >= 1, `${one.lines.map((line) => line.label).join(", ")} = ${one.totalCents}`);
+}
+
 /* 32. Vidu Q3 Turbo: its own endpoint, its own input shape, its measured price, the photo's own shape */
 {
   const input = lib.buildEngineInput("vidu3turbo", { imageUrl: "https://x.test/p.jpg", prompt: "slow push in", duration: 6, resolution: "1080p", aspectRatio: "16:9" });
