@@ -49,7 +49,9 @@ export async function POST(request: Request) {
   }
   const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ? LIMIT 1").bind(email).first<{ id: string }>();
   if (existing) return Response.json({ error: "An account with this email already exists. Sign in with Google, or use a different email." }, { status: 400 });
-  const isAdmin = configuredAdmins(env).has(email);
+  // Owner addresses sign in with Google only: an email sign-up does not prove who owns the address, so it can never create an owner account.
+  if (configuredAdmins(env).has(email)) return Response.json({ error: "This email signs in with Google. Use Continue with Google." }, { status: 400 });
+  const isAdmin = false;
   const userId = `email:${email}`;
   const now = Date.now();
   const salt = crypto.getRandomValues(new Uint8Array(16));

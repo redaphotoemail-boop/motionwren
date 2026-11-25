@@ -1,5 +1,6 @@
 import { audit, jsonError, requireAccount } from "../../_lib/account";
 import { deleteJobFiles } from "../../_lib/production";
+import { cancelSubscriptions } from "../../_lib/stripe";
 
 export async function POST(request: Request) {
   try {
@@ -16,15 +17,17 @@ export async function POST(request: Request) {
     // Production working files too (scene photos and finished scene copies).
     const jobs = await env.DB.prepare(`SELECT id FROM render_jobs WHERE owner_id = ?`).bind(account.id).all<{ id: string }>();
     await Promise.allSettled(jobs.results.map((job) => deleteJobFiles(env, job.id)));
+    // A deleted account is never billed again: its Pro subscription ends now.
+    const subs = await env.DB.prepare(`SELECT provider_subscription_id AS id FROM subscriptions WHERE owner_id = ? AND status NOT IN ('canceled', 'incomplete_expired')`).bind(account.id).all<{ id: string }>();
+    await cancelSubscriptions(subs.results.map((sub) => sub.id).filter(Boolean));
     await audit(env, account.id, "account.deletion_requested", "account", account.id);
+    // Payment and credit records stay (no personal details in them) as billing records, per the Privacy Policy.
     await env.DB.batch([
       env.DB.prepare(`DELETE FROM project_assets WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM generation_history WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM render_jobs WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM projects WHERE owner_id = ?`).bind(account.id),
-      env.DB.prepare(`DELETE FROM credit_ledger WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM subscriptions WHERE owner_id = ?`).bind(account.id),
-      env.DB.prepare(`DELETE FROM payments WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM notifications WHERE owner_id = ?`).bind(account.id),
       env.DB.prepare(`DELETE FROM rate_limits WHERE key LIKE ?`).bind(`${account.id}:%`),
       env.DB.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).bind(account.id),

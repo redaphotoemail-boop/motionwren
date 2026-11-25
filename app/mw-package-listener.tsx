@@ -18,12 +18,14 @@ import { useEffect, useState } from "react";
    project that already exists. */
 
 type PackageItem = { title?: unknown; price?: unknown; icon?: unknown; kind?: unknown };
-type PackageDetail = { items?: unknown; answers?: unknown; total?: unknown; photos?: unknown };
+type PackageDetail = { items?: unknown; answers?: unknown; total?: unknown; photos?: unknown; cards?: unknown };
+/* The opening property card and closing agent card typed in the plan (optional). */
+type SavedCards = { opening?: { title?: string; detail?: string }; closing?: { name?: string; contact?: string } };
 type SavedItem = { title: string; price: number; icon: string; kind: "video" | "graphic" };
 type SavedAnswers = { goal?: string; prop?: string; channels?: string[]; vibe?: string };
-type VideoStage = "new" | "created" | "uploaded" | "submitted" | "generating";
+type VideoStage = "new" | "created" | "uploaded" | "paying" | "submitted" | "generating";
 type VideoEntry = { title: string; price: number; icon: string; aspect: "horizontal" | "vertical"; targetDuration: number; projectId: string | null; stage: VideoStage; error?: string; uploaded?: number };
-type SavedPackage = { items: SavedItem[]; answers: SavedAnswers; total: number; photos: string[]; video: VideoEntry[]; graphics: string[]; attempted: boolean; orderCode?: string; draftId?: string | null; draftUploaded?: number };
+type SavedPackage = { items: SavedItem[]; answers: SavedAnswers; total: number; photos: string[]; video: VideoEntry[]; graphics: string[]; attempted: boolean; orderCode?: string; draftId?: string | null; draftUploaded?: number; cards?: SavedCards };
 
 const PENDING_KEY = "mw:pending-package";
 /* Signed-out visitors land on "Create account" (most are new), told their
@@ -86,7 +88,16 @@ function normalize(detail: PackageDetail): SavedPackage {
     attempted: false,
     orderCode: newOrderCode(),
     draftId: null,
+    cards: cleanCards(detail.cards),
   };
+}
+
+function cleanCards(value: unknown): SavedCards | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const text = (input: unknown, max: number) => (typeof input === "string" ? input.trim().slice(0, max) : "");
+  const raw = value as { opening?: Record<string, unknown>; closing?: Record<string, unknown> };
+  const cards = { opening: { title: text(raw.opening?.title, 80), detail: text(raw.opening?.detail, 140) }, closing: { name: text(raw.closing?.name, 80), contact: text(raw.closing?.contact, 140) } };
+  return cards.opening.title || cards.opening.detail || cards.closing.name || cards.closing.contact ? cards : undefined;
 }
 
 function summarizeItem(pkg: SavedPackage, title: string): string {
@@ -225,7 +236,16 @@ function createDraftOrder(pkg: SavedPackage): Promise<Response> {
   });
 }
 
-type PipelineResult = { done: boolean; auth: boolean; errors: string[] };
+/* redirecting: the customer is on their way to Stripe (nothing failed).
+   waiting: they paid and the order is being confirmed (a few seconds). */
+type PipelineResult = { done: boolean; auth: boolean; errors: string[]; redirecting?: boolean; waiting?: boolean };
+
+/* Back from Stripe with ?billing=success: the payment is confirmed by
+   Stripe's webhook, which also submits the paid films. Until it lands the
+   order must never be sent to a second checkout. */
+function returningFromPayment(): boolean {
+  try { return new URLSearchParams(window.location.search).get("billing") === "success"; } catch { return false; }
+}
 
 /* Runs the pipeline for one package, resuming from each entry's recorded
    stage. Stage is progress only; a failure records entry.error and keeps
@@ -313,17 +333,31 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
     }
   }
 
+  const toPay: VideoEntry[] = [];
+  let awaitingPayment = false;
   for (let index = 0; index < pkg.video.length; index += 1) {
     const entry = pkg.video[index];
     if (entry.stage === "generating") continue;
     if (entry.stage !== "new" && !entry.projectId) entry.stage = "new";
+    if (entry.stage === "paying" && entry.projectId) {
+      // Paid on Stripe: once the webhook has submitted it, the film starts on its own within a minute.
+      try {
+        const current = await fetch(`/api/projects/${entry.projectId}`, { cache: "no-store" });
+        if (current.status === 401) return { done: false, auth: true, errors };
+        const data = current.ok ? ((await current.json()) as { project?: { status?: string } }) : {};
+        const status = data.project?.status;
+        if (status && status !== "draft") { entry.stage = "generating"; await idbPut(pkg); continue; }
+      } catch { /* Checked again on the next pass. */ }
+      if (returningFromPayment()) { awaitingPayment = true; continue; }
+      entry.stage = "uploaded"; // Checkout was left without paying: ask again below.
+    }
     entry.error = undefined;
     try {
       if (entry.stage === "new") {
         const res = await fetch("/api/projects", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: entry.title, price: String(entry.price), shortMessage: summarizeItem(pkg, entry.title), aspect: entry.aspect, targetDuration: entry.targetDuration, music: pkg.answers.vibe }),
+          body: JSON.stringify({ title: entry.title, price: String(entry.price), shortMessage: summarizeItem(pkg, entry.title), aspect: entry.aspect, targetDuration: entry.targetDuration, music: pkg.answers.vibe, ...(pkg.cards ? { cards: pkg.cards, listingAddress: pkg.cards.opening?.title || undefined, agentName: pkg.cards.closing?.name || undefined } : {}) }),
         });
         if (res.status === 401) return { done: false, auth: true, errors };
         if (!res.ok) {
@@ -357,9 +391,11 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
         const sub = await fetch(`/api/projects/${entry.projectId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
         if (sub.status === 401) return { done: false, auth: true, errors };
         if (sub.status === 402) {
-          // A longer film (or no credit yet): take them to pay for the difference, no dead end. The order is saved and carries on when they return.
-          const info = await sub.clone().json().catch(() => ({})) as { checkoutUrl?: string | null };
-          if (info.checkoutUrl) { await idbPut(pkg); window.location.assign(info.checkoutUrl); return { done: false, auth: false, errors }; }
+          // Needs paying (no credit yet, or longer than 20 seconds): every such film of the order goes into one checkout below.
+          entry.stage = "paying";
+          await idbPut(pkg);
+          toPay.push(entry);
+          continue;
         }
         if (!sub.ok) {
           entry.error = await errorText(sub);
@@ -388,6 +424,23 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
       await idbPut(pkg);
     }
   }
+  if (toPay.length) {
+    // One payment for the whole order, then Stripe brings them back to the dashboard and the films start on their own.
+    try {
+      const res = await fetch("/api/billing/film-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectIds: toPay.map((entry) => entry.projectId) }) });
+      if (res.status === 401) return { done: false, auth: true, errors };
+      const info = res.ok ? ((await res.json()) as { url?: string | null }) : null;
+      if (info?.url) {
+        await idbPut(pkg);
+        window.location.assign(info.url);
+        return { done: false, auth: false, errors, redirecting: true };
+      }
+      errors.push(res.ok ? "Your credits changed. Please try again." : await errorText(res));
+    } catch {
+      errors.push("Couldn't reach MotionWren. Check your connection and try again.");
+    }
+  }
+  if (awaitingPayment && !errors.length) return { done: false, auth: false, errors, waiting: true };
   return { done: pkg.video.every((entry) => entry.stage === "generating"), auth: false, errors };
 }
 
@@ -430,6 +483,14 @@ export default function MwPackageListener() {
       }
     }
 
+    // Back from Stripe: Stripe confirms the payment within seconds; check again every 5 seconds for up to 2 minutes.
+    let confirmChecks = 0;
+    function awaitConfirmation() {
+      confirmChecks += 1;
+      setBanner({ message: confirmChecks > 24 ? "Payment received. Your films will appear here in a minute." : "Payment received. Starting your films…", retryPackage: false });
+      if (confirmChecks <= 24) window.setTimeout(() => { void flushPending(); }, 5000);
+    }
+
     async function flushPending() {
       // New path: an IndexedDB package that has never been attempted.
       // Attempted packages wait for the banner's Try again — otherwise every
@@ -438,6 +499,8 @@ export default function MwPackageListener() {
       if (pending && !pending.attempted) {
         const result = await run(pending);
         if (result.auth) return; // Still signed out — keep it for the next visit.
+        if (result.redirecting) return; // On the way to Stripe.
+        if (result.waiting) { awaitConfirmation(); return; }
         if (result.done) {
           await idbDel();
           showCreated();
@@ -519,6 +582,8 @@ export default function MwPackageListener() {
         window.location.assign(SAVED_ORDER_SIGNIN);
         return;
       }
+      if (result.redirecting) return;
+      if (result.waiting) { awaitConfirmation(); return; }
       if (result.done) {
         await idbDel();
         setBanner(null);
@@ -542,6 +607,8 @@ export default function MwPackageListener() {
         window.location.assign(SAVED_ORDER_SIGNIN);
         return;
       }
+      if (result.redirecting) return;
+      if (result.waiting) { awaitConfirmation(); return; }
       if (result.done) {
         await idbDel();
         showCreated();

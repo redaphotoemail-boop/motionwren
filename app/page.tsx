@@ -129,6 +129,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <article className="plan plan-featured reveal"><span className="plan-name">Five-pack</span><p className="plan-price">$125</p><small className="plan-per">$25 per video</small><strong>Five video credits</strong><p>For active agents and photographers managing several listings.</p><a className="btn btn-amber" href={accountPath} target="_top">Open your workspace</a></article>
         <article className="plan reveal"><span className="plan-name">Pro</span><p className="plan-price">$199<small>/month</small></p><small className="plan-per">$19.90 per video</small><strong>Ten credits each month</strong><p>Centralized production tracking and a lower per-video cost.</p><a className="btn btn-soft" href={accountPath} target="_top">View your account</a></article>
       </div>
+      <p className="plans-note muted">Per film: 20 seconds $29 · 30 seconds $39 · 60 seconds $59. Each credit covers a 20-second film; longer films pay the difference.</p>
     </section>
 
     <section className="closer site-wrap">
@@ -140,7 +141,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
     <footer className="site-footer">
       <div className="site-wrap site-footer-inner">
         <Wordmark size={22} />
-        <span className="muted">© {new Date().getFullYear()} MotionWren · Boston, Massachusetts</span>
+        <span className="muted">© {new Date().getFullYear()} MotionWren · Massachusetts</span>
         <div className="footer-links"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/refund">Refunds</Link><Link href="/cookies">Cookies</Link><Link href="/accessibility">Accessibility</Link><a href="mailto:info@redaphoto.com">Contact</a>{session ? <a href={accountPath} target="_top">Dashboard</a> : <a href={accountPath} target="_top">Sign in</a>}</div>
       </div>
     </footer>

@@ -2,10 +2,9 @@ import { autoQuote } from "../../pricing";
 import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
 import { HttpError } from "./account";
-import { customerSafeError } from "./customer-errors";
 import { musicPrompt } from "./composer";
 import { musicTemplate } from "../../music-catalog";
-import { PHOTO_MOVE_CYCLE, newManifest, saveManifest } from "./production";
+import { PHOTO_MOVE_CYCLE, cleanCards, newManifest, saveManifest } from "./production";
 import { advanceRenderJob, beginQueue, getRenderJob } from "./render-jobs";
 import { alertManagers } from "./scene-queue";
 import { guardCheck } from "./spend-guard";
@@ -52,13 +51,19 @@ export async function holdForApproval(env: Env, project: Project, ownerId: strin
   return { status: "approval" as const };
 }
 
-export async function startOrder(env: Env, project: Project, ownerId: string, origin: string, providerToken: string) {
-  if (project.renderJobId && ["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return { jobId: project.renderJobId, status: project.status, resumed: true };
+export async function startOrder(env: Env, project: Project, ownerId: string, origin: string, providerToken: string, opts: { rethrow?: boolean } = {}) {
+  if (["queued", "generating", "stitching", "saving", "completed"].includes(project.status)) return { jobId: project.renderJobId || "", status: project.status, resumed: true };
   if (!["submitted", "failed", "approval"].includes(project.status)) throw new HttpError(409, "Submit the project before starting production.");
   const assets = await env.DB.prepare(`SELECT id, sort_order AS sortOrder, r2_key AS r2Key FROM project_assets WHERE project_id = ? AND owner_id = ? ORDER BY sort_order, created_at LIMIT 24`).bind(project.id, ownerId).all<{ id: string; sortOrder: number; r2Key: string }>();
   if (assets.results.length < 2) throw new HttpError(409, "At least two photographs are required.");
   // Automatic length (target 0): each photo is a 5-second scene, so the film is as long as the photos allow.
   const targetSeconds = project.targetDuration || autoQuote(assets.results.length).seconds;
+  // Claim the order first: two starts at the same moment (the customer and the manager, or a double tap) make one film, never two.
+  const claim = await env.DB.prepare(`UPDATE projects SET status = 'queued', updated_at = ? WHERE id = ? AND owner_id = ? AND status = ?`).bind(Date.now(), project.id, ownerId, project.status).run();
+  if (!claim.meta.changes) {
+    const current = await loadOrder(env, project.id, ownerId);
+    return { jobId: current?.renderJobId || "", status: current?.status || "queued", resumed: true };
+  }
   let jobId = "";
   try {
     // The manager's selected engine (platform_settings defaultEngine); Wan 3.0
@@ -112,6 +117,8 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // The final edit: each scene's share on screen and the film's one music track.
     if (engine === "photo") manifest.photoMoves = inputs.map((_, index) => PHOTO_MOVE_CYCLE[index % PHOTO_MOVE_CYCLE.length]);
     if (engineUpscales(engine, resolution)) manifest.upscale = { to: "1080p" };
+    const cards = await readCardsChoice(env, project.id);
+    if (cards) manifest.cards = cards;
     if (movement) manifest.movementPlan = { mode: movement.mode, used: movement.used, picks: movement.picks, rooms: movement.rooms, costCents: movement.costCents, note: movement.note };
     manifest.edit = { shareSeconds: plan.shareSeconds, crossfade: CROSSFADE_SECONDS, music: { prompt: musicPrompt({ aspect: project.aspect, duration: targetSeconds, choice: await readMusicChoice(env, project.id) }) } };
     await saveManifest(env, jobId, manifest);
@@ -123,20 +130,27 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
       env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'production_started', 'Production started', 'Your photographs are generating now. You can close this page; processing will continue.', NULL, ?)`).bind(`${jobId}:started`, ownerId, Date.now()),
     ]);
   } catch (error) {
-    if (jobId) await markStartFailed(env, jobId, project.id, ownerId, error);
-    throw error;
+    await markStartFailed(env, jobId || null, project.id, ownerId, error, project.title);
+    if (opts.rethrow) throw error; // the manager's Start production shows the real reason
+    // The customer sees the order as waiting, never as failed; the manager has the real reason.
+    return { jobId: "", status: "approval" };
   }
   return { jobId, status: "generating" };
 }
 
-export async function markStartFailed(env: Env, jobId: string, projectId: string, ownerId: string, error: unknown) {
+/* An order that could not start (the spending limit, an engine refusing,
+   anything else) is put back in line for the manager's Start production,
+   with the real reason sent to the manager. The customer is told it is in
+   line and never that it failed. */
+export async function markStartFailed(env: Env, jobId: string | null, projectId: string, ownerId: string, error: unknown, title = "An order") {
   const message = error instanceof Error ? error.message : "Production could not start.";
   const now = Date.now();
   await env.DB.batch([
-    env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind(message.slice(0, 1000), now, jobId),
-    env.DB.prepare(`UPDATE projects SET status = 'failed', updated_at = ? WHERE id = ? AND owner_id = ?`).bind(now, projectId, ownerId),
-    env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'generation_failed', 'Production could not start', ?, NULL, ?)`).bind(`${jobId}:failed`, ownerId, customerSafeError(message).slice(0, 500), now),
+    ...(jobId ? [env.DB.prepare(`UPDATE render_jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ?`).bind(message.slice(0, 1000), now, jobId)] : []),
+    env.DB.prepare(`UPDATE projects SET status = 'approval', render_job_id = NULL, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(now, projectId, ownerId),
+    env.DB.prepare(`INSERT OR IGNORE INTO notifications (id, owner_id, type, title, message, read_at, created_at) VALUES (?, ?, 'order_received', 'Order received', 'Thanks! Your video goes into production shortly. We will let you know when it is ready.', NULL, ?)`).bind(`${projectId}:waiting`, ownerId, now),
   ]);
+  await alertManagers(env, "An order could not start", `"${title}" could not start: ${message.slice(0, 300)}. It is waiting in Orders; press Start production when ready.`);
 }
 
 /* The music template the customer chose in the plan, kept per order (no
@@ -156,4 +170,20 @@ export async function readMusicChoice(env: { DB: D1Database }, projectId: string
   return musicTemplate(row?.value)?.id || null;
 }
 
-export const dropMusicChoiceStatement = (env: { DB: D1Database }, projectId: string) => env.DB.prepare(`DELETE FROM platform_settings WHERE key = ?`).bind(musicChoiceKey(projectId));
+export const dropMusicChoiceStatement = (env: { DB: D1Database }, projectId: string) => env.DB.prepare(`DELETE FROM platform_settings WHERE key IN (?, ?)`).bind(musicChoiceKey(projectId), cardsKey(projectId));
+
+/* The listing and agent cards the customer typed in the plan, kept per order the same way (a platform_settings row).
+   The editor burns them into the film: the address and price open it, the agent closes it. */
+const cardsKey = (projectId: string) => `project_cards:${projectId}`;
+
+export async function saveCardsChoice(env: { DB: D1Database }, projectId: string, value: unknown) {
+  const cards = cleanCards(value);
+  if (!cards) return null;
+  await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).bind(cardsKey(projectId), JSON.stringify(cards), Date.now()).run();
+  return cards;
+}
+
+export async function readCardsChoice(env: { DB: D1Database }, projectId: string) {
+  const row = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = ?`).bind(cardsKey(projectId)).first<{ value?: string }>();
+  try { return row?.value ? cleanCards(JSON.parse(row.value)) : undefined; } catch { return undefined; }
+}

@@ -1,5 +1,6 @@
 import { heartbeatKey } from "../_lib/heartbeat";
 import { advanceStaleJobs } from "../_lib/render-jobs";
+import { startPaidOrders } from "../_lib/submit-order";
 
 /* Called once a minute by the Worker's scheduled event (never from a browser):
    1. moves along every video in production (missed callbacks, scheduled
@@ -17,7 +18,9 @@ export async function POST(request: Request) {
   // Every waiting video, oldest first, four at a time, within 40 seconds.
   const moved = await advanceStaleJobs(env, new URL(request.url).origin, null, 100, { parallel: 4, budgetMs: 40 * 1000 });
   const cleaned = await cleanUp(env).catch(() => 0);
-  return Response.json({ ok: true, moved, cleaned });
+  // Paid orders that are waiting to start (paid on Stripe, or the page was closed first).
+  const started = await startPaidOrders(env, process.env.PUBLIC_ORIGIN || new URL(request.url).origin).catch(() => 0);
+  return Response.json({ ok: true, moved, cleaned, started });
 }
 
 async function cleanUp(env: { DB: D1Database; BUCKET: R2Bucket }) {
