@@ -3,7 +3,7 @@ const out = await build({ entryPoints: ["app/pricing.ts"], bundle: true, format:
 const mod = await import("data:text/javascript;base64," + Buffer.from(out.outputFiles[0].text).toString("base64"));
 let failed = 0;
 const check = (name, ok, detail = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : " " + detail}`); if (!ok) failed++; };
-const { priceForSeconds, autoQuote, quoteFor, upgradeCents, priceForScenes, minPhotosFor, filmLengthForPhotos, MEMBER_FILM_UPGRADE_CENTS, LONG_SECONDS } = mod;
+const { priceForSeconds, autoQuote, quoteFor, upgradeCents, priceForScenes, minPhotosFor, maxPhotosFor, filmLengthForPhotos, LONG_FROM_PHOTOS, MEMBER_FILM_UPGRADE_CENTS, LONG_SECONDS } = mod;
 check("up to 20 s is $29", priceForSeconds(20) === 2900 && priceForSeconds(10) === 2900);
 check("the long film is 50 s", LONG_SECONDS === 50);
 check("21 to 50 s is $49", priceForSeconds(25) === 4900 && priceForSeconds(30) === 4900 && priceForSeconds(50) === 4900);
@@ -17,9 +17,12 @@ check("price never goes down as photos are added", Array.from({ length: 24 }, (_
 check("fixed 0 means automatic", quoteFor(0, 7).cents === 4900 && quoteFor(50, 99).cents === 4900);
 check("upgrade is the part above the credit", upgradeCents(2900) === 0 && upgradeCents(4900) === 2000 && upgradeCents(5900) === 3000);
 check("a membership film covers up to 60 s", MEMBER_FILM_UPGRADE_CENTS === 3000);
-check("photos per length: 10 s 2, 20 s 3, 50 s 7, 60 s 8", minPhotosFor(10) === 2 && minPhotosFor(20) === 3 && minPhotosFor(50) === 7 && minPhotosFor(60) === 8 && minPhotosFor(0) === 2);
+check("fewest photos per length: 10 s 2, 20 s 4, 40 s 8, 50 s 9, 60 s 11", minPhotosFor(10) === 2 && minPhotosFor(20) === 4 && minPhotosFor(40) === 8 && minPhotosFor(50) === 9 && minPhotosFor(60) === 11 && minPhotosFor(0) === 2);
+check("most photos per length: 20 s 7, 50 s 19, 60 s 23", maxPhotosFor(20) === 7 && maxPhotosFor(50) === 19 && maxPhotosFor(60) === 23);
+check("the line to the 50-second price is 8 photos", LONG_FROM_PHOTOS === 8);
 check("two photos never get a long film", filmLengthForPhotos(2) === 10 && filmLengthForPhotos(2, 60) === 10);
-check("3 to 6 photos get 20 s, 7 get 50 s", [3, 4, 5, 6].every((n) => filmLengthForPhotos(n) === 20) && filmLengthForPhotos(7) === 50 && filmLengthForPhotos(20) === 50);
-check("members: 7 photos 50 s, 8 photos 60 s", filmLengthForPhotos(7, 60) === 50 && filmLengthForPhotos(8, 60) === 60);
+check("3 photos 15 s, 4 to 7 photos 20 s", filmLengthForPhotos(3) === 15 && [4, 5, 6, 7].every((n) => filmLengthForPhotos(n) === 20));
+check("8 photos 40 s, 9 or more 50 s", filmLengthForPhotos(8) === 40 && [9, 12, 15, 20].every((n) => filmLengthForPhotos(n) === 50));
+check("members: 10 photos 55 s, 11 or more 60 s", filmLengthForPhotos(9, 60) === 50 && filmLengthForPhotos(10, 60) === 55 && filmLengthForPhotos(11, 60) === 60);
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

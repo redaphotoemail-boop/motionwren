@@ -26,17 +26,32 @@ export const MEMBER_MONTHLY_CENTS = 9900;
 export const MEMBER_FILMS = 3;
 export const MEMBER_FILM_SECONDS = 60;
 
-/** Photos a film needs (Reda, Nov 25 2026: two photos can't make a 60-second film). Scenes stay roughly even and no
-    scene runs longer than MAX_SCENE_SECONDS, so a length needs enough photos: 10 s 2 photos, 20 s 3, 50 s 7, 60 s 8.
-    The order flow only offers a length the photos can fill, and submitting an order checks it again. */
-export const MAX_SCENE_SECONDS = 8;
+/** Photos per film (Reda, Nov 25 2026: two photos can't make a 60-second film; extra photos must still fit).
+    Every photo becomes one scene, scenes stay even, and a scene stays between MIN_SCENE_SECONDS (quicker reads as a
+    flicker) and COMFORT_SCENE_SECONDS (longer reads slow for a push-in). So a length needs at least minPhotosFor and
+    uses at most maxPhotosFor photos (the rest wait out, in the customer's order):
+      10 s: 2-3 photos · 20 s: 4-7 · 40 s: 8-15 · 50 s: 9-19 · 60 s: 11-23
+    Lengths follow the photos inside each price: up to 7 photos make the up-to-20-second film (2 photos 10 s,
+    3 photos 15 s, 4-7 photos 20 s); from 8 photos the film moves up to the up-to-50-second price (8 photos 40 s,
+    9 or more 50 s). Membership films go to 60 s (10 photos 55 s, 11 or more 60 s). The order flow offers only
+    these lengths, and submitting an order checks the photo count again. */
+export const MIN_SCENE_SECONDS = 3;
+export const COMFORT_SCENE_SECONDS = 6;
 export const TEASER_SECONDS = 10;
 const JOIN_SECONDS = 0.5; // the soft overlap where two scenes join (CROSSFADE_SECONDS in engine-catalog.ts)
-export const minPhotosFor = (seconds: number) => (seconds > 0 ? Math.max(2, Math.ceil((seconds - JOIN_SECONDS) / (MAX_SCENE_SECONDS - JOIN_SECONDS))) : 2);
-/** The longest length, up to `longest`, that this many photos can fill (membership 60 s, 50 s, 20 s, then 10 s). */
-export function filmLengthForPhotos(photos: number, longest = LONG_SECONDS): number {
-  for (const seconds of [longest, LONG_SECONDS, BASE_SECONDS, TEASER_SECONDS]) if (seconds <= longest && photos >= minPhotosFor(seconds)) return seconds;
+export const minPhotosFor = (seconds: number) => (seconds > 0 ? Math.max(2, Math.ceil((seconds - JOIN_SECONDS) / (COMFORT_SCENE_SECONDS - JOIN_SECONDS))) : 2);
+export const maxPhotosFor = (seconds: number) => Math.max(2, Math.floor((seconds - JOIN_SECONDS) / (MIN_SCENE_SECONDS - JOIN_SECONDS)));
+/** The longest length (in 5-second steps, at least 10 s) up to `cap` that this many photos fill comfortably. */
+export function filmSecondsFor(photos: number, cap: number): number {
+  for (let seconds = cap; seconds > TEASER_SECONDS; seconds -= SCENE_SECONDS) if (photos >= minPhotosFor(seconds)) return seconds;
   return TEASER_SECONDS;
+}
+/** Where a film moves from the 20-second price to the 50-second price: one photo more than a 20-second film can use. */
+export const LONG_FROM_PHOTOS = maxPhotosFor(BASE_SECONDS) + 1;
+/** The hero film's length for this many photos: the 20-second film up to 7 photos, then the long film (or a member's
+    film up to `longest`). */
+export function filmLengthForPhotos(photos: number, longest = LONG_SECONDS): number {
+  return photos >= LONG_FROM_PHOTOS ? filmSecondsFor(photos, longest) : filmSecondsFor(photos, BASE_SECONDS);
 }
 
 /** Five-pack: five 20-second credits. */

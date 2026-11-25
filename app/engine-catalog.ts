@@ -359,12 +359,19 @@ export function idealShotSeconds(targetSeconds: number) {
  * Never more than 24 scenes (the 2-minute limit); with fewer photos each scene simply runs longer.
  */
 export const MAX_CUSTOMER_SCENES = 24;
-export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto?: 3 | 5) {
+export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto?: 3 | 5, useEvery = false) {
   const allowed = filmSceneDurations(key, resolution);
   const longest = allowed[allowed.length - 1];
   const ideal = secondsPerPhoto || idealShotSeconds(targetSeconds);
   const most = Math.max(1, Math.min(available, MAX_CUSTOMER_SCENES));
   const X = CROSSFADE_SECONDS;
+  // useEvery (client orders, Reda Nov 25 2026): every photo given becomes a scene, scenes evenly shared, when the
+  // engine can make that scene length and it is not a flicker. The caller passes no more photos than the length can use.
+  if (useEvery && most >= 2) {
+    const share = (targetSeconds + (most - 1) * X) / most;
+    const sceneSeconds = allowed.find((option) => option >= share - 1e-9);
+    if (sceneSeconds && share >= 2.5) return { count: most, sceneSeconds, shareSeconds: Math.round(share * 1000) / 1000, totalSeconds: targetSeconds };
+  }
   if (most === 1) {
     const sceneSeconds = allowed.find((option) => option >= targetSeconds) || longest;
     const totalSeconds = Math.min(targetSeconds, sceneSeconds);

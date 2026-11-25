@@ -1,4 +1,4 @@
-import { autoQuote } from "../../pricing";
+import { autoQuote, maxPhotosFor } from "../../pricing";
 import { CROSSFADE_SECONDS, MAX_CUSTOMER_SCENES, engineCost, engineKeepsPhotoShape, engineUpscales, sceneTimingSetting, scenePlan } from "../../engine-catalog";
 import { filmShape } from "../../original-shape";
 import { ENGINE_ENDPOINTS, buildEngineInput, engineResolution, isEngineKey } from "../../engine-providers";
@@ -84,7 +84,11 @@ export async function startOrder(env: Env, project: Project, ownerId: string, or
     // in their chosen order (see scenePlan): a 20-second reel uses the first 4.
     const timingRow = await env.DB.prepare(`SELECT value FROM platform_settings WHERE key = 'multi_shot_seconds_per_image'`).first<{ value?: string }>();
     // "3"/"5" fix the scene timing; "auto" and unset choose it by the video's length.
-    const plan = scenePlan(engine, resolution, targetSeconds, Math.min(assets.results.length, MAX_CUSTOMER_SCENES), targetSeconds ? sceneTimingSetting(timingRow?.value) : 5);
+    // With automatic scene timing, every photo the length can use becomes a scene (up to maxPhotosFor: 20 s takes 7,
+    // 50 s takes 19), so extra photos fit in instead of waiting out. A fixed 3/5-second timing keeps choosing as before.
+    const timing = targetSeconds ? sceneTimingSetting(timingRow?.value) : 5;
+    const usable = Math.min(assets.results.length, MAX_CUSTOMER_SCENES, timing ? MAX_CUSTOMER_SCENES : maxPhotosFor(targetSeconds));
+    const plan = scenePlan(engine, resolution, targetSeconds, usable, timing, !timing);
     // Every photo the film could use; the walkthrough order below decides which ones it does use.
     const pool = assets.results.slice(0, Math.min(assets.results.length, MAX_CUSTOMER_SCENES));
     const sceneSeconds = plan.sceneSeconds;

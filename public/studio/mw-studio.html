@@ -875,19 +875,22 @@ const LB={listed:'just-listed',sold:'just-sold',open:'open-house',price:'price-c
 const CHL={instagram:'Instagram',tiktok:'TikTok',mls:'MLS',youtube:'YouTube',facebook:'Facebook',email:'Email',other:'Other'};
 function listJoin(a){return a.length<=1?(a[0]||''):a.length===2?a[0]+' and '+a[1]:a.slice(0,-1).join(', ')+' and '+a.slice(-1);}
 function tagsFor(list,ch,fb){const s=list.filter(x=>ch.includes(x)).map(x=>CHL[x]);return s.length?s:(fb?[CHL[list[0]]]:[]);}
-/* Lengths, prices and photos per length: the same numbers as app/pricing.ts (change both together).
-   No scene runs longer than 8 s, so a length needs enough photos: 10 s 2, 20 s 3, 50 s 7. */
-const LEN={teaser:{sec:10,price:29,photos:2},base:{sec:20,price:29,photos:3},long:{sec:50,price:49,photos:7}};
-function heroLen(n){return n>=LEN.long.photos?LEN.long:n>=LEN.base.photos?LEN.base:LEN.teaser;}
+/* Lengths, prices and photos per length: the same rule as app/pricing.ts (change both together).
+   Every photo is one scene, scenes stay between 3 and 6 seconds: 10 s 2-3 photos, 20 s 4-7, 40 s 8, 50 s 9-19.
+   Up to 7 photos make the up-to-20-second film ($29); from 8 photos it moves up to the up-to-50-second film ($49). */
+const LEN={base:20,long:50,teaser:10,baseCents:29,longCents:49,longFrom:8,fullLong:9};
+const minPh=t=>Math.max(2,Math.ceil((t-.5)/5.5));
+function secFor(n,cap){for(let t=cap;t>LEN.teaser;t-=5)if(n>=minPh(t))return t;return LEN.teaser;}
+function heroLen(n){const sec=n>=LEN.longFrom?secFor(n,LEN.long):secFor(n,LEN.base);return {sec:sec,price:sec>LEN.base?LEN.longCents:LEN.baseCents};}
 function recommend(P){const ch=P.channels,items=[],n=P.photos.filter(p=>!p.sample&&!p.loading).length;
- const h=heroLen(n),r=n>=LEN.base.photos?LEN.base:LEN.teaser;
+ const h=heroLen(n),r={sec:secFor(n,LEN.base),price:LEN.baseCents};
  items.push({icon:'video',title:'Hero listing film',price:h.price,meta:[h.sec+' sec','16:9'],tags:tagsFor(['mls','youtube','email'],ch,false)});
  /* With only 2 photos the reel would be a second 10-second vertical film: the story teaser already is one. */
- if((ch.includes('instagram')||ch.includes('tiktok'))&&(n>=LEN.base.photos||!ch.includes('instagram')))items.push({icon:'reel',title:'Vertical reel',price:r.price,meta:[r.sec+' sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
- if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:LEN.teaser.price,meta:[LEN.teaser.sec+' sec','9:16'],tags:['Instagram']});
+ if((ch.includes('instagram')||ch.includes('tiktok'))&&(r.sec>LEN.teaser||!ch.includes('instagram')))items.push({icon:'reel',title:'Vertical reel',price:r.price,meta:[r.sec+' sec','9:16'],tags:tagsFor(['instagram','tiktok'],ch,true)});
+ if(ch.includes('instagram'))items.push({icon:'story',title:'Story teaser',price:LEN.baseCents,meta:[LEN.teaser+' sec','9:16'],tags:['Instagram']});
  return items;}
 /* A plain line when more photos would make the hero film longer. */
-function morePhotosLine(P){const n=P.photos.filter(p=>!p.sample&&!p.loading).length,next=n<LEN.base.photos?LEN.base:n<LEN.long.photos?LEN.long:null;if(!next)return '';const k=next.photos-n;return `Add ${k} more photo${k===1?'':'s'} for the ${next.sec}-second film.`;}
+function morePhotosLine(P){const n=P.photos.filter(p=>!p.sample&&!p.loading).length,goal=n<minPh(LEN.base)?LEN.base:n<LEN.fullLong?LEN.long:0;if(!goal)return '';const k=(goal===LEN.base?minPh(LEN.base):LEN.fullLong)-n;return `Add ${k} more photo${k===1?'':'s'} for the ${goal}-second film.`;}
 const P={step:0,goal:null,prop:null,channels:[],vibe:null,photos:[]};
 /* Music samples: one clip plays at a time; any step change or closing the plan stops it. */
 let mAudio=null,mId=null;
@@ -927,7 +930,7 @@ function planRender(){
     $('pnext').onclick=()=>{if(can()){P.step++;planRender();}};
   } else if(P.step===4){
     const touch=phTouchUI();
-    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 5 of 7</div><h3>Add your listing photos</h3><p class="hint">Add at least 2 photos, up to 20. 3 photos make a 20-second film, 7 make a 50-second film. JPG, PNG or WebP.</p></div>
+    planBody.innerHTML=`${ptrack()}<div class="qhead"><div class="eyebrow">Step 5 of 7</div><h3>Add your listing photos</h3><p class="hint">Add at least 2 photos, up to 20. 4 photos make a 20-second film, 9 make a 50-second film. JPG, PNG or WebP.</p></div>
     <div class="pick" id="ppick">
       <input type="file" id="pfile" class="pfile" accept="image/jpeg,image/png,image/webp" multiple aria-label="Add photos">
       <label class="drop" id="pdrop" for="pfile"><strong>${touch?'Add your photos':'Drag photos here'}</strong><small>${touch?'Tap to choose':'or click to choose'} · JPG, PNG or WebP</small></label>
