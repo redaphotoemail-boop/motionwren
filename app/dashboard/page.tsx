@@ -6,6 +6,7 @@ import { Icon } from "../ui-icon";
 import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
 import SaveVideo from "../components/save-video";
+import PaySheet from "../components/pay-sheet";
 import { aspectLabel } from "../aspect-label";
 import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, PRO_CREDITS, PRO_MONTHLY_CENTS, dollars } from "../pricing";
 import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
@@ -90,6 +91,7 @@ export default function CustomerDashboard() {
   const [redeeming, setRedeeming] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0); // when the list was last loaded
   const [paying, setPaying] = useState(""); // the order whose payment is being opened
+  const [paySheet, setPaySheet] = useState<string[] | null>(null); // films waiting for payment on this page
   const hasActiveProject = projects.some((project) => ACTIVE.includes(project.status));
   const orders = useMemo(() => buildOrders(projects), [projects]);
 
@@ -202,17 +204,30 @@ export default function CustomerDashboard() {
         if (gen.ok) started += 1;
         else failed = (await gen.json().catch(() => ({}))).error || "Your video could not be started. Please try again.";
       }
-      if (toPay.length) {
-        const res = await fetch("/api/billing/film-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectIds: toPay }) });
-        const info = await res.json().catch(() => ({})) as { url?: string | null; error?: string };
-        if (res.ok && info.url) { window.location.assign(info.url); return; }
-        failed = info.error || "Your credits changed. Please try again.";
-      }
+      // The rest are paid on this page, in the payment sheet (it falls back to Stripe's page when it has to).
+      if (toPay.length) { setPaySheet(toPay); return; }
     } catch { failed = "Couldn't reach MotionWren. Check your connection and try again."; }
     if (failed) setError(failed);
     else if (started) setMessage("Your videos are starting.");
     setPaying("");
     await load();
+  }
+
+  /* Paid in the sheet: Stripe's webhook starts the films within seconds; refresh until they leave "Saved". */
+  async function afterPaid(ids: string[]) {
+    setPaySheet(null); setPaying(""); setError("");
+    setMessage(ids.length > 1 ? "Payment received. Starting your films…" : "Payment received. Starting your film…");
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 4000));
+      try {
+        const response = await fetch("/api/projects", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) continue;
+        const list = (data.projects || []) as Project[];
+        setProjects(list); setCheckedAt(Date.now());
+        if (!list.some((project) => ids.includes(project.id) && project.status === "draft")) return;
+      } catch { /* try again on the next pass */ }
+    }
   }
 
   async function removeOrders(list: Order[]) {
@@ -369,6 +384,13 @@ export default function CustomerDashboard() {
       </section>
 
       {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+      {paySheet && <PaySheet
+        projectIds={paySheet}
+        titles={Object.fromEntries(projects.filter((project) => paySheet.includes(project.id)).map((project) => [project.id, project.title]))}
+        onClose={() => { setPaySheet(null); setPaying(""); }}
+        onPaid={() => { void afterPaid(paySheet); }}
+        onNothingDue={() => { setPaySheet(null); setPaying(""); setError("Your credits changed. Please try again."); void load(); }}
+      />}
       {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
       {firstUnread && <div className="notice"><span className={`dot ${firstUnread.type.includes("failed") ? "dot-bad" : "dot-ok"}`} /><span><strong>{firstUnread.title}</strong> {firstUnread.message}</span><button type="button" className="text-btn" onClick={() => dismissNotification(firstUnread.id)}>Dismiss</button></div>}
 

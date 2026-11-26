@@ -14,7 +14,13 @@
    script origin is needed. No camera, microphone, or geolocation is
    used anywhere (photos come from file upload only), so those are off.
    Framing is same-origin only: the plan flow embeds /studio in an
-   iframe, so X-Frame-Options is SAMEORIGIN, not DENY. */
+   iframe, so X-Frame-Options is SAMEORIGIN, not DENY.
+
+   Stripe (Nov 26 2026): payment is taken on our own page with Stripe's
+   Payment Element (app/components/pay-sheet.tsx). Stripe.js must load from
+   js.stripe.com, its card fields are Stripe iframes, and it talks to
+   Stripe's API, so those Stripe origins are allowed for scripts, frames and
+   connections, as Stripe's own CSP guide lists. Nothing else external. */
 
 export const SECURITY_HEADERS: Record<string, string> = {
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
@@ -24,12 +30,13 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "Content-Security-Policy": [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline' https://js.stripe.com https://*.js.stripe.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: data:",
-    "connect-src 'self' blob: data:",
+    "connect-src 'self' blob: data: https://api.stripe.com https://*.stripe.com",
+    "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'self'",

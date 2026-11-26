@@ -34,6 +34,7 @@ const { SECURITY_HEADERS, withSecurityHeaders } = await import(pathToFileURL(OUT
   check("2a CSP defaults to self", csp.includes("default-src 'self'"), "");
   check("2b CSP allows the inline scripts and styles the app has", csp.includes("script-src 'self' 'unsafe-inline'") && csp.includes("style-src 'self' 'unsafe-inline'"), "");
   check("2c CSP allows Google Fonts and nothing else external", csp.includes("https://fonts.googleapis.com") && csp.includes("https://fonts.gstatic.com") && !csp.includes("accounts.google"), "");
+  check("2f CSP lets Stripe's payment form run on our page (script, frames, API)", csp.includes("https://js.stripe.com") && /frame-src [^;]*https:\/\/js\.stripe\.com/.test(csp) && /connect-src [^;]*https:\/\/api\.stripe\.com/.test(csp), "");
   check("2d CSP blocks plugins and outside framing", csp.includes("object-src 'none'") && csp.includes("frame-ancestors 'self'"), "");
   check("2e CSP keeps navigation and forms same-origin", csp.includes("form-action 'self'") && csp.includes("base-uri 'self'"), "");
 }
