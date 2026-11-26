@@ -88,6 +88,7 @@ export default function CustomerDashboard() {
   const [code, setCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0); // when the list was last loaded
+  const [paying, setPaying] = useState(""); // the order whose payment is being opened
   const hasActiveProject = projects.some((project) => ACTIVE.includes(project.status));
   const orders = useMemo(() => buildOrders(projects), [projects]);
 
@@ -178,6 +179,41 @@ export default function CustomerDashboard() {
     await load();
   }
 
+  /* Unpaid: a saved film with its photos in place, while card payments are on. The order flow
+     sends these to Stripe; if checkout was left, the film waits here and never starts. */
+  const isUnpaid = (project: Project) => billingEnabled && project.status === "draft" && Number(project.assetCount) >= 2;
+
+  /* Finish payment: the same steps as the order flow (mw-package-listener). Each film is
+     submitted; films a credit covers start, the rest go into one checkout for the order. */
+  async function finishPayment(key: string, ids: string[]) {
+    if (!ids.length || paying) return;
+    setPaying(key); setError(""); setMessage("");
+    const toPay: string[] = [];
+    let failed = "";
+    let started = 0;
+    try {
+      for (const id of ids) {
+        const sub = await fetch(`/api/projects/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
+        if (sub.status === 402) { toPay.push(id); continue; }
+        const data = await sub.json().catch(() => ({}));
+        if (!sub.ok) { failed = data.error || "Payment could not be opened. Please try again."; continue; }
+        const gen = await fetch(`/api/projects/${id}/generate`, { method: "POST" });
+        if (gen.ok) started += 1;
+        else failed = (await gen.json().catch(() => ({}))).error || "Your video could not be started. Please try again.";
+      }
+      if (toPay.length) {
+        const res = await fetch("/api/billing/film-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectIds: toPay }) });
+        const info = await res.json().catch(() => ({})) as { url?: string | null; error?: string };
+        if (res.ok && info.url) { window.location.assign(info.url); return; }
+        failed = info.error || "Your credits changed. Please try again.";
+      }
+    } catch { failed = "Couldn't reach MotionWren. Check your connection and try again."; }
+    if (failed) setError(failed);
+    else if (started) setMessage("Your videos are starting.");
+    setPaying("");
+    await load();
+  }
+
   async function removeOrders(list: Order[]) {
     let failed = 0;
     let busy = false;
@@ -251,6 +287,9 @@ export default function CustomerDashboard() {
   // History: every video ever ordered, newest first, one row each.
   const orderTitle = new Map<string, string>();
   for (const order of orders) for (const project of order.projects) orderTitle.set(project.id, order.title);
+  const unpaidIds = (order: Order) => order.projects.filter((project) => project.title.trim().toLowerCase() !== "content package" && isUnpaid(project)).map((project) => project.id);
+  const unpaidByProject = new Map<string, string[]>();
+  for (const order of orders) { const ids = unpaidIds(order); for (const id of ids) unpaidByProject.set(id, ids); }
   const historyItems = projects.filter((project) => project.status !== "draft" && project.title.trim().toLowerCase() !== "content package").sort((a, b) => b.createdAt - a.createdAt);
   counts.history = historyItems.length;
   const videoGroups = projects.filter((project) => project.title.trim().toLowerCase() !== "content package").map((project) => groupOf(project.status));
@@ -278,6 +317,7 @@ export default function CustomerDashboard() {
     const holding = Boolean(project.holding);
     const until = project.videoExpiresAt ? `Available until ${shortDate(project.videoExpiresAt)}` : "";
     const progress = productionProgress(project);
+    const unpaid = isUnpaid(project);
     return <li className="dlv" key={item.key}>
       <span className="dlv-icon"><KindIcon kind={item.kind} /></span>
       <div className="dlv-text">
@@ -285,7 +325,7 @@ export default function CustomerDashboard() {
         <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : "", progress?.detail || ""].filter(Boolean).join(" · ")}</small>
         {holding ? <span className="dlv-note">{HOLDING_MESSAGE}</span> : progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
       </div>
-      <span className={`status status-${item.group}`}><i />{holding ? "Taking longer" : progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
+      <span className={`status status-${unpaid ? "unpaid" : item.group}`}><i />{unpaid ? "Payment not finished" : holding ? "Taking longer" : progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
       {(project.finalHistoryId || canRetry || expired || (holding && project.refundable)) && <div className="dlv-actions">
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
@@ -370,6 +410,8 @@ export default function CustomerDashboard() {
             const canRetry = project.status === "failed" || stuck;
             const holding = Boolean(project.holding);
             const coverKey = project.coverAssetId ? `${project.id}/${project.coverAssetId}` : "";
+            const unpaid = isUnpaid(project);
+            const payIds = unpaidByProject.get(project.id) || [];
             return <li className="hist-row" key={project.id}>
               <span className={`hist-thumb${vertical ? " tall" : ""}`}>
                 {coverKey && !brokenCovers.includes(coverKey)
@@ -382,7 +424,7 @@ export default function CustomerDashboard() {
                 <small>{[orderTitle.get(project.id) && orderTitle.get(project.id) !== project.title ? orderTitle.get(project.id) as string : "", dateTime(project.createdAt), project.targetDuration ? `${project.targetDuration} sec` : "", aspectLabel(project.aspect)].filter(Boolean).join(" · ")}</small>
                 {holding ? <span className="dlv-note">{HOLDING_MESSAGE}</span> : progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
               </div>
-              <span className={`status status-${group}`}><i />{holding ? "Taking longer" : progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
+              <span className={`status status-${unpaid ? "unpaid" : group}`}><i />{unpaid ? "Payment not finished" : holding ? "Taking longer" : progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
               <div className="hist-actions">
                 {project.finalHistoryId && <>
                   <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: project.title, historyId: project.finalHistoryId as string, vertical })}>Watch</button>
@@ -391,6 +433,7 @@ export default function CustomerDashboard() {
                 </>}
                 {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
                 {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
+                {unpaid && payIds.length > 0 && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(paying)} onClick={() => finishPayment(`history:${project.id}`, payIds)}>{paying === `history:${project.id}` ? "Opening…" : "Finish payment"}</button>}
               </div>
             </li>;
           })}
@@ -418,7 +461,15 @@ export default function CustomerDashboard() {
                     <span className="order-count">{order.videos ? `${order.ready} of ${order.videos} ${order.videos === 1 ? "video" : "videos"} ready` : "In design"}</span>
                   </header>
                   <ul className="dlv-list">{order.deliverables.map(renderDeliverable)}</ul>
-                  {!order.projects.some((project) => MAKING.includes(project.status)) && <div className="order-foot"><button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button></div>}
+                  {(() => {
+                    const payIds = unpaidIds(order);
+                    const deletable = !order.projects.some((project) => MAKING.includes(project.status));
+                    if (!payIds.length && !deletable) return null;
+                    return <div className="order-foot">
+                      {payIds.length > 0 && <button type="button" className="btn btn-ink btn-sm" disabled={Boolean(paying)} onClick={() => finishPayment(order.key, payIds)}>{paying === order.key ? "Opening…" : "Finish payment"}</button>}
+                      {deletable && <button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button>}
+                    </div>;
+                  })()}
                 </div>
               </article>;
             })}

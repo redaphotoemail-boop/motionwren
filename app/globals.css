@@ -403,6 +403,7 @@ p { text-wrap: pretty; }
 .status-production i, .status-warn i { background: var(--amber); animation: rec-blink 1.4s infinite; }
 .status-failed i, .status-bad i { background: var(--bad); }
 .status-draft i { background: #B9BCC1; }
+.status-unpaid i { background: var(--amber); }
 .status-cancelled i { background: #B9BCC1; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--faint); }
 .dot-ok { background: var(--ok); } .dot-bad { background: var(--bad); } .dot-warn { background: var(--amber); }
@@ -1243,7 +1244,7 @@ p { text-wrap: pretty; }
 .dlv-note { color: var(--muted); font-size: 13px; }
 .dlv-note a { color: var(--ink); }
 .status-design i { background: var(--amber); }
-.order-foot { margin-top: auto; padding-top: 18px; display: flex; justify-content: flex-end; }
+.order-foot { margin-top: auto; padding-top: 18px; display: flex; justify-content: flex-end; align-items: center; gap: 16px; }
 .order-new { appearance: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 150px; border: 0; border-radius: var(--r-xl); background: var(--paper-2); color: var(--muted); font: inherit; cursor: pointer; transition: background .25s var(--ease), box-shadow .25s; }
 .order-new:hover { background: var(--surface); box-shadow: var(--lift); }
 .order-new:hover .video-new-plus { transform: rotate(90deg); }
