@@ -7,7 +7,7 @@ import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
 import SaveVideo from "../components/save-video";
 import { aspectLabel } from "../aspect-label";
-import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, dollars } from "../pricing";
+import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, PRO_CREDITS, PRO_MONTHLY_CENTS, dollars } from "../pricing";
 import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
 
 /* The client's workspace: every order in one place, each with all of its
@@ -145,7 +145,7 @@ export default function CustomerDashboard() {
     finally { setRedeeming(false); }
   }
 
-  async function startCheckout(plan: "single" | "five" | "pro") {
+  async function startCheckout(plan: "single" | "five" | "member" | "pro") {
     setError("");
     const response = await fetch("/api/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
     const data = await response.json();
@@ -377,10 +377,11 @@ export default function CustomerDashboard() {
         <div className="credits-options">
           <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("single")}><strong>1 video</strong><span>{dollars(BASE_CENTS)}</span></button>
           <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>{dollars(FIVE_PACK_CENTS)}</span></button>
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>Membership</strong><span>{dollars(MEMBER_MONTHLY_CENTS)}/mo</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("member")}><strong>Membership</strong><span>{dollars(MEMBER_MONTHLY_CENTS)}/mo</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>{PRO_CREDITS} monthly</strong><span>{dollars(PRO_MONTHLY_CENTS)}/mo</span></button>
         </div>
-        <p className="fine">{`A credit covers one ${BASE_SECONDS}-second film; up to ${LONG_SECONDS} seconds is ${dollars(LONG_CENTS)}, so a longer film pays the difference. Membership: ${MEMBER_FILMS} films a month, each up to ${MEMBER_FILM_SECONDS} seconds.`}</p>
-        {account?.plan === "pro" && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>Manage or cancel membership</button></p>}
+        <p className="fine">{`A credit covers one ${BASE_SECONDS}-second film; up to ${LONG_SECONDS} seconds is ${dollars(LONG_CENTS)}, so a longer film pays the difference. Membership: ${MEMBER_FILMS} films a month, each up to ${MEMBER_FILM_SECONDS} seconds. Pro: ${PRO_CREDITS} ${BASE_SECONDS}-second credits a month.`}</p>
+        {(account?.plan === "member" || account?.plan === "pro") && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>{account.plan === "pro" ? "Manage or cancel Pro" : "Manage or cancel membership"}</button></p>}
         {!billingEnabled && <p className="fine">Card payments are not switched on yet.</p>}
       </section>}
 

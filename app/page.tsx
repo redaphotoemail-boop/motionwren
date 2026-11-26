@@ -1,5 +1,5 @@
 import { HOME_STAGES } from "./pipeline-steps";
-import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, dollars, minPhotosFor, priceForSeconds } from "./pricing";
+import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, PRO_CREDITS, PRO_MONTHLY_CENTS, dollars, minPhotosFor, priceForSeconds } from "./pricing";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { configuredAdmins, getGoogleSession } from "./api/_lib/account";
@@ -148,7 +148,7 @@ export default async function HomePage({ searchParams }: { searchParams?: Promis
         <article className="plan reveal"><span className="plan-name">Listing film</span><p className="plan-price">{dollars(LONG_CENTS)}</p><small className="plan-per">Up to {LONG_SECONDS} seconds</small><strong>The full walkthrough</strong><p>{`From ${minPhotosFor(LONG_SECONDS)} photos, in 1080p, sized for every channel.`}</p><a className="btn btn-soft" href={accountPath} target="_top">Start one project</a></article>
         <article className="plan plan-featured reveal"><span className="plan-name">Membership</span><p className="plan-price">{dollars(MEMBER_MONTHLY_CENTS)}<small>/month</small></p><small className="plan-per">{MEMBER_FILMS} films a month</small><strong>{`Up to ${MEMBER_FILM_SECONDS} seconds each`}</strong><p>For agents with a new listing every week. Cancel anytime.</p><a className="btn btn-amber" href={accountPath} target="_top">Become a member</a></article>
       </div>
-      <p className="plans-note muted">{`Also: five ${BASE_SECONDS}-second films for ${dollars(FIVE_PACK_CENTS)}. A longer film pays only the difference.`}</p>
+      <p className="plans-note muted">{`Also: five ${BASE_SECONDS}-second films for ${dollars(FIVE_PACK_CENTS)}, or Pro: ${PRO_CREDITS} ${BASE_SECONDS}-second films a month for ${dollars(PRO_MONTHLY_CENTS)}. A longer film pays only the difference.`}</p>
     </section>
 
     <section className="closer site-wrap">

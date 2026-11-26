@@ -301,7 +301,7 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
     try {
       const res = await fetch("/api/account", { cache: "no-store" });
       const data = res.ok ? ((await res.json()) as { account?: { plan?: string } }) : {};
-      if (data.account?.plan === "pro") { hero.targetDuration = filmLengthForPhotos(photos.length, MEMBER_FILM_SECONDS); await idbPut(pkg); }
+      if (data.account?.plan === "member") { hero.targetDuration = filmLengthForPhotos(photos.length, MEMBER_FILM_SECONDS); await idbPut(pkg); }
     } catch { /* Not a member, or not signed in yet: the film keeps its length. */ }
   }
   const counts = pkg.video.map((entry, index) => photosForVideo(index, entry.targetDuration, photos.length));

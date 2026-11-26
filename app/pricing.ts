@@ -56,6 +56,9 @@ export function filmLengthForPhotos(photos: number, longest = LONG_SECONDS): num
 
 /** Five-pack: five 20-second credits. */
 export const FIVE_PACK_CENTS = 12500;
+/** Pro (kept, Reda Nov 26 2026): ten 20-second credits a month. */
+export const PRO_MONTHLY_CENTS = 19900;
+export const PRO_CREDITS = 10;
 
 /** "$29", "$49", "$12.50". */
 export const dollars = (cents: number) => `$${cents % 100 ? (cents / 100).toFixed(2) : cents / 100}`;

@@ -40,7 +40,7 @@ export default function PrivacyPage() {
             <li>Technical and security logs are kept only as long as needed for security, abuse prevention and support, and are then deleted.</li>
             <li>Billing and payment records are kept for as long as the law requires for tax and accounting purposes. We do not store card details on our servers — card payments are handled by Stripe.</li>
           </ul>
-          <p>When we delete your account, your projects, photos, videos and credits are deleted as described in “Your choices” below, and any membership is canceled. Copies may remain in backups for a short period until those backups are replaced, and billing records (amounts and dates, with no card details) are kept for the legal period above even after your account is deleted.</p>
+          <p>When we delete your account, your projects, photos, videos and credits are deleted as described in “Your choices” below, and any membership or Pro subscription is canceled. Copies may remain in backups for a short period until those backups are replaced, and billing records (amounts and dates, with no card details) are kept for the legal period above even after your account is deleted.</p>
         </section>
         <section>
           <h2>Security</h2>

@@ -1,12 +1,13 @@
 import { audit, customerError, requireAccount } from "../../_lib/account";
 import { MEMBER_FILMS } from "../../../pricing";
 
-/* "pro" is the Membership ($99 a month, MEMBER_FILMS films a month, each up to MEMBER_FILM_SECONDS). The key stays
-   "pro" so accounts, subscriptions and the Stripe price setting (STRIPE_PRICE_PRO) keep working unchanged. */
+/* Pro ($199 a month, ten 20-second credits) stays (Reda, Nov 26 2026). Membership ($99 a month) gives MEMBER_FILMS
+   films a month, each up to MEMBER_FILM_SECONDS (see the webhook's member_film rows). */
 const PLANS = {
   single: { priceEnv: "STRIPE_PRICE_SINGLE", mode: "payment", credits: 1, label: "Single" },
   five: { priceEnv: "STRIPE_PRICE_FIVE_PACK", mode: "payment", credits: 5, label: "Five-pack" },
-  pro: { priceEnv: "STRIPE_PRICE_PRO", mode: "subscription", credits: MEMBER_FILMS, label: "Membership" },
+  pro: { priceEnv: "STRIPE_PRICE_PRO", mode: "subscription", credits: 10, label: "Pro" },
+  member: { priceEnv: "STRIPE_PRICE_MEMBER", mode: "subscription", credits: MEMBER_FILMS, label: "Membership" },
 } as const;
 
 export async function POST(request: Request) {
