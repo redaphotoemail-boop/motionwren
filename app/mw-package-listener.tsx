@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PaySheet from "./components/pay-sheet";
 import { BASE_SECONDS, MEMBER_FILM_SECONDS, TEASER_SECONDS, filmLengthForPhotos, filmSecondsFor } from "./pricing";
 
 /* Seamless production: pressing Create in the plan flow starts everything.
@@ -240,7 +241,7 @@ function createDraftOrder(pkg: SavedPackage): Promise<Response> {
 
 /* redirecting: the customer is on their way to Stripe (nothing failed).
    waiting: they paid and the order is being confirmed (a few seconds). */
-type PipelineResult = { done: boolean; auth: boolean; errors: string[]; redirecting?: boolean; waiting?: boolean };
+type PipelineResult = { done: boolean; auth: boolean; errors: string[]; redirecting?: boolean; waiting?: boolean; pay?: { ids: string[]; titles: Record<string, string> } };
 
 /* Back from Stripe with ?billing=success: the payment is confirmed by
    Stripe's webhook, which also submits the paid films. Until it lands the
@@ -436,20 +437,12 @@ async function runPackage(pkg: SavedPackage, onProgress?: (progress: PipelinePro
     }
   }
   if (toPay.length) {
-    // One payment for the whole order, then Stripe brings them back to the dashboard and the films start on their own.
-    try {
-      const res = await fetch("/api/billing/film-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectIds: toPay.map((entry) => entry.projectId) }) });
-      if (res.status === 401) return { done: false, auth: true, errors };
-      const info = res.ok ? ((await res.json()) as { url?: string | null }) : null;
-      if (info?.url) {
-        await idbPut(pkg);
-        window.location.assign(info.url);
-        return { done: false, auth: false, errors, redirecting: true };
-      }
-      errors.push(res.ok ? "Your credits changed. Please try again." : await errorText(res));
-    } catch {
-      errors.push("Couldn't reach MotionWren. Check your connection and try again.");
-    }
+    // One payment for the whole order, taken on this page (PaySheet below); the webhook starts the films once Stripe confirms it.
+    await idbPut(pkg);
+    const ids = toPay.map((entry) => entry.projectId).filter((id): id is string => Boolean(id));
+    const titles: Record<string, string> = {};
+    for (const entry of toPay) if (entry.projectId) titles[entry.projectId] = entry.title;
+    return { done: false, auth: false, errors, pay: { ids, titles } };
   }
   if (awaitingPayment && !errors.length) return { done: false, auth: false, errors, waiting: true };
   return { done: pkg.video.every((entry) => entry.stage === "generating"), auth: false, errors };
@@ -470,6 +463,7 @@ type Banner = { message: string; retryPackage: boolean };
 export default function MwPackageListener() {
   const [banner, setBanner] = useState<Banner | null>(null);
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
+  const [pay, setPay] = useState<{ ids: string[]; titles: Record<string, string> } | null>(null);
 
   useEffect(() => {
     let running = false;
@@ -511,6 +505,7 @@ export default function MwPackageListener() {
         const result = await run(pending);
         if (result.auth) return; // Still signed out — keep it for the next visit.
         if (result.redirecting) return; // On the way to Stripe.
+        if (result.pay) { setPay(result.pay); return; } // Payment sheet on this page.
         if (result.waiting) { awaitConfirmation(); return; }
         if (result.done) {
           await idbDel();
@@ -594,6 +589,7 @@ export default function MwPackageListener() {
         return;
       }
       if (result.redirecting) return;
+      if (result.pay) { setPay(result.pay); return; }
       if (result.waiting) { awaitConfirmation(); return; }
       if (result.done) {
         await idbDel();
@@ -619,6 +615,7 @@ export default function MwPackageListener() {
         return;
       }
       if (result.redirecting) return;
+      if (result.pay) { setPay(result.pay); return; }
       if (result.waiting) { awaitConfirmation(); return; }
       if (result.done) {
         await idbDel();
@@ -639,6 +636,29 @@ export default function MwPackageListener() {
       delete (window as unknown as { __mwRetryPipeline?: () => void }).__mwRetryPipeline;
     };
   }, []);
+
+  if (pay) {
+    return <PaySheet
+      projectIds={pay.ids}
+      titles={pay.titles}
+      onPaid={() => {
+        // Back on the dashboard with ?billing=success, the saved order waits for Stripe's confirmation and then shows the films starting.
+        window.setTimeout(() => window.location.assign("/dashboard?billing=success"), 1200);
+      }}
+      onClose={() => {
+        setPay(null);
+        void (async () => {
+          const pending = await idbGet();
+          if (pending) { pending.attempted = true; await idbPut(pending); }
+          setBanner({ message: "Payment not finished. Your order is saved.", retryPackage: true });
+        })();
+      }}
+      onNothingDue={() => {
+        setPay(null);
+        setBanner({ message: "Your credits changed. Please try again.", retryPackage: true });
+      }}
+    />;
+  }
 
   if (progress) {
     const uploading = progress.stage === "upload" && progress.total > 0;
