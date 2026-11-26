@@ -39,7 +39,10 @@ const localBindingConfig = {
     STRIPE_PRICE_FIVE_PACK: "price_1UfZpoIypmSMFeRmzeA5rVtT",
     STRIPE_PRICE_PRO: "price_1UfZppIypmSMFeRm9NGQjsPe",
     STRIPE_PRICE_MEMBER: "price_1UfoDtIypmSMFeRmj7TR5609", // Membership $99 a month (test mode)
-    // STRIPE_PUBLISHABLE_KEY: "pk_test_…", // not a secret: lets the payment form show on our own page (app/components/pay-sheet.tsx); without it checkout opens on Stripe's page as before
+    // Not a secret (Stripe publishes it in every checkout page): lets the payment form show on our own page
+    // (app/components/pay-sheet.tsx). MotionWren sandbox (test mode), same account as the test secret key;
+    // swap in the live pk_live_ key together with the live secret key. Without it checkout opens on Stripe's page.
+    STRIPE_PUBLISHABLE_KEY: "pk_test_51UfKTtIypmSMFeRmyZoiXllDHoHDbLeRbQX4GfWfSXlV9YKOhcAmIPx2Yec3qMxeJt4TrcYxPHmuh2OzYTrxr1G500Uyn5pz9y",
   },
   durable_objects: { bindings: [{ name: "COMPOSER", class_name: "Composer" }] },
   migrations: [{ tag: "composer-v1", new_sqlite_classes: ["Composer"] }],
