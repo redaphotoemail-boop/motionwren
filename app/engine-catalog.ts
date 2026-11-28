@@ -153,14 +153,13 @@ export const studioEngines: StudioEngine[] = [
     key: "magi2",
     name: "Magi 2 (Sand AI)",
     shortName: "Magi 2",
-    description: "Sand AI's Magi 2, made natively at 1080p and sold by Sand AI directly (not through Replicate). Cheaper per second than our other 1080p engines. To be judged on real photos before it is used for customers.",
+    description: "Sand AI's Magi 2, made natively at 1080p and sold by Sand AI directly (not through Replicate). Cheaper per second than our other 1080p engines. Owner-tested on real photos before it is used for customers.",
     bestFor: "Low price · to test",
     resolutions: ["1080p"],
     audio: false,
     firstLastFrame: false,
     realEstate: true,
     badge: "NEW",
-    unavailable: "Waiting for the Sand AI key: add SAND_API_KEY, then switch this on", // hidden from the picker until the owner has added the key and approved a test film
     pricePerSecond: { "1080p": 0.08 }, // Sand AI's price list: $0.08 per second at 1080p, no separate upscale
   },
   {

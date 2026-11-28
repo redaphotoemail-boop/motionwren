@@ -27,8 +27,8 @@ globalThis.fetch = async (url, init = {}) => {
   assert.deepEqual(await sandPrediction("sand:2"), { status: "failed", error: "bad photo" });
   assert.equal((await sandPrediction("sand:3")).status, "processing"); ok("Sand AI answers are read in Replicate's shape"); }
 { const engine = studioEngine("magi2");
-  assert.ok(engine.unavailable, "hidden until the key is added"); assert.ok(!studioEngines.filter((e) => !e.unavailable).some((e) => e.key === "magi2"));
+  assert.ok(!engine.unavailable, "switched on"); assert.ok(studioEngines.filter((e) => !e.unavailable).some((e) => e.key === "magi2"));
   assert.equal(Math.round(engineCost("magi2", "1080p", 20) * 100), 160); assert.ok(ENGINE_ENDPOINTS.magi2.startsWith("https://api.sand.ai"));
   assert.equal(buildEngineInput("magi2", { imageUrl: "u", prompt: "p", duration: 5, resolution: "1080p", aspectRatio: "16:9" }).image, "u");
-  assert.ok(isEngineVideoHost("cdn.sand.ai") && !isEngineVideoHost("evilsand.ai")); ok("catalog: $0.08 a second, hidden until switched on, video host allowed"); }
+  assert.ok(isEngineVideoHost("cdn.sand.ai") && !isEngineVideoHost("evilsand.ai")); ok("catalog: $0.08 a second, switched on, video host allowed"); }
 console.log(`${n} passed, 0 failed`);
