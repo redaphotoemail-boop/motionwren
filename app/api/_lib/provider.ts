@@ -20,6 +20,7 @@
    callback and the minute heartbeat see the same picture. */
 
 import { guardAtEngine } from "./spend-guard";
+import { isSandEndpoint, sandCreate } from "./sand-provider";
 
 export type ProviderErrorKind = "throttled" | "credit" | "transient" | "rejected" | "budget";
 
@@ -66,6 +67,7 @@ export function classify(status: number, detail: string, response?: Response): P
 export async function createPrediction(token: string, endpoint: string, input: Record<string, unknown>, webhook?: string): Promise<string> {
   const stopped = await guardAtEngine(); // the spending guard: the last gate before any engine charge
   if (stopped) throw new ProviderError("budget", stopped);
+  if (isSandEndpoint(endpoint)) return sandCreate(input); // Magi 2 is made by Sand AI, polled by the heartbeat (no callback)
   let response: Response;
   try {
     response = await fetch(providerUrl(endpoint), {

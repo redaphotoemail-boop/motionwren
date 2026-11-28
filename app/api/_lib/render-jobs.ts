@@ -12,6 +12,7 @@ import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "./film
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
 import { ENGINE_ORDER } from "../../engine-order";
 import { isEngineVideoHost } from "./engine-hosts";
+import { isSandId, sandPrediction } from "./sand-provider";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { MAX_TAKES, sceneOrder, takeFile } from "../../scene-order";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
@@ -94,6 +95,7 @@ export async function replicatePrediction(token: string, id: string): Promise<Re
   if (id.startsWith("pending-")) return { status: "starting" };
   // A scene of a stopped video that was picked up again: make it once more.
   if (id.startsWith("resume-")) return { status: "failed", error: "Picked up again." };
+  if (isSandId(id)) return sandPrediction(id);
   if (id.startsWith("compositor:")) {
     const baseUrl = process.env.COMPOSITOR_API_URL;
     const secret = process.env.COMPOSITOR_API_SECRET;
@@ -129,6 +131,7 @@ export async function cancelProviderJob(token: string, id: string) {
     return;
   }
   if (id.startsWith("pending-") || id.startsWith("resume-")) return;
+  if (isSandId(id)) return; // Sand AI documents no cancel call; a stopped scene simply is not used
   await fetch(providerUrl(`https://api.replicate.com/v1/predictions/${id}/cancel`), { method: "POST", headers: { Authorization: `Bearer ${token}` } });
 }
 

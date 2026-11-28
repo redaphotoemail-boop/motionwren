@@ -24,11 +24,12 @@ export const ENGINE_ENDPOINTS: Record<StudioEngineKey, string> = {
   h3: "https://api.replicate.com/v1/models/minimax/h3/predictions",
   vidu3turbo: "https://api.replicate.com/v1/models/vidu/q3-turbo/predictions",
   luma: "https://api.replicate.com/v1/models/luma/ray-3.2/predictions",
+  magi2: "https://api.sand.ai/v2/generations", // Sand AI's own API (not Replicate): see sand-provider.ts
   photo2: "", // made by our own editor, never sent to a provider
   photo3: "",
 };
 
-export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3", "vidu3turbo", "luma", "photo", "photo2", "photo3"];
+export const ENGINE_KEYS: StudioEngineKey[] = ["kling3", "geminiOmni", "veo31Lite", "hailuo23", "runway4turbo", "runway45", "wan25", "wan27", "wan3", "h3lite", "h3", "vidu3turbo", "luma", "magi2", "photo", "photo2", "photo3"];
 
 export function isEngineKey(value: unknown): value is StudioEngineKey {
   return typeof value === "string" && (ENGINE_KEYS as string[]).includes(value);
@@ -80,6 +81,7 @@ function engineInput(engine: StudioEngineKey, options: EngineInputOptions): Reco
   if (engine === "hailuo23") return { first_frame_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3700)} ${ADD_NOTHING}`, duration: options.duration, resolution: options.resolution === "1080p" ? "1080p" : "768p", prompt_optimizer: false };
   if (engine === "photo" || engine === "photo2" || engine === "photo3") return { image: options.imageUrl };
   if (engine === "runway4turbo") return { image: options.imageUrl, prompt: runwayPrompt(options.prompt), duration: options.duration === 10 ? 10 : 5, aspect_ratio: options.aspectRatio };
+  if (engine === "magi2") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "luma") return { start_image: options.imageUrl, prompt: `${options.prompt.slice(0, 3700)} ${ADD_NOTHING}`, duration: 5, resolution: options.resolution === "1080p" ? "1080p" : "720p", aspect_ratio: options.aspectRatio };
   if (engine === "runway45") return { image: options.imageUrl, prompt: runwayPrompt(options.prompt), duration: options.duration, aspect_ratio: options.aspectRatio };
   if (engine === "wan25") return { image: options.imageUrl, prompt: `${options.prompt.slice(0, 3600)} ${ADD_NOTHING}`, resolution: options.resolution, duration: options.duration, enable_prompt_expansion: true, negative_prompt: NEGATIVE };
