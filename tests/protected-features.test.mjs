@@ -153,3 +153,6 @@ assert.ok(readFileSync("app/admin/finance/page.tsx", "utf8").includes("<Cloudfla
 { const panel = readFileSync("app/admin/finance/cloudflare-usage.tsx", "utf8");
   assert.ok(panel.includes("<CloudflareBreakdown") && panel.includes("By feature") && panel.includes("By Cloudflare service") && panel.includes("Usage against what the plan includes"), "Finance keeps the Cloudflare bill by feature and by service, and the usage meters");
   assert.ok(readFileSync("app/api/_lib/composer.ts", "utf8").includes("machineFeature(name)") && readFileSync("worker/composer.ts", "utf8").includes("labels = { feature }"), "Every editing machine keeps its feature label, so its cost can be split by feature"); }
+
+{ assert.ok(readFileSync("app/api/_lib/provider.ts", "utf8").includes("isSandEndpoint(endpoint)") && readFileSync("app/api/_lib/render-jobs.ts", "utf8").includes("isSandId(id)"), "Magi 2 goes through Sand AI while every other engine stays on Replicate");
+  assert.ok(readFileSync("app/engine-catalog.ts", "utf8").includes('key: "wan3"') && readFileSync("app/engine-catalog.ts", "utf8").includes('key: "magi2"'), "Engine choice keeps every engine"); }
