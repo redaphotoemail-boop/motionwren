@@ -28,7 +28,7 @@ export default function CostTab({ id }: { id: string }) {
       {data && <>
         {data.lines.map((line) => <div className="cost-row" key={line.label}><div><strong>{line.label}</strong><small>{line.detail}</small></div><span>{line.estimate ? "≈ " : ""}{money(line.cents)}</span></div>)}
         <div className="cost-row cost-total"><strong>Total</strong><span>{money(data.totalCents)}</span></div>
-        <small className="cost-note">≈ marks an estimate from list prices. Your providers' billing pages are the final word.</small>
+        <small className="cost-note">≈ marks an estimate from list prices. Your providers&apos; billing pages are the final word.</small>
       </>}
     </div>}
   </div>;
