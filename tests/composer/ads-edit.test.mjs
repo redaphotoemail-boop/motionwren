@@ -168,8 +168,8 @@ const spec = (over = {}) => ({ clips: [clip(1), clip(2)], width: 640, height: 36
   // (c) .ass per-line styles mirror the Worker side: grouped styles,
   // centre alignment 5, and one Style line when no line has its own style.
   const styled = assText([
-    { start: 0, end: 17, text: "Treztive", position: "top", size: "small" },
-    { start: 0, end: 4.25, text: "Restaurant", position: "center", size: "large" },
+    { start: 0, end: 17, text: "Brand", position: "top", size: "small" },
+    { start: 0, end: 4.25, text: "Modern", position: "center", size: "large" },
     { start: 5, end: 7, text: "Plain line" },
   ], { position: "bottom", size: "medium", height: 360 });
   check("F7 the composer .ass groups per-line styles — top 8, centre 5, bottom 2", (styled.match(/^Style:/gm) || []).length === 3 && /,8,20,20,40,1/.test(styled) && /,5,20,20,0,1/.test(styled) && /,2,20,20,40,1/.test(styled), styled.split("\n").filter((line) => line.startsWith("Style:")).join(" | "));

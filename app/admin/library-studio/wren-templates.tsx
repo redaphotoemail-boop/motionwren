@@ -9,6 +9,8 @@ import type { WrenTemplate } from "../../wrencut";
 import { PreviewPlayer } from "../../wrencut-player";
 import { FxChips } from "../../fx-chips";
 import { socialSpec } from "../../social-templates";
+import { fixedSocialRecipe } from "../../template-fixed";
+import { RecipeSheet } from "../../recipe-sheet";
 
 export function WrenTemplates() {
   const [items, setItems] = useState<WrenTemplate[] | null>(null);
@@ -30,10 +32,11 @@ export function WrenTemplates() {
     setUpdating(true); setNote("");
     try {
       const response = await fetch("/api/admin/wrencut", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "installSocial" }) });
-      const data = await response.json().catch(() => ({})) as { templates?: WrenTemplate[]; added?: number; updated?: number; error?: string };
+      const data = await response.json().catch(() => ({})) as { templates?: WrenTemplate[]; added?: number; updated?: number; refused?: string[]; error?: string };
       if (!response.ok) throw new Error(data.error || "Could not update the social templates.");
       setItems(data.templates || []);
-      setNote(data.added || data.updated ? `${data.added || 0} added, ${data.updated || 0} refreshed.` : "Already up to date.");
+      const refused = data.refused?.length ? ` Not installed (recipe check failed): ${data.refused.join(" ")}` : "";
+      setNote((data.added || data.updated ? `${data.added || 0} added, ${data.updated || 0} refreshed.` : "Already up to date.") + refused);
     } catch (error) { setNote(error instanceof Error ? error.message : "Could not update the social templates."); }
     setUpdating(false);
   }
@@ -56,6 +59,7 @@ export function WrenTemplates() {
             <ol>{spec.acts.map((act) => <li key={act.label}><b>{act.label}</b>{act.essential ? " (needed)" : ""}: {act.hint} <i>Camera: {act.move}.</i></li>)}</ol>
             <ul>{[...spec.rules, ...spec.avoid.map((rule) => `Avoid: ${rule}`), ...spec.approx.map((note) => `Different from the original: ${note}`)].map((rule) => <li key={rule}>{rule}</li>)}</ul>
           </details> : null}
+          {spec ? <RecipeSheet recipe={fixedSocialRecipe(spec)} /> : null}
         </div>
         <div className="wl-foot"><span>In Studio</span><button type="button" role="switch" aria-checked={item.active} aria-label={`Show ${item.name} in Studio`} className={item.active ? "ml-switch on" : "ml-switch"} onClick={() => { void toggle(item); }}><i /></button></div>
       </li>

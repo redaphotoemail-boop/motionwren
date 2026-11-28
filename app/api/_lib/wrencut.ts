@@ -7,6 +7,7 @@
 import { machineStub, release } from "./composer";
 import { parseRecipe, recipeEffects, recipePhotoGuide, recipePhotos, recipeSeconds, type WrenRecipe, type WrenTemplate } from "../../wrencut";
 import { SOCIAL_SPECS, buildSocialRecipe, keptActs, socialGuide, socialSpec } from "../../social-templates";
+import { socialRecipeProblems } from "../../template-fixed";
 import { smoothRecipe } from "../../wrencut-fit";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
@@ -62,13 +63,17 @@ export function recipeFor(wren: { recipe: WrenRecipe; social: string | null }, c
 }
 
 /* The social-media templates (app/social-templates.ts) are kept as ordinary templates with a social key. Installing adds
-   any that are missing and refreshes the recipe of the others (their name, engine and on/off stay). */
-export async function installSocial(env: Env): Promise<{ added: number; updated: number }> {
+   any that are missing and refreshes the recipe of the others (their name, engine and on/off stay). A template whose
+   fixed recipe does not pass the contract (app/template-contract.ts) is never installed or refreshed: it is reported. */
+export async function installSocial(env: Env): Promise<{ added: number; updated: number; refused: string[] }> {
   await ensure(env);
   const existing = await env.DB.prepare(`SELECT id, social_key AS key, recipe FROM wrencut_templates WHERE social_key IS NOT NULL`).all<{ id: string; key: string; recipe: string }>();
   const have = new Map((existing.results || []).map((row) => [row.key, row]));
   let added = 0, updated = 0;
+  const refused: string[] = [];
   for (const spec of SOCIAL_SPECS) {
+    const problems = socialRecipeProblems(spec);
+    if (problems.length) { refused.push(problems[0]); continue; }
     const recipe = JSON.stringify(buildSocialRecipe(spec));
     const row = have.get(spec.key);
     if (row) {
@@ -80,7 +85,7 @@ export async function installSocial(env: Env): Promise<{ added: number; updated:
     added += 1;
   }
   await env.DB.prepare(`INSERT INTO platform_settings (key, value, updated_at) VALUES ('social_templates_installed', '1', ?) ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`).bind(Date.now()).run().catch(() => undefined);
-  return { added, updated };
+  return { added, updated, refused };
 }
 
 /* The first time the templates are listed, the social ones are added. After that only the owner's "Update" does it, so a
