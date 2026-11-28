@@ -33,7 +33,7 @@ function cfBinding({ artifact = "OK", flagByte = 0 } = {}) {
       calls.push(input.prompt);
       if (input.prompt.includes("Describe this real-estate photograph")) return { response: "A living room with a grey sofa, wooden floor, white walls, and a large window." };
       if (input.prompt.includes("This is a frame from a real-estate promo video")) return { response: artifact };
-      if (input.prompt.includes("Compare the frame")) return { response: input.image[0] === flagByte ? "ISSUE: added a sofa" : "OK" };
+      if (input.prompt.includes("the photograph described below")) return { response: input.image[0] === flagByte ? "ISSUE: added a sofa" : "OK" };
       return { response: "OK" };
     },
   };
@@ -45,10 +45,10 @@ const describes = (calls) => calls.filter((prompt) => prompt.includes("Describe 
 {
   const { env, calls } = cfBinding({ flagByte: 2 });
   const review = await lib.reviewStills(env, stills, times, { cloudflare: true, claude: false }, sources);
-  check("1 Cloudflare flags an added object as a reality finding", review.status === "flag" && review.findings.length === 1 && review.findings[0].at === 7.5 && review.findings[0].issue === "Reality: added a sofa", JSON.stringify(review.findings));
+  check("1 Cloudflare alone only leaves a note about an added object (it never flags)", review.status === "pass" && review.findings.length === 0 && review.notes?.length === 1 && review.notes[0].at === 7.5 && review.notes[0].issue === "Reality: added a sofa", JSON.stringify(review));
   check("2 the source photograph is described once per pair", describes(calls) === 3, `${describes(calls)} describe calls`);
   check("3 the reality pass costs twice the artifact pass", review.costCents === 1.5, `costCents=${review.costCents}`);
-  check("4 reality findings are counted separately", review.realityFindings === 1, `realityFindings=${review.realityFindings}`);
+  check("4 Cloudflare-only remarks are not counted as reality findings", review.realityFindings === 0, `realityFindings=${review.realityFindings}`);
 }
 
 // 5 — clean pairs pass
@@ -84,7 +84,7 @@ const describes = (calls) => calls.filter((prompt) => prompt.includes("Describe 
 {
   const { env } = cfBinding({ artifact: "ISSUE: bent wall" });
   const review = await lib.reviewStills(env, stills, times, { cloudflare: true, claude: false }, sources);
-  check("9 an artifact flag still works and is not labelled reality", review.status === "flag" && review.findings.some((item) => item.issue === "bent wall"), JSON.stringify(review.findings));
+  check("9 an artifact remark from Cloudflare alone is a note, not labelled reality", review.status === "pass" && (review.notes || []).some((item) => item.issue === "bent wall" && !/^Reality/.test(item.issue)), JSON.stringify(review));
 }
 
 // Claude legs (mocked fetch, no network)
@@ -116,7 +116,7 @@ function claudeFetch({ artifactIssues = [], realityIssues = [] }) {
   globalThis.fetch = claudeFetch({ realityIssues: [] });
   const review = await lib.reviewStills(env, stills, times, { cloudflare: true, claude: true }, sources);
   check("12 Claude overruling a reality flag clears it", review.status === "pass" && review.findings.length === 0 && review.realityFindings === 0, JSON.stringify(review));
-  check("13 both reviewers cost artifact plus reality on each", review.costCents === 4.5, `costCents=${review.costCents}`);
+  check("13 when Cloudflare remarks, Claude looks again: both reviewers are paid for", review.costCents === 7.5, `costCents=${review.costCents}`);
   globalThis.fetch = realFetch;
   delete process.env.ANTHROPIC_API_KEY;
 }

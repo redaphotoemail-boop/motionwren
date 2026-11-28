@@ -32,6 +32,20 @@ function TwentySecondBreakdown() {
   const engine = engines.find((item) => item.key === key) || engines[0];
   const [resolution, setResolution] = useState(engine.resolutions.includes("1080p") ? "1080p" : engine.resolutions[engine.resolutions.length - 1]);
   const res = (engine.resolutions as string[]).includes(resolution) ? resolution : engine.resolutions[engine.resolutions.length - 1];
+  /* Start on the engine customers' films really use (Admin → default engine), so the totals match real orders. */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/admin/settings", { cache: "no-store" });
+        const body = await response.json() as { defaultEngine?: string };
+        const live = engines.find((item) => item.key === body.defaultEngine);
+        if (live && !cancelled) { setKey(live.key); setResolution(live.resolutions.includes("1080p") ? "1080p" : live.resolutions[live.resolutions.length - 1]); }
+      } catch { /* the picker simply keeps its starting engine */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /* One real film of a sold length: the scenes are planned exactly as an order is (scenePlan), every scene is made at its full engine length, then music, editing and the AI steps. */
   const filmFor = (seconds: number) => {
     const plan = scenePlan(engine.key, res as never, seconds, 24);
