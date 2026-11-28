@@ -6,7 +6,9 @@ import { Icon } from "../ui-icon";
 import { WrenMark, Wordmark } from "../components/brand";
 import PropertyFilm from "../components/property-film";
 import SaveVideo from "../components/save-video";
+import PaySheet from "../components/pay-sheet";
 import { aspectLabel } from "../aspect-label";
+import { BASE_CENTS, BASE_SECONDS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, PRO_CREDITS, PRO_MONTHLY_CENTS, dollars } from "../pricing";
 import { buildOrders, groupOf, kindOf, productionProgress, type Deliverable, type DeliverableKind, type Order, type Project, type StatusGroup } from "./orders";
 
 /* The client's workspace: every order in one place, each with all of its
@@ -45,8 +47,8 @@ const videoStatus: Record<string, string> = {
 const filterLabels: Record<Filter, string> = { all: "All", production: "In production", completed: "Ready", failed: "Needs attention", cancelled: "Stopped", draft: "Saved", history: "History" };
 const discover = [
   { title: "Content package", text: "The full set: hero film, vertical reel and story teaser, sized for every channel. You pay per film.", shape: "set" },
-  { title: "Hero listing film", text: "One polished film from your listing photos. $39 for 30 seconds, $59 for 60.", shape: "wide" },
-  { title: "Vertical reel", text: "Short-form video for Instagram and TikTok. 20 seconds, $29.", shape: "tall" },
+  { title: "Hero listing film", text: `One polished film from your listing photos. ${dollars(LONG_CENTS)} for up to ${LONG_SECONDS} seconds.`, shape: "wide" },
+  { title: "Vertical reel", text: `Short-form video for Instagram and TikTok. ${BASE_SECONDS} seconds, ${dollars(BASE_CENTS)}.`, shape: "tall" },
 ] as const;
 
 function greetingFor(date: Date) {
@@ -88,6 +90,8 @@ export default function CustomerDashboard() {
   const [code, setCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0); // when the list was last loaded
+  const [paying, setPaying] = useState(""); // the order whose payment is being opened
+  const [paySheet, setPaySheet] = useState<string[] | null>(null); // films waiting for payment on this page
   const hasActiveProject = projects.some((project) => ACTIVE.includes(project.status));
   const orders = useMemo(() => buildOrders(projects), [projects]);
 
@@ -143,7 +147,7 @@ export default function CustomerDashboard() {
     finally { setRedeeming(false); }
   }
 
-  async function startCheckout(plan: "single" | "five" | "pro") {
+  async function startCheckout(plan: "single" | "five" | "member" | "pro") {
     setError("");
     const response = await fetch("/api/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
     const data = await response.json();
@@ -176,6 +180,54 @@ export default function CustomerDashboard() {
     if (!response.ok) { setError(data.error || "The refund could not be issued. Please try again."); return; }
     setMessage("Refund issued — 1 video credit was returned to your account.");
     await load();
+  }
+
+  /* Unpaid: a saved film with its photos in place, while card payments are on. The order flow
+     sends these to Stripe; if checkout was left, the film waits here and never starts. */
+  const isUnpaid = (project: Project) => billingEnabled && project.status === "draft" && Number(project.assetCount) >= 2;
+
+  /* Finish payment: the same steps as the order flow (mw-package-listener). Each film is
+     submitted; films a credit covers start, the rest go into one checkout for the order. */
+  async function finishPayment(key: string, ids: string[]) {
+    if (!ids.length || paying) return;
+    setPaying(key); setError(""); setMessage("");
+    const toPay: string[] = [];
+    let failed = "";
+    let started = 0;
+    try {
+      for (const id of ids) {
+        const sub = await fetch(`/api/projects/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "submit" }) });
+        if (sub.status === 402) { toPay.push(id); continue; }
+        const data = await sub.json().catch(() => ({}));
+        if (!sub.ok) { failed = data.error || "Payment could not be opened. Please try again."; continue; }
+        const gen = await fetch(`/api/projects/${id}/generate`, { method: "POST" });
+        if (gen.ok) started += 1;
+        else failed = (await gen.json().catch(() => ({}))).error || "Your video could not be started. Please try again.";
+      }
+      // The rest are paid on this page, in the payment sheet (it falls back to Stripe's page when it has to).
+      if (toPay.length) { setPaySheet(toPay); return; }
+    } catch { failed = "Couldn't reach MotionWren. Check your connection and try again."; }
+    if (failed) setError(failed);
+    else if (started) setMessage("Your videos are starting.");
+    setPaying("");
+    await load();
+  }
+
+  /* Paid in the sheet: Stripe's webhook starts the films within seconds; refresh until they leave "Saved". */
+  async function afterPaid(ids: string[]) {
+    setPaySheet(null); setPaying(""); setError("");
+    setMessage(ids.length > 1 ? "Payment received. Starting your films…" : "Payment received. Starting your film…");
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 4000));
+      try {
+        const response = await fetch("/api/projects", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) continue;
+        const list = (data.projects || []) as Project[];
+        setProjects(list); setCheckedAt(Date.now());
+        if (!list.some((project) => ids.includes(project.id) && project.status === "draft")) return;
+      } catch { /* try again on the next pass */ }
+    }
   }
 
   async function removeOrders(list: Order[]) {
@@ -251,6 +303,9 @@ export default function CustomerDashboard() {
   // History: every video ever ordered, newest first, one row each.
   const orderTitle = new Map<string, string>();
   for (const order of orders) for (const project of order.projects) orderTitle.set(project.id, order.title);
+  const unpaidIds = (order: Order) => order.projects.filter((project) => project.title.trim().toLowerCase() !== "content package" && isUnpaid(project)).map((project) => project.id);
+  const unpaidByProject = new Map<string, string[]>();
+  for (const order of orders) { const ids = unpaidIds(order); for (const id of ids) unpaidByProject.set(id, ids); }
   const historyItems = projects.filter((project) => project.status !== "draft" && project.title.trim().toLowerCase() !== "content package").sort((a, b) => b.createdAt - a.createdAt);
   counts.history = historyItems.length;
   const videoGroups = projects.filter((project) => project.title.trim().toLowerCase() !== "content package").map((project) => groupOf(project.status));
@@ -278,6 +333,7 @@ export default function CustomerDashboard() {
     const holding = Boolean(project.holding);
     const until = project.videoExpiresAt ? `Available until ${shortDate(project.videoExpiresAt)}` : "";
     const progress = productionProgress(project);
+    const unpaid = isUnpaid(project);
     return <li className="dlv" key={item.key}>
       <span className="dlv-icon"><KindIcon kind={item.kind} /></span>
       <div className="dlv-text">
@@ -285,7 +341,7 @@ export default function CustomerDashboard() {
         <small>{[aspectLabel(project.aspect), project.targetDuration ? `${project.targetDuration} sec` : "", project.finalHistoryId ? until : "", progress?.detail || ""].filter(Boolean).join(" · ")}</small>
         {holding ? <span className="dlv-note">{HOLDING_MESSAGE}</span> : progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
       </div>
-      <span className={`status status-${item.group}`}><i />{holding ? "Taking longer" : progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
+      <span className={`status status-${unpaid ? "unpaid" : item.group}`}><i />{unpaid ? "Payment not finished" : holding ? "Taking longer" : progress && !stuck ? progress.stage : videoStatus[project.status] || project.status}</span>
       {(project.finalHistoryId || canRetry || expired || (holding && project.refundable)) && <div className="dlv-actions">
         {project.finalHistoryId && <>
           <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: item.title, historyId: project.finalHistoryId as string, vertical })}><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor" /></svg>Watch</button>
@@ -328,18 +384,26 @@ export default function CustomerDashboard() {
       </section>
 
       {error && <div className="notice notice-bad" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+      {paySheet && <PaySheet
+        projectIds={paySheet}
+        titles={Object.fromEntries(projects.filter((project) => paySheet.includes(project.id)).map((project) => [project.id, project.title]))}
+        onClose={() => { setPaySheet(null); setPaying(""); }}
+        onPaid={() => { void afterPaid(paySheet); }}
+        onNothingDue={() => { setPaySheet(null); setPaying(""); setError("Your credits changed. Please try again."); void load(); }}
+      />}
       {message && <div className="notice notice-ok" role="status"><Icon name="check" size={18} /><span>{message}</span></div>}
       {firstUnread && <div className="notice"><span className={`dot ${firstUnread.type.includes("failed") ? "dot-bad" : "dot-ok"}`} /><span><strong>{firstUnread.title}</strong> {firstUnread.message}</span><button type="button" className="text-btn" onClick={() => dismissNotification(firstUnread.id)}>Dismiss</button></div>}
 
       {account?.role !== "admin" && <section className="credits">
         <div><p className="eyebrow">Video credits</p><h2>Choose only what you need.</h2></div>
         <div className="credits-options">
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("single")}><strong>1 video</strong><span>$29</span></button>
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>$125</span></button>
-          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>10 monthly</strong><span>$199/mo</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("single")}><strong>1 video</strong><span>{dollars(BASE_CENTS)}</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("five")}><strong>5 videos</strong><span>{dollars(FIVE_PACK_CENTS)}</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("member")}><strong>Membership</strong><span>{dollars(MEMBER_MONTHLY_CENTS)}/mo</span></button>
+          <button type="button" disabled={!billingEnabled} onClick={() => startCheckout("pro")}><strong>{PRO_CREDITS} monthly</strong><span>{dollars(PRO_MONTHLY_CENTS)}/mo</span></button>
         </div>
-        <p className="fine">A credit covers one 20-second film. Longer films pay the difference: 30 seconds $39, 60 seconds $59.</p>
-        {account?.plan === "pro" && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>Manage or cancel Pro</button></p>}
+        <p className="fine">{`A credit covers one ${BASE_SECONDS}-second film; up to ${LONG_SECONDS} seconds is ${dollars(LONG_CENTS)}, so a longer film pays the difference. Membership: ${MEMBER_FILMS} films a month, each up to ${MEMBER_FILM_SECONDS} seconds. Pro: ${PRO_CREDITS} ${BASE_SECONDS}-second credits a month.`}</p>
+        {(account?.plan === "member" || account?.plan === "pro") && billingEnabled && <p className="fine"><button type="button" className="text-btn" onClick={manageSubscription}>{account.plan === "pro" ? "Manage or cancel Pro" : "Manage or cancel membership"}</button></p>}
         {!billingEnabled && <p className="fine">Card payments are not switched on yet.</p>}
       </section>}
 
@@ -370,6 +434,8 @@ export default function CustomerDashboard() {
             const canRetry = project.status === "failed" || stuck;
             const holding = Boolean(project.holding);
             const coverKey = project.coverAssetId ? `${project.id}/${project.coverAssetId}` : "";
+            const unpaid = isUnpaid(project);
+            const payIds = unpaidByProject.get(project.id) || [];
             return <li className="hist-row" key={project.id}>
               <span className={`hist-thumb${vertical ? " tall" : ""}`}>
                 {coverKey && !brokenCovers.includes(coverKey)
@@ -382,7 +448,7 @@ export default function CustomerDashboard() {
                 <small>{[orderTitle.get(project.id) && orderTitle.get(project.id) !== project.title ? orderTitle.get(project.id) as string : "", dateTime(project.createdAt), project.targetDuration ? `${project.targetDuration} sec` : "", aspectLabel(project.aspect)].filter(Boolean).join(" · ")}</small>
                 {holding ? <span className="dlv-note">{HOLDING_MESSAGE}</span> : progress && !stuck && <ProgressBar percent={progress.percent} label={progress.stage} />}
               </div>
-              <span className={`status status-${group}`}><i />{holding ? "Taking longer" : progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
+              <span className={`status status-${unpaid ? "unpaid" : group}`}><i />{unpaid ? "Payment not finished" : holding ? "Taking longer" : progress && !stuck ? (progress.detail || progress.stage) : videoStatus[project.status] || project.status}</span>
               <div className="hist-actions">
                 {project.finalHistoryId && <>
                   <button type="button" className="btn btn-soft btn-xs" onClick={() => setPlaying({ title: project.title, historyId: project.finalHistoryId as string, vertical })}>Watch</button>
@@ -391,6 +457,7 @@ export default function CustomerDashboard() {
                 </>}
                 {canRetry && <button type="button" className="btn btn-soft btn-xs" onClick={() => retryProject(project.id)}>Try again</button>}
                 {holding && project.refundable && <button type="button" className="btn btn-soft btn-xs" onClick={() => refundProject(project.id)}>Request a refund</button>}
+                {unpaid && payIds.length > 0 && <button type="button" className="btn btn-ink btn-xs" disabled={Boolean(paying)} onClick={() => finishPayment(`history:${project.id}`, payIds)}>{paying === `history:${project.id}` ? "Opening…" : "Finish payment"}</button>}
               </div>
             </li>;
           })}
@@ -418,7 +485,15 @@ export default function CustomerDashboard() {
                     <span className="order-count">{order.videos ? `${order.ready} of ${order.videos} ${order.videos === 1 ? "video" : "videos"} ready` : "In design"}</span>
                   </header>
                   <ul className="dlv-list">{order.deliverables.map(renderDeliverable)}</ul>
-                  {!order.projects.some((project) => MAKING.includes(project.status)) && <div className="order-foot"><button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button></div>}
+                  {(() => {
+                    const payIds = unpaidIds(order);
+                    const deletable = !order.projects.some((project) => MAKING.includes(project.status));
+                    if (!payIds.length && !deletable) return null;
+                    return <div className="order-foot">
+                      {payIds.length > 0 && <button type="button" className="btn btn-ink btn-sm" disabled={Boolean(paying)} onClick={() => finishPayment(order.key, payIds)}>{paying === order.key ? "Opening…" : "Finish payment"}</button>}
+                      {deletable && <button type="button" className="text-btn danger" onClick={() => deleteOrder(order)}>Delete order</button>}
+                    </div>;
+                  })()}
                 </div>
               </article>;
             })}

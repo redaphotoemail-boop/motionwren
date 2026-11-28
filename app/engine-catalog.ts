@@ -1,4 +1,4 @@
-export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "h3" | "vidu3turbo" | "luma" | "photo" | "photo2" | "photo3";
+export type StudioEngineKey = "kling3" | "geminiOmni" | "veo31Lite" | "hailuo23" | "runway4turbo" | "runway45" | "wan25" | "wan27" | "wan3" | "h3lite" | "h3" | "vidu3turbo" | "luma" | "magi2" | "photo" | "photo2" | "photo3";
 export type StudioResolution = "480p" | "720p" | "1080p";
 export type StudioClipDuration = 3 | 4 | 5 | 6 | 8 | 9 | 10 | 15;
 
@@ -148,6 +148,20 @@ export const studioEngines: StudioEngine[] = [
     badge: "VALUE PRO",
     pricePerSecond: { "720p": 0.05, "1080p": 0.08 },
     unavailable: "Google removed the model Replicate points to (404) on Nov 5, 2026.",
+  },
+  {
+    key: "magi2",
+    name: "Magi 2 (Sand AI)",
+    shortName: "Magi 2",
+    description: "Sand AI's Magi 2, made natively at 1080p and sold by Sand AI directly (not through Replicate). Cheaper per second than our other 1080p engines. To be judged on real photos before it is used for customers.",
+    bestFor: "Low price · to test",
+    resolutions: ["1080p"],
+    audio: false,
+    firstLastFrame: false,
+    realEstate: true,
+    badge: "NEW",
+    unavailable: "Waiting for the Sand AI key: add SAND_API_KEY, then switch this on", // hidden from the picker until the owner has added the key and approved a test film
+    pricePerSecond: { "1080p": 0.08 }, // Sand AI's price list: $0.08 per second at 1080p, no separate upscale
   },
   {
     key: "luma",
@@ -304,6 +318,7 @@ export function engineDurationOptions(key: StudioEngineKey, resolution: StudioRe
     case "h3lite":
     case "h3": return [4, 5, 6, 8, 10, 15];
     case "vidu3turbo": return [3, 4, 5, 6, 8, 10, 15];
+    case "magi2": return [3, 4, 5, 6, 8, 10, 15]; // Sand AI documents no image-to-video cap; these are the lengths we use everywhere
     case "kling3": return [3, 5, 6, 8, 10, 15];
     case "wan25": return [3, 5, 6, 8, 10];
     case "wan27": return [3, 5, 6, 8, 10, 15];
@@ -359,12 +374,19 @@ export function idealShotSeconds(targetSeconds: number) {
  * Never more than 24 scenes (the 2-minute limit); with fewer photos each scene simply runs longer.
  */
 export const MAX_CUSTOMER_SCENES = 24;
-export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto?: 3 | 5) {
+export function scenePlan(key: StudioEngineKey, resolution: StudioResolution, targetSeconds: number, available: number, secondsPerPhoto?: 3 | 5, useEvery = false) {
   const allowed = filmSceneDurations(key, resolution);
   const longest = allowed[allowed.length - 1];
   const ideal = secondsPerPhoto || idealShotSeconds(targetSeconds);
   const most = Math.max(1, Math.min(available, MAX_CUSTOMER_SCENES));
   const X = CROSSFADE_SECONDS;
+  // useEvery (client orders, Reda Nov 25 2026): every photo given becomes a scene, scenes evenly shared, when the
+  // engine can make that scene length and it is not a flicker. The caller passes no more photos than the length can use.
+  if (useEvery && most >= 2) {
+    const share = (targetSeconds + (most - 1) * X) / most;
+    const sceneSeconds = allowed.find((option) => option >= share - 1e-9);
+    if (sceneSeconds && share >= 2.5) return { count: most, sceneSeconds, shareSeconds: Math.round(share * 1000) / 1000, totalSeconds: targetSeconds };
+  }
   if (most === 1) {
     const sceneSeconds = allowed.find((option) => option >= targetSeconds) || longest;
     const totalSeconds = Math.min(targetSeconds, sceneSeconds);

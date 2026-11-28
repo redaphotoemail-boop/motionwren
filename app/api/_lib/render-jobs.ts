@@ -12,6 +12,7 @@ import { ElevenLabsMissingKey, makeCutEffects, makeSfx, makeVoice } from "./film
 import { addTrack, markUsed, pickTrack, styleOfPrompt, trackAudio } from "./music-library";
 import { ENGINE_ORDER } from "../../engine-order";
 import { isEngineVideoHost } from "./engine-hosts";
+import { isSandId, sandPrediction } from "./sand-provider";
 import { composerBinding, dropEdit, editFile, editKey, editState, musicPrompt, recordEditorState, startEdit, storeResponse } from "./composer";
 import { MAX_TAKES, sceneOrder, takeFile } from "../../scene-order";
 import { CROSSFADE_SECONDS, PHOTO_MOVE_KEYS, UPSCALE_PER_SECOND, engineCost, engineUpscales, filmSceneDurations, nativeResolution, studioEngine, type StudioEngineKey } from "../../engine-catalog";
@@ -25,6 +26,7 @@ import { cleanFilmTitles } from "../../titles";
 import { musicTemplate } from "../../music-catalog";
 import { shapeSize } from "../../original-shape";
 import { guardCheck } from "./spend-guard";
+import { releaseMemberFilm } from "./film-checkout";
 import { acquireLease, classify, createPrediction, ProviderError, providerUrl, readProviderState, releaseLease, writeProviderState } from "./provider";
 import { QUEUE_KINDS, alertManagers, alignedScenes, applyJobAction, stepSceneQueue, stitchSources, type JobAction } from "./scene-queue";
 
@@ -93,6 +95,7 @@ export async function replicatePrediction(token: string, id: string): Promise<Re
   if (id.startsWith("pending-")) return { status: "starting" };
   // A scene of a stopped video that was picked up again: make it once more.
   if (id.startsWith("resume-")) return { status: "failed", error: "Picked up again." };
+  if (isSandId(id)) return sandPrediction(id);
   if (id.startsWith("compositor:")) {
     const baseUrl = process.env.COMPOSITOR_API_URL;
     const secret = process.env.COMPOSITOR_API_SECRET;
@@ -128,6 +131,7 @@ export async function cancelProviderJob(token: string, id: string) {
     return;
   }
   if (id.startsWith("pending-") || id.startsWith("resume-")) return;
+  if (isSandId(id)) return; // Sand AI documents no cancel call; a stopped scene simply is not used
   await fetch(providerUrl(`https://api.replicate.com/v1/predictions/${id}/cancel`), { method: "POST", headers: { Authorization: `Bearer ${token}` } });
 }
 
@@ -337,6 +341,8 @@ export async function failRenderJob(env: { DB: D1Database; BUCKET: R2Bucket }, r
       await env.DB.batch([
         env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned automatically after the video stopped', ?)`).bind(crypto.randomUUID(), row.ownerId, project.id, row.id, `project:${project.id}:failure-refund`, now),
         env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ? AND changes() = 1`).bind(now, row.ownerId),
+        // A membership film used for this order is given back with the credit.
+        releaseMemberFilm(env, row.ownerId, project.id),
       ]);
     }
   }
@@ -386,6 +392,7 @@ export async function refundHoldingOrder(env: { DB: D1Database }, projectId: str
   const refund = await env.DB.prepare(`INSERT OR IGNORE INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) VALUES (?, ?, ?, ?, 1, 'automatic_refund', ?, 'Returned after the customer asked for a refund on a delayed order', ?)`).bind(crypto.randomUUID(), ownerId, project.id, job.id, `project:${project.id}:failure-refund`, now).run();
   if (refund.meta.changes) {
     await env.DB.prepare(`UPDATE users SET credit_balance = credit_balance + 1, updated_at = ? WHERE id = ?`).bind(now, ownerId).run();
+    await releaseMemberFilm(env, ownerId, project.id).run();
     await refundFilmUpgrades(env, project.id, ownerId);
   }
   await env.DB.batch([

@@ -17,7 +17,7 @@ const STUCK_AFTER_MS = 20 * 60 * 1000;
 const ACTIVE = ["starting", "generating", "stitching", "saving"];
 const min = (ms: number) => ms < 90_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.round(ms / 60000)} min`;
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-const engineName = (key: string) => ({ wan3: "Wan 3.0", h3: "H3", h3lite: "H3 Lite", hailuo23: "Hailuo 2.3", vidu3turbo: "Vidu Turbo", kling3: "Kling 3.0" } as Record<string, string>)[key] || key || "the engine";
+const engineName = (key: string) => ({ wan3: "Wan 3.0", h3: "H3", h3lite: "H3 Lite", hailuo23: "Hailuo 2.3", vidu3turbo: "Vidu Turbo", magi2: "Magi 2", kling3: "Kling 3.0" } as Record<string, string>)[key] || key || "the engine";
 
 /* The engine's message in words the manager can act on. */
 export function plainWhy(error: string, report?: DiagReport) {

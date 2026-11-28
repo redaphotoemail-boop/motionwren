@@ -8,14 +8,15 @@
    returned so the caller can send the customer to one checkout. */
 
 import { audit } from "./account";
-import { filmQuote, type FilmQuote } from "./film-checkout";
+import { claimMemberFilm, filmQuote, memberFilmsLeft, type FilmQuote } from "./film-checkout";
 import { holdForApproval, loadOrder, needsApproval, startOrder } from "./customer-production";
+import { minPhotosFor } from "../../pricing";
 
 type Env = { DB: D1Database; BUCKET: R2Bucket };
 
 export type SubmitResult =
   | { ok: true; status: string; updatedAt: number }
-  | { ok: false; reason: "photos" | "payment" | "credit"; quote?: FilmQuote; photos?: number };
+  | { ok: false; reason: "photos" | "payment" | "credit" | "billing"; quote?: FilmQuote; photos?: number; need?: number; seconds?: number };
 
 export async function submitOrder(env: Env, account: { id: string; role: string }, projectId: string): Promise<SubmitResult> {
   const project = await env.DB.prepare(`SELECT status, target_duration AS targetDuration, updated_at AS updatedAt FROM projects WHERE id = ? AND owner_id = ? LIMIT 1`).bind(projectId, account.id).first<{ status: string; targetDuration: number; updatedAt: number }>();
@@ -23,18 +24,27 @@ export async function submitOrder(env: Env, account: { id: string; role: string 
   if (project.status !== "draft") return { ok: true, status: project.status, updatedAt: project.updatedAt };
   const assets = await env.DB.prepare(`SELECT COUNT(*) AS count FROM project_assets WHERE project_id = ? AND owner_id = ?`).bind(projectId, account.id).first<{ count: number }>();
   const photos = assets?.count || 0;
-  if (photos < 2) return { ok: false, reason: "photos", photos };
+  if (photos < 2) return { ok: false, reason: "photos", photos, need: 2 };
+  // Enough photos for the length ordered (Reda, Nov 25 2026): no scene runs past MAX_SCENE_SECONDS, so two photos can't be a 50-second film.
+  const need = minPhotosFor(Number(project.targetDuration) || 0);
+  if (photos < need) return { ok: false, reason: "photos", photos, need, seconds: Number(project.targetDuration) || 0 };
+  // No payment, no production (Reda, Nov 25 2026): a customer order is never submitted without Stripe connected,
+  // whatever the customer-production setting says. The order stays a saved draft until checkout is back.
+  if (!process.env.STRIPE_SECRET_KEY && account.role !== "admin") return { ok: false, reason: "billing", photos };
   // Every order from the order flow pays at checkout, the owner's too (Reda, Nov 25 2026: so he can test payment
   // himself). Owner Studio films go through /api/studio/production and stay free.
   if (process.env.STRIPE_SECRET_KEY) {
     const balance = await env.DB.prepare(`SELECT credit_balance AS balance FROM users WHERE id = ?`).bind(account.id).first<{ balance: number }>();
-    const quote = await filmQuote(env, { id: projectId, targetDuration: Number(project.targetDuration) || 0 }, photos, (balance?.balance || 0) > 0);
+    const memberFilms = await memberFilmsLeft(env, account.id);
+    const quote = await filmQuote(env, { id: projectId, targetDuration: Number(project.targetDuration) || 0 }, photos, (balance?.balance || 0) > 0, memberFilms.count ? memberFilms.cents : 0);
     if (quote.payNow > 0) return { ok: false, reason: "payment", quote, photos };
     // The credit and its ledger row change together, and only while the order is still a draft.
     const now = Date.now();
     const results = await env.DB.batch([
       env.DB.prepare(`UPDATE users SET credit_balance = credit_balance - 1, updated_at = ? WHERE id = ? AND credit_balance > 0 AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND owner_id = ? AND status = 'draft') AND NOT EXISTS (SELECT 1 FROM credit_ledger WHERE idempotency_key = ?)`).bind(now, account.id, projectId, account.id, `project:${projectId}:reservation`),
       env.DB.prepare(`INSERT INTO credit_ledger (id, owner_id, project_id, render_job_id, amount, type, idempotency_key, note, created_at) SELECT ?, ?, ?, NULL, -1, 'project_reservation', ?, 'Reserved when project entered production', ? WHERE changes() > 0`).bind(crypto.randomUUID(), account.id, projectId, `project:${projectId}:reservation`, now),
+      // A member's longer film: one membership film pays the part above the credit (claimed once, after the credit is reserved).
+      ...(quote.usesMemberFilm ? [claimMemberFilm(env, account.id, projectId)] : []),
     ]);
     const reserved = (results[0]?.meta?.changes || 0) > 0;
     if (!reserved) {

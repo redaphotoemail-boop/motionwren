@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Wordmark } from "../components/brand";
+import { BASE_CENTS, BASE_SECONDS, EXTRA_PHOTO_CENTS, FIVE_PACK_CENTS, LONG_CENTS, LONG_SECONDS, MEMBER_FILMS, MEMBER_FILM_SECONDS, MEMBER_MONTHLY_CENTS, PRO_CREDITS, PRO_MONTHLY_CENTS, dollars, minPhotosFor } from "../pricing";
 
 export const metadata: Metadata = { title: "Refund Policy", description: "When MotionWren refunds an order and how to ask for one.", alternates: { canonical: "/refund" } };
 
@@ -17,7 +18,7 @@ export default function RefundPage() {
         <p className="policy-date">Last updated November 25, 2026</p>
         <section>
           <h2>Plans and prices</h2>
-          <p>Films are priced by length: 20 seconds $29, 30 seconds $39, 60 seconds $59. With automatic length, each photo becomes a 5-second scene: $59 for up to 12 photos, then $5 for each extra photo. Five-pack: $125 for five video credits. Pro: $199 per month for ten credits each month. Each credit covers one 20-second film; a longer film pays only the difference. The price shown at checkout is the total you pay; any applicable tax is shown before you pay.</p>
+          <p>{`Films are priced by length: up to ${BASE_SECONDS} seconds ${dollars(BASE_CENTS)}, up to ${LONG_SECONDS} seconds ${dollars(LONG_CENTS)}. With automatic length, each photo becomes a 5-second scene: ${dollars(LONG_CENTS)} for up to ${LONG_SECONDS / 5} photos, then ${dollars(EXTRA_PHOTO_CENTS)} for each extra photo. A film needs enough photos for its length: ${minPhotosFor(BASE_SECONDS)} for ${BASE_SECONDS} seconds, ${minPhotosFor(LONG_SECONDS)} for ${LONG_SECONDS} seconds. Five-pack: ${dollars(FIVE_PACK_CENTS)} for five video credits, each covering one ${BASE_SECONDS}-second film; a longer film pays only the difference. Membership: ${dollars(MEMBER_MONTHLY_CENTS)} per month for ${MEMBER_FILMS} films each month, each up to ${MEMBER_FILM_SECONDS} seconds. Pro: ${dollars(PRO_MONTHLY_CENTS)} per month for ${PRO_CREDITS} credits each month, each covering one ${BASE_SECONDS}-second film. The price shown at checkout is the total you pay; any applicable tax is shown before you pay.`}</p>
         </section>
         <section>
           <h2>If we can&apos;t finish your film</h2>
@@ -33,11 +34,11 @@ export default function RefundPage() {
         </section>
         <section>
           <h2>Credit expiry</h2>
-          <p>Credits do not expire while your account is active. Pro adds ten credits at the start of each billing month.</p>
+          <p>{`Credits do not expire while your account is active. Membership adds ${MEMBER_FILMS} films and Pro adds ${PRO_CREDITS} credits at the start of each billing month.`}</p>
         </section>
         <section>
-          <h2>Cancelling Pro</h2>
-          <p>You can cancel a Pro subscription at any time from your dashboard (Manage or cancel Pro). Your Pro access and credits continue until the end of the billing period you have already paid for, and the subscription does not renew after that. Cancelling does not refund the current billing period.</p>
+          <h2>Cancelling your membership or Pro</h2>
+          <p>You can cancel your membership or Pro at any time from your dashboard (Manage or cancel). Your plan and its films or credits continue until the end of the billing period you have already paid for, and the subscription does not renew after that. Cancelling does not refund the current billing period.</p>
         </section>
         <section>
           <h2>How to ask for a refund</h2>

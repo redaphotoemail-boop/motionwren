@@ -283,6 +283,7 @@ async function inlinePhoto(env: R2Env, key: string, limit: number): Promise<stri
    Vidu fetches the photo from its own servers, which cannot read Replicate's file store (it answered "User Input Error"
    in 12 seconds), so it is handed our private link from the first try. */
 const READS_PRIVATE_LINK = new Set(["vidu3turbo"]);
+READS_PRIVATE_LINK.add("magi2"); // Sand AI, like Vidu, fetches the photo itself and cannot read Replicate's file store
 async function baseEngineInput(env: R2Env, token: string, jobId: string, manifest: ProductionManifest, index: number, attempt: number): Promise<Record<string, unknown>> {
   const input = manifest.inputs[index];
   const photo = manifest.photos?.[index];
